@@ -97,6 +97,15 @@ export async function POST() {
     `)
 
     await query(`
+      CREATE TABLE IF NOT EXISTS proposal_sequences (
+        ano INT PRIMARY KEY,
+        ultimo_numero INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `)
+
+    await query(`
       CREATE TABLE IF NOT EXISTS proposta_anexos (
         id VARCHAR(36) PRIMARY KEY,
         proposta_id VARCHAR(36) NOT NULL,

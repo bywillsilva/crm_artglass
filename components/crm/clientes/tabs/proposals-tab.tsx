@@ -92,7 +92,11 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
                     {(user?.role === 'admin' ||
                       user?.role === 'gerente' ||
                       proposta.responsavelId === user?.id ||
-                      proposta.orcamentistaId === user?.id) && (
+                      (
+                        user?.role === 'orcamentista' &&
+                        (!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
+                        ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
+                      )) && (
                       <Button size="sm" variant="outline" onClick={() => setEditingPropostaId(proposta.id)}>
                         Editar
                       </Button>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { startTransition, useMemo, useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { useTarefas, useClientes, useUsuarios, createTarefa, updateTarefa, updateTarefaStatus, deleteTarefa, useSession } from '@/lib/hooks/use-api'
 import { useAppSettings } from '@/lib/context/app-settings-context'
@@ -29,6 +29,7 @@ import { Label } from '@/components/ui/label'
 import { Clock, User, Trash2, ChevronLeft, ChevronRight, Pencil } from 'lucide-react'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, addMonths, subMonths } from 'date-fns'
 import Link from 'next/link'
+import { toast } from 'sonner'
 import { Cliente, Tarefa, Usuario } from '@/lib/data/types'
 import { formatDateTimeLocalInputValue } from '@/lib/utils/date-time'
 
@@ -80,22 +81,26 @@ export default function TarefasPage() {
     return tarefas.filter((tarefa: Tarefa) => isSameDay(new Date(tarefa.dataHora), selectedDate))
   }, [selectedDate, tarefas])
 
-  const handleAddTarefa = async () => {
+  const handleAddTarefa = () => {
     if (!descricao.trim() || !dataHora || !responsavelId || !clienteId) return
 
-    await createTarefa({
+    startTransition(() => {
+      setShowAddForm(false)
+      setDescricao('')
+      setDataHora('')
+      setResponsavelId('')
+      setClienteId('')
+    })
+
+    void createTarefa({
       clienteId,
       descricao,
       dataHora: new Date(dataHora),
       status: 'pendente',
       responsavelId,
+    }).catch((error: any) => {
+      toast.error(error?.message || 'Nao foi possivel criar a tarefa.')
     })
-
-    setShowAddForm(false)
-    setDescricao('')
-    setDataHora('')
-    setResponsavelId('')
-    setClienteId('')
   }
 
   const openEditDialog = (tarefa: Tarefa) => {
@@ -107,20 +112,24 @@ export default function TarefasPage() {
     setShowEditForm(true)
   }
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = () => {
     if (!editingTarefaId || !editDescricao.trim() || !editDataHora || !editResponsavelId || !editClienteId) return
 
-    await updateTarefa(editingTarefaId, {
+    startTransition(() => {
+      setShowEditForm(false)
+      setEditingTarefaId(null)
+    })
+
+    void updateTarefa(editingTarefaId, {
       clienteId: editClienteId,
       descricao: editDescricao,
       titulo: editDescricao,
       dataHora: new Date(editDataHora),
       status: tarefas.find((tarefa: Tarefa) => tarefa.id === editingTarefaId)?.status || 'pendente',
       responsavelId: editResponsavelId,
+    }).catch((error: any) => {
+      toast.error(error?.message || 'Nao foi possivel salvar a tarefa.')
     })
-
-    setShowEditForm(false)
-    setEditingTarefaId(null)
   }
 
   const getStatusColor = (tarefa: Tarefa) => {

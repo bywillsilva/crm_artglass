@@ -84,7 +84,11 @@ export default function PropostasPage() {
       user?.role === 'admin' ||
       user?.role === 'gerente' ||
       proposta.responsavelId === user?.id ||
-      proposta.orcamentistaId === user?.id
+      (
+        user?.role === 'orcamentista' &&
+        (!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
+        ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
+      )
 
     return (
       <TableRow key={proposta.id} className="hover:bg-secondary/30">

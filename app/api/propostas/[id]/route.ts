@@ -4,14 +4,16 @@ import { query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
 import { deleteStoredFiles, saveProposalFiles } from '@/lib/server/proposal-files'
 import {
+  canOrcamentistaAccessProposal,
   ensureClientSchema,
   ensureProposalStatusSchema,
   ensureResponsibilityIntegrity,
   ensureTaskSchema,
   ensureUserRoleSchema,
   formatDateTime,
-  isEarlyBudgetStatus,
   normalizeProposalStatus,
+  requiresOrcamentistaAssignment,
+  requiresPositiveProposalValue,
   syncDueFollowUpStatuses,
   syncProposalAutomation,
   type ProposalWorkflowStatus,
@@ -147,10 +149,7 @@ function canViewProposal(user: any, proposta: any) {
   if (user.role === 'admin' || user.role === 'gerente') return true
   if (user.role === 'vendedor') return proposta.responsavel_id === user.id
   if (user.role === 'orcamentista') {
-    return (
-      proposta.orcamentista_id === user.id &&
-      ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
-    )
+    return canOrcamentistaAccessProposal(proposta, user.id)
   }
   return false
 }
@@ -159,10 +158,7 @@ function canEditProposal(user: any, proposta: any) {
   if (user.role === 'admin' || user.role === 'gerente') return true
   if (user.role === 'vendedor') return proposta.responsavel_id === user.id
   if (user.role === 'orcamentista') {
-    return (
-      proposta.orcamentista_id === user.id &&
-      ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
-    )
+    return canOrcamentistaAccessProposal(proposta, user.id)
   }
   return false
 }
@@ -323,27 +319,22 @@ export async function PUT(
       user.role === 'admin' || user.role === 'gerente'
         ? await validateUserRole(data.responsavelId || propostaAtual.responsavel_id, ['vendedor', 'gerente'])
         : propostaAtual.responsavel_id
-    const orcamentistaId = await validateUserRole(
-      data.orcamentistaId === undefined ? propostaAtual.orcamentista_id : data.orcamentistaId,
-      ['orcamentista']
-    )
+    const requestedOrcamentistaId =
+      data.orcamentistaId === undefined ? propostaAtual.orcamentista_id : data.orcamentistaId
+    const resolvedOrcamentistaId =
+      user.role === 'orcamentista' &&
+      !requestedOrcamentistaId &&
+      requiresOrcamentistaAssignment(nextStatus)
+        ? user.id
+        : requestedOrcamentistaId
+    const orcamentistaId = await validateUserRole(resolvedOrcamentistaId, ['orcamentista'])
 
-    if (isEarlyBudgetStatus(nextStatus) && !orcamentistaId) {
+    if (requiresOrcamentistaAssignment(nextStatus) && !orcamentistaId) {
       return NextResponse.json(
         { error: 'Selecione um orcamentista para seguir com esta etapa da proposta.' },
         { status: 400 }
       )
     }
-
-    const valor = Number(data.valor ?? propostaAtual.valor ?? 0)
-    const desconto = Number(data.desconto ?? propostaAtual.desconto ?? 0)
-    const valorFinal = valor - (valor * desconto) / 100
-    const servicos =
-      Array.isArray(data.servicos)
-        ? data.servicos
-        : typeof propostaAtual.servicos === 'string'
-          ? JSON.parse(propostaAtual.servicos || '[]')
-          : propostaAtual.servicos || []
 
     const storedStatus =
       previousStatus === 'follow_up_1_dia' && nextStatus === 'follow_up_3_dias'
@@ -351,6 +342,25 @@ export async function PUT(
         : previousStatus === 'follow_up_3_dias' && nextStatus === 'follow_up_7_dias'
           ? 'aguardando_follow_up_7_dias'
           : nextStatus
+
+    const valor = Number(data.valor ?? propostaAtual.valor ?? 0)
+    const desconto = Number(data.desconto ?? propostaAtual.desconto ?? 0)
+    const valorFinal = valor - (valor * desconto) / 100
+    const resolvedClienteId = data.clienteId || propostaAtual.cliente_id
+
+    if (requiresPositiveProposalValue(storedStatus) && valor <= 0) {
+      return NextResponse.json(
+        { error: 'Informe o valor do orcamento antes de avancar esta proposta.' },
+        { status: 400 }
+      )
+    }
+
+    const servicos =
+      Array.isArray(data.servicos)
+        ? data.servicos
+        : typeof propostaAtual.servicos === 'string'
+          ? JSON.parse(propostaAtual.servicos || '[]')
+          : propostaAtual.servicos || []
 
     const changedAt = new Date()
     const currentFollowUpBaseAt = propostaAtual.follow_up_base_at
@@ -375,7 +385,7 @@ export async function PUT(
         responsavel_id = ?, orcamentista_id = ?, follow_up_base_at = ?, follow_up_time = ?
        WHERE id = ?`,
       [
-        data.clienteId || propostaAtual.cliente_id,
+        resolvedClienteId,
         data.titulo || propostaAtual.titulo || 'Proposta Comercial',
         data.descricao ?? propostaAtual.descricao ?? null,
         valor,
@@ -393,71 +403,84 @@ export async function PUT(
       ]
     )
 
-    if (data.comentario?.trim()) {
-      await persistProposalComment(id, user.id, data.comentario)
-    }
+    const savedFilesPromise = saveProposalFiles(id, data.anexos)
+    const commentPromise = data.comentario?.trim()
+      ? persistProposalComment(id, user.id, data.comentario)
+      : Promise.resolve()
+    const clientePromise =
+      previousStatus !== storedStatus && resolvedClienteId !== propostaAtual.cliente_id
+        ? query<any[]>('SELECT nome FROM clientes WHERE id = ? LIMIT 1', [resolvedClienteId])
+        : Promise.resolve([{ nome: propostaAtual.cliente_nome || 'cliente' }])
 
-    const savedFiles = await saveProposalFiles(id, data.anexos)
-    for (const file of savedFiles) {
-      await query(
-        `INSERT INTO proposta_anexos (
-          id, proposta_id, nome_original, nome_arquivo, caminho, tipo_mime, tamanho, usuario_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [file.id, id, file.nomeOriginal, file.nomeArquivo, file.caminho, file.tipoMime, file.tamanho, user.id]
+    const [savedFiles, clienteRows] = await Promise.all([
+      savedFilesPromise,
+      clientePromise,
+      commentPromise,
+    ])
+
+    if (savedFiles.length > 0) {
+      await Promise.all(
+        savedFiles.map((file) =>
+          query(
+            `INSERT INTO proposta_anexos (
+              id, proposta_id, nome_original, nome_arquivo, caminho, tipo_mime, tamanho, usuario_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [file.id, id, file.nomeOriginal, file.nomeArquivo, file.caminho, file.tipoMime, file.tamanho, user.id]
+          )
+        )
       )
     }
 
-    const [cliente] = await query<any[]>('SELECT nome FROM clientes WHERE id = ? LIMIT 1', [
-      data.clienteId || propostaAtual.cliente_id,
-    ])
+    const cliente = clienteRows[0]
 
     if (previousStatus !== storedStatus) {
-      await query(
-        `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
-         VALUES (?, ?, ?, 'proposta', ?, ?, ?)`,
-        [
-          uuidv4(),
-          data.clienteId || propostaAtual.cliente_id,
-           user.id,
-           `Proposta ${propostaAtual.numero} alterada para ${storedStatus}`,
-           JSON.stringify({
-             proposta_id: id,
-             novo_status: storedStatus,
-             notification_kind: 'proposal_status',
-           }),
-           formatDateTime(changedAt),
-         ]
-       )
-
-      await syncProposalAutomation({
-        propostaId: id,
-        clienteId: data.clienteId || propostaAtual.cliente_id,
-        clienteNome: cliente?.nome || propostaAtual.cliente_nome || 'cliente',
-        responsavelId,
-        orcamentistaId,
-        previousStatus,
-        newStatus: storedStatus,
-        changedAt,
-        followUpBaseAt,
-        followUpTime,
-      })
+      await Promise.all([
+        query(
+          `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
+           VALUES (?, ?, ?, 'proposta', ?, ?, ?)`,
+          [
+            uuidv4(),
+            resolvedClienteId,
+            user.id,
+            `Proposta ${propostaAtual.numero} alterada para ${storedStatus}`,
+            JSON.stringify({
+              proposta_id: id,
+              novo_status: storedStatus,
+              notification_kind: 'proposal_status',
+            }),
+            formatDateTime(changedAt),
+          ]
+        ),
+        syncProposalAutomation({
+          propostaId: id,
+          clienteId: resolvedClienteId,
+          clienteNome: cliente?.nome || propostaAtual.cliente_nome || 'cliente',
+          responsavelId,
+          orcamentistaId,
+          previousStatus,
+          newStatus: storedStatus,
+          changedAt,
+          followUpBaseAt,
+          followUpTime,
+        }),
+      ])
     } else {
       await query(
         `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
          VALUES (?, ?, ?, 'proposta', ?, ?, ?)`,
         [
           uuidv4(),
-          data.clienteId || propostaAtual.cliente_id,
-           user.id,
-           `Proposta ${propostaAtual.numero} atualizada`,
-           JSON.stringify({
-             proposta_id: id,
-             origem: 'edicao_proposta',
-             silent_notification: true,
-           }),
-           formatDateTime(changedAt),
-         ]
-       )
+          resolvedClienteId,
+          user.id,
+          `Proposta ${propostaAtual.numero} atualizada`,
+          JSON.stringify({
+            proposta_id: id,
+            origem: 'edicao_proposta',
+            silent_notification: true,
+          }),
+          formatDateTime(changedAt),
+        ]
+      )
     }
 
     const proposta = await getProposal(id)

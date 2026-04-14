@@ -304,6 +304,42 @@ function mutateByPrefix(prefix: string) {
   mutate((key) => typeof key === 'string' && key.startsWith(prefix))
 }
 
+function updateCachedEntity(current: any, id: string, patch: JsonRecord) {
+  if (!current) {
+    return current
+  }
+
+  if (Array.isArray(current)) {
+    return current.map((item) => {
+      if (!item || item.id !== id) {
+        return item
+      }
+
+      return { ...item, ...patch }
+    })
+  }
+
+  if (typeof current === 'object' && current.id === id) {
+    return { ...current, ...patch }
+  }
+
+  return current
+}
+
+function compactObject<T extends JsonRecord>(value: T) {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, entry]) => entry !== undefined)
+  ) as T
+}
+
+function mutateEntityByPrefix(prefix: string, id: string, patch: JsonRecord) {
+  return mutate(
+    (key) => typeof key === 'string' && key.startsWith(prefix),
+    (current) => updateCachedEntity(current, id, patch),
+    { revalidate: false }
+  )
+}
+
 // Hook para Dashboard
 export function useDashboard(filter?: DateFilterValue) {
   const queryString = filter ? getDateFilterQueryParams(filter) : ''
@@ -434,13 +470,26 @@ export function useUsuario(id: string | null) {
 }
 
 // Hook para Interacoes
-export function useInteracoes(clienteId?: string | null) {
-  const url =
-    clienteId === null
-      ? null
-      : clienteId
-        ? `/api/interacoes?cliente_id=${clienteId}`
-        : '/api/interacoes'
+export function useInteracoes(
+  params?: string | null | { clienteId?: string | null; tipo?: TipoInteracao; limit?: number }
+) {
+  const resolvedParams =
+    typeof params === 'string' || params === null || params === undefined
+      ? { clienteId: params ?? undefined }
+      : params
+
+  const url = useMemo(() => {
+    if (resolvedParams.clienteId === null) {
+      return null
+    }
+
+    const searchParams = new URLSearchParams()
+    if (resolvedParams.clienteId) searchParams.set('cliente_id', resolvedParams.clienteId)
+    if (resolvedParams.tipo) searchParams.set('tipo', resolvedParams.tipo)
+    if (resolvedParams.limit) searchParams.set('limit', String(resolvedParams.limit))
+
+    return `/api/interacoes${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
+  }, [resolvedParams.clienteId, resolvedParams.limit, resolvedParams.tipo])
 
   const { data, error, isLoading } = useSWR(url, fetcher)
   const interacoes = useMemo(() => (data || []).map(normalizeInteracao), [data])
@@ -501,6 +550,7 @@ export async function createCliente(data: Partial<Cliente> & JsonRecord) {
   })
 
   mutateByPrefix('/api/clientes')
+  mutateByPrefix('/api/propostas')
   mutate('/api/dashboard')
   mutateByPrefix('/api/interacoes')
   return created
@@ -579,29 +629,57 @@ export async function updateTarefa(id: string, data: Partial<Tarefa> & JsonRecor
     responsavelId: data.responsavelId,
   }
 
-  const updated = await requestJson(`/api/tarefas/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+  const optimisticPatch = compactObject({
+    titulo: payload.titulo,
+    descricao: payload.descricao,
+    dataHora: payload.dataHora,
+    data_hora: payload.dataHora,
+    status: payload.status,
+    clienteId: payload.clienteId,
+    cliente_id: payload.clienteId,
+    responsavelId: payload.responsavelId,
+    responsavel_id: payload.responsavelId,
   })
 
-  mutateByPrefix('/api/tarefas')
-  mutate('/api/dashboard')
-  mutateByPrefix('/api/interacoes')
-  return updated
+  await mutateEntityByPrefix('/api/tarefas', id, optimisticPatch)
+
+  try {
+    const updated = await requestJson(`/api/tarefas/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    mutateByPrefix('/api/tarefas')
+    mutate('/api/dashboard')
+    mutateByPrefix('/api/interacoes')
+    return updated
+  } catch (error) {
+    mutateByPrefix('/api/tarefas')
+    mutate('/api/dashboard')
+    throw error
+  }
 }
 
 export async function updateTarefaStatus(id: string, status: StatusTarefa) {
-  const updated = await requestJson(`/api/tarefas/${id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status }),
-  })
+  await mutateEntityByPrefix('/api/tarefas', id, { status })
 
-  mutateByPrefix('/api/tarefas')
-  mutate('/api/dashboard')
-  mutateByPrefix('/api/interacoes')
-  return updated
+  try {
+    const updated = await requestJson(`/api/tarefas/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    })
+
+    mutateByPrefix('/api/tarefas')
+    mutate('/api/dashboard')
+    mutateByPrefix('/api/interacoes')
+    return updated
+  } catch (error) {
+    mutateByPrefix('/api/tarefas')
+    mutate('/api/dashboard')
+    throw error
+  }
 }
 
 export async function deleteTarefa(id: string) {
@@ -668,36 +746,48 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     : []
   const isMultipart = anexos.some((item) => item instanceof File)
   const body = isMultipart ? buildProposalFormData(payload, anexos) : JSON.stringify(payload)
-  const updated = await requestJson(`/api/propostas/${id}`, {
-    method: 'PUT',
-    ...(isMultipart ? {} : { headers: { 'Content-Type': 'application/json' } }),
-    body,
+  const optimisticStatus = mapPropostaStatusToApi(data.status)
+  const optimisticPatch = compactObject({
+    titulo: payload.titulo,
+    descricao: payload.descricao,
+    valor: payload.valor,
+    desconto: payload.desconto,
+    status: optimisticStatus,
+    validade: payload.validade,
+    clienteId: payload.clienteId,
+    cliente_id: payload.clienteId,
+    responsavelId: payload.responsavelId,
+    responsavel_id: payload.responsavelId,
+    orcamentistaId: payload.orcamentistaId,
+    orcamentista_id: payload.orcamentistaId,
+    followUpTime: payload.followUpTime,
+    follow_up_time: payload.followUpTime,
   })
 
-  mutateByPrefix('/api/propostas')
-  mutateByPrefix('/api/clientes')
-  mutate('/api/dashboard')
-  mutateByPrefix('/api/interacoes')
-  return updated
+  await mutateEntityByPrefix('/api/propostas', id, optimisticPatch)
+
+  try {
+    const updated = await requestJson(`/api/propostas/${id}`, {
+      method: 'PUT',
+      ...(isMultipart ? {} : { headers: { 'Content-Type': 'application/json' } }),
+      body,
+    })
+
+    mutateByPrefix('/api/propostas')
+    mutateByPrefix('/api/clientes')
+    mutate('/api/dashboard')
+    mutateByPrefix('/api/interacoes')
+    return updated
+  } catch (error) {
+    mutateByPrefix('/api/propostas')
+    mutateByPrefix('/api/clientes')
+    mutate('/api/dashboard')
+    throw error
+  }
 }
 
 export async function updatePropostaStatus(id: string, status: StatusProposta) {
-  const propostaAtual = await requestJson<JsonRecord>(`/api/propostas/${id}`)
-  return updateProposta(id, {
-    titulo: propostaAtual.titulo,
-    descricao: propostaAtual.descricao,
-    valor: toNumber(propostaAtual.valor),
-    desconto: toNumber(propostaAtual.desconto),
-    status,
-    validade: propostaAtual.validade,
-    servicos:
-      typeof propostaAtual.servicos === 'string'
-        ? JSON.parse(propostaAtual.servicos)
-        : propostaAtual.servicos || [],
-    condicoes: propostaAtual.condicoes,
-    responsavelId: propostaAtual.responsavel_id ?? propostaAtual.responsavelId,
-    orcamentistaId: propostaAtual.orcamentista_id ?? propostaAtual.orcamentistaId,
-  })
+  return updateProposta(id, { status })
 }
 
 export async function deleteProposta(id: string) {

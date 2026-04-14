@@ -1,12 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   AlertTriangle,
   Clock,
   DollarSign,
   FileText,
+  type LucideIcon,
   Target,
   TrendingUp,
   Users,
@@ -72,6 +73,41 @@ export function DashboardContent() {
   const { data, isLoading, error } = useDashboard(dateFilter)
   const { appearance, formatCurrency, formatTime } = useAppSettings()
   const { user } = useSession()
+  const { stats, funilData, vendasPorMes, rankingVendedores, tarefasPeriodo, alertas } = data || {}
+
+  const funnelChartData = useMemo(
+    () =>
+      funnelStatuses.map((status) => {
+        const item = funilData?.find((entry: any) => entry.status_lead === status)
+        return {
+          name: statusPropostaLabels[status],
+          value: item?.count || 0,
+          valor: Number(item?.valor || 0),
+          color: statusColors[status],
+        }
+      }),
+    [funilData]
+  )
+
+  const salesChartData = useMemo(
+    () =>
+      (vendasPorMes || []).map((item: any) => ({
+        name: new Date(`${item.mes}-01`).toLocaleDateString(appearance.idioma, {
+          month: 'short',
+        }),
+        valor: Number(item.valor),
+        quantidade: item.quantidade,
+      })),
+    [appearance.idioma, vendasPorMes]
+  )
+  const vendedorAtual = user?.role === 'admin' || user?.role === 'gerente' ? null : rankingVendedores?.[0]
+  const metaAtual = Number(vendedorAtual?.meta_vendas || 0)
+  const valorAtual = Number(vendedorAtual?.valor_total || 0)
+  const progressoMeta = metaAtual > 0 ? Math.min((valorAtual / metaAtual) * 100, 100) : 0
+  const maxRankingValue = useMemo(
+    () => Math.max(...(rankingVendedores || []).map((entry: any) => Number(entry.valor_total) || 1), 1),
+    [rankingVendedores]
+  )
 
   const handleTarefaComplete = async (id: string) => {
     try {
@@ -110,30 +146,6 @@ export function DashboardContent() {
       </>
     )
   }
-
-  const { stats, funilData, vendasPorMes, rankingVendedores, tarefasPeriodo, alertas } = data || {}
-
-  const funnelChartData = funnelStatuses.map((status) => {
-    const item = funilData?.find((entry: any) => entry.status_lead === status)
-    return {
-      name: statusPropostaLabels[status],
-      value: item?.count || 0,
-      valor: Number(item?.valor || 0),
-      color: statusColors[status],
-    }
-  })
-
-  const salesChartData = (vendasPorMes || []).map((item: any) => ({
-    name: new Date(`${item.mes}-01`).toLocaleDateString(appearance.idioma, {
-      month: 'short',
-    }),
-    valor: Number(item.valor),
-    quantidade: item.quantidade,
-  }))
-  const vendedorAtual = user?.role === 'admin' || user?.role === 'gerente' ? null : rankingVendedores?.[0]
-  const metaAtual = Number(vendedorAtual?.meta_vendas || 0)
-  const valorAtual = Number(vendedorAtual?.valor_total || 0)
-  const progressoMeta = metaAtual > 0 ? Math.min((valorAtual / metaAtual) * 100, 100) : 0
 
   return (
     <>
@@ -234,8 +246,7 @@ export function DashboardContent() {
                 </div>
               ) : (
                 (rankingVendedores || []).slice(0, 5).map((vendedor: any, index: number) => {
-                  const maxValor = Math.max(...(rankingVendedores || []).map((entry: any) => Number(entry.valor_total) || 1))
-                  const percent = (Number(vendedor.valor_total) / maxValor) * 100
+                  const percent = (Number(vendedor.valor_total) / maxRankingValue) * 100
 
                   return (
                   <div key={vendedor.id} className="flex items-center gap-4">
@@ -326,7 +337,7 @@ function StatsCard({
 }: {
   title: string
   value: string | number
-  icon: any
+  icon: LucideIcon
   color: string
   bgColor: string
 }) {

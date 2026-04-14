@@ -79,7 +79,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
   const { state } = useCRM()
   const { notifications } = useAppSettings()
   const { user } = useSession()
-  const { interacoes } = useInteracoes()
+  const { interacoes } = useInteracoes({ tipo: 'proposta', limit: 80 })
   const [commandOpen, setCommandOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>([])

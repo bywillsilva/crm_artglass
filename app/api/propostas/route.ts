@@ -5,14 +5,16 @@ import { getServerSession } from '@/lib/auth/session'
 import { saveProposalFiles } from '@/lib/server/proposal-files'
 import {
   ensureClientSchema,
+  getNextProposalNumber,
   ensureProposalStatusSchema,
   ensureResponsibilityIntegrity,
   ensureTaskSchema,
   ensureUserRoleSchema,
   formatDateTime,
   handleProposalAutomationOnCreate,
-  isEarlyBudgetStatus,
   normalizeProposalStatus,
+  requiresOrcamentistaAssignment,
+  requiresPositiveProposalValue,
   syncDueFollowUpStatuses,
   type ProposalWorkflowStatus,
 } from '@/lib/server/proposal-workflow'
@@ -183,20 +185,22 @@ export async function GET(request: NextRequest) {
         c.nome as cliente_nome,
         u.nome as responsavel_nome,
         o.nome as orcamentista_nome,
-        (
-          SELECT COUNT(*)
-          FROM proposta_anexos pa
-          WHERE pa.proposta_id = p.id
-        ) as anexos_count,
-        (
-          SELECT COUNT(*)
-          FROM proposta_comentarios pc
-          WHERE pc.proposta_id = p.id
-        ) as comentarios_count
+        COALESCE(pa.anexos_count, 0) as anexos_count,
+        COALESCE(pc.comentarios_count, 0) as comentarios_count
       FROM propostas p
       LEFT JOIN clientes c ON p.cliente_id = c.id
       LEFT JOIN usuarios u ON p.responsavel_id = u.id
       LEFT JOIN usuarios o ON p.orcamentista_id = o.id
+      LEFT JOIN (
+        SELECT proposta_id, COUNT(*) as anexos_count
+        FROM proposta_anexos
+        GROUP BY proposta_id
+      ) pa ON pa.proposta_id = p.id
+      LEFT JOIN (
+        SELECT proposta_id, COUNT(*) as comentarios_count
+        FROM proposta_comentarios
+        GROUP BY proposta_id
+      ) pc ON pc.proposta_id = p.id
       WHERE 1=1
     `
     const params: unknown[] = []
@@ -215,7 +219,8 @@ export async function GET(request: NextRequest) {
       sql += ' AND p.responsavel_id = ?'
       params.push(user.id)
     } else if (user.role === 'orcamentista') {
-      sql += ` AND p.orcamentista_id = ? AND p.status IN ('novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao')`
+      sql += ` AND p.status IN ('novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao')
+               AND (p.orcamentista_id = ? OR p.orcamentista_id IS NULL OR p.orcamentista_id = '')`
       params.push(user.id)
     }
 
@@ -254,18 +259,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Cliente nao encontrado para a proposta' }, { status: 404 })
     }
 
-    if (isEarlyBudgetStatus(status) && !orcamentistaId) {
+    if (requiresOrcamentistaAssignment(status) && !orcamentistaId) {
       return NextResponse.json(
         { error: 'Selecione um orcamentista para iniciar o fluxo comercial da proposta.' },
         { status: 400 }
       )
     }
 
-    const [countResult] = await query<any[]>('SELECT COUNT(*) as total FROM propostas')
-    const numero = `PROP-${new Date().getFullYear()}-${String(countResult.total + 1).padStart(3, '0')}`
+    const numero = await getNextProposalNumber()
     const valor = Number(data.valor || 0)
     const desconto = Number(data.desconto || 0)
     const valorFinal = valor - (valor * desconto) / 100
+
+    if (requiresPositiveProposalValue(status) && valor <= 0) {
+      return NextResponse.json(
+        { error: 'Informe o valor do orcamento antes de avancar esta proposta.' },
+        { status: 400 }
+      )
+    }
 
     await query(
       `INSERT INTO propostas (

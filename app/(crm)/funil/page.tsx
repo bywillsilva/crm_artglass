@@ -16,10 +16,7 @@ export default function FunilPage() {
   const { user } = useSession()
   const [dateFilter, setDateFilter] = useState(createDefaultDateFilter())
   const [showCreateDialog, setShowCreateDialog] = useState(false)
-
-  if (!hasModuleAccess(user, 'funil')) {
-    return <ModuleAccessState module="funil" />
-  }
+  const hasFunilAccess = hasModuleAccess(user, 'funil')
 
   const propostasFiltradas = useMemo(
     () =>
@@ -28,6 +25,10 @@ export default function FunilPage() {
       ),
     [dateFilter, state.propostas]
   )
+
+  if (!hasFunilAccess) {
+    return <ModuleAccessState module="funil" />
+  }
 
   return (
     <>

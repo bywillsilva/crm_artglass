@@ -51,6 +51,61 @@ const FOLLOW_UP_SYNC_STEPS = [
   { from: 'aguardando_follow_up_7_dias', to: 'follow_up_7_dias', stage: 'follow_up_7_dias' },
 ] as const
 
+const cacheTimes = new Map<string, number>()
+const cachePromises = new Map<string, Promise<void>>()
+const SCHEMA_CACHE_MS = 5 * 60 * 1000
+const RUNTIME_CACHE_MS = 10 * 1000
+
+type TableIndexDefinition = {
+  name: string
+  columns: string
+}
+
+async function runCached(name: string, ttlMs: number, task: () => Promise<void>) {
+  const now = Date.now()
+  const lastRunAt = cacheTimes.get(name) || 0
+  if (now - lastRunAt < ttlMs) {
+    return
+  }
+
+  const existing = cachePromises.get(name)
+  if (existing) {
+    await existing
+    return
+  }
+
+  const promise = task()
+  cachePromises.set(name, promise)
+
+  try {
+    await promise
+    cacheTimes.set(name, Date.now())
+  } finally {
+    cachePromises.delete(name)
+  }
+}
+
+async function ensureTableIndexes(tableName: string, indexes: TableIndexDefinition[]) {
+  const existingIndexes = await query<any[]>(
+    `SELECT INDEX_NAME
+     FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND INDEX_NAME <> 'PRIMARY'`,
+    [tableName]
+  )
+
+  const existingNames = new Set(existingIndexes.map((index) => index.INDEX_NAME))
+
+  for (const index of indexes) {
+    if (existingNames.has(index.name)) {
+      continue
+    }
+
+    await query(`CREATE INDEX ${index.name} ON ${tableName} (${index.columns})`)
+  }
+}
+
 function enumValues(values: readonly string[]) {
   return values.map((value) => `'${value}'`).join(', ')
 }
@@ -175,152 +230,237 @@ async function ensureProposalSupportTables() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `)
+
+  await ensureTableIndexes('proposta_anexos', [
+    { name: 'idx_proposta_anexos_proposta', columns: 'proposta_id' },
+    { name: 'idx_proposta_anexos_usuario', columns: 'usuario_id' },
+  ])
+
+  await ensureTableIndexes('proposta_comentarios', [
+    { name: 'idx_proposta_comentarios_proposta_created', columns: 'proposta_id, created_at' },
+    { name: 'idx_proposta_comentarios_usuario', columns: 'usuario_id' },
+  ])
+}
+
+export async function ensureProposalSequenceSchema() {
+  await runCached('ensureProposalSequenceSchema', SCHEMA_CACHE_MS, async () => {
+    await query(`
+      CREATE TABLE IF NOT EXISTS proposal_sequences (
+        ano INT PRIMARY KEY,
+        ultimo_numero INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `)
+  })
+}
+
+export async function getNextProposalNumber(year = new Date().getFullYear()) {
+  await ensureProposalSequenceSchema()
+
+  const [maxRow] = await query<any[]>(
+    `SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(numero, '-', -1) AS UNSIGNED)), 0) as maxNumero
+     FROM propostas
+     WHERE numero LIKE ?`,
+    [`PROP-${year}-%`]
+  )
+
+  const currentMax = Number(maxRow?.maxNumero || 0)
+
+  await query(
+    `INSERT INTO proposal_sequences (ano, ultimo_numero)
+     VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE ultimo_numero = GREATEST(ultimo_numero, VALUES(ultimo_numero))`,
+    [year, currentMax]
+  )
+
+  await query(
+    `UPDATE proposal_sequences
+     SET ultimo_numero = LAST_INSERT_ID(ultimo_numero + 1),
+         updated_at = CURRENT_TIMESTAMP
+     WHERE ano = ?`,
+    [year]
+  )
+
+  const [sequenceRow] = await query<any[]>(`SELECT LAST_INSERT_ID() as nextNumber`)
+  const nextNumber = Number(sequenceRow?.nextNumber || 1)
+  return `PROP-${year}-${String(nextNumber).padStart(3, '0')}`
 }
 
 export async function ensureProposalStatusSchema() {
-  const [column] = await query<any[]>(
-    `SELECT COLUMN_TYPE
-     FROM INFORMATION_SCHEMA.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = 'propostas'
-       AND COLUMN_NAME = 'status'`
-  )
+  await runCached('ensureProposalStatusSchema', SCHEMA_CACHE_MS, async () => {
+    const [column] = await query<any[]>(
+      `SELECT COLUMN_TYPE
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'propostas'
+         AND COLUMN_NAME = 'status'`
+    )
 
-  const columnType = String(column?.COLUMN_TYPE || '')
-  const hasLegacyStatuses = LEGACY_STATUSES.some((status) => columnType.includes(`'${status}'`))
-  const hasFinalStatuses = FINAL_STATUSES.every((status) => columnType.includes(`'${status}'`))
+    const columnType = String(column?.COLUMN_TYPE || '')
+    const hasLegacyStatuses = LEGACY_STATUSES.some((status) => columnType.includes(`'${status}'`))
+    const hasFinalStatuses = FINAL_STATUSES.every((status) => columnType.includes(`'${status}'`))
 
-  await ensureProposalColumns()
-  await ensureProposalSupportTables()
+    await ensureProposalColumns()
+    await ensureProposalSupportTables()
+    await ensureProposalSequenceSchema()
+    await ensureTableIndexes('propostas', [
+      { name: 'idx_propostas_status_created', columns: 'status, created_at' },
+      { name: 'idx_propostas_responsavel_status', columns: 'responsavel_id, status' },
+      { name: 'idx_propostas_orcamentista_status', columns: 'orcamentista_id, status' },
+      { name: 'idx_propostas_cliente', columns: 'cliente_id' },
+      { name: 'idx_propostas_follow_up_base', columns: 'follow_up_base_at' },
+    ])
+    await ensureTableIndexes('interacoes', [
+      { name: 'idx_interacoes_cliente_created', columns: 'cliente_id, created_at' },
+      { name: 'idx_interacoes_tipo_created', columns: 'tipo, created_at' },
+      { name: 'idx_interacoes_usuario_created', columns: 'usuario_id, created_at' },
+    ])
 
-  if (!hasLegacyStatuses && hasFinalStatuses) {
-    return
-  }
+    if (!hasLegacyStatuses && hasFinalStatuses) {
+      return
+    }
 
-  await query(`
-    ALTER TABLE propostas
-    MODIFY COLUMN status ENUM(
-      ${enumValues([...LEGACY_STATUSES, ...FINAL_STATUSES])}
-    ) DEFAULT 'novo_cliente'
-  `)
+    await query(`
+      ALTER TABLE propostas
+      MODIFY COLUMN status ENUM(
+        ${enumValues([...LEGACY_STATUSES, ...FINAL_STATUSES])}
+      ) DEFAULT 'novo_cliente'
+    `)
 
-  await query(`UPDATE propostas SET status = 'em_orcamento' WHERE status IN ('rascunho', 'em_cotacao')`)
-  await query(`UPDATE propostas SET status = 'enviado_ao_cliente' WHERE status = 'enviada'`)
-  await query(`UPDATE propostas SET status = 'follow_up_1_dia' WHERE status IN ('em_analise', 'em_negociacao')`)
-  await query(`UPDATE propostas SET status = 'fechado' WHERE status = 'aprovada'`)
-  await query(`UPDATE propostas SET status = 'perdido' WHERE status IN ('rejeitada', 'expirada')`)
+    await query(`UPDATE propostas SET status = 'em_orcamento' WHERE status IN ('rascunho', 'em_cotacao')`)
+    await query(`UPDATE propostas SET status = 'enviado_ao_cliente' WHERE status = 'enviada'`)
+    await query(`UPDATE propostas SET status = 'follow_up_1_dia' WHERE status IN ('em_analise', 'em_negociacao')`)
+    await query(`UPDATE propostas SET status = 'fechado' WHERE status = 'aprovada'`)
+    await query(`UPDATE propostas SET status = 'perdido' WHERE status IN ('rejeitada', 'expirada')`)
 
-  await query(`
-    ALTER TABLE propostas
-    MODIFY COLUMN status ENUM(
-      ${enumValues(FINAL_STATUSES)}
-    ) DEFAULT 'novo_cliente'
-  `)
+    await query(`
+      ALTER TABLE propostas
+      MODIFY COLUMN status ENUM(
+        ${enumValues(FINAL_STATUSES)}
+      ) DEFAULT 'novo_cliente'
+    `)
+  })
 }
 
 export async function ensureTaskSchema() {
-  const columns = await query<any[]>(
-    `SELECT COLUMN_NAME
-     FROM INFORMATION_SCHEMA.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = 'tarefas'
-       AND COLUMN_NAME IN ('titulo', 'proposta_id', 'automacao_etapa', 'origem')`
-  )
+  await runCached('ensureTaskSchema', SCHEMA_CACHE_MS, async () => {
+    const columns = await query<any[]>(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'tarefas'
+         AND COLUMN_NAME IN ('titulo', 'proposta_id', 'automacao_etapa', 'origem')`
+    )
 
-  const existing = new Set(columns.map((column) => column.COLUMN_NAME))
+    const existing = new Set(columns.map((column) => column.COLUMN_NAME))
 
-  if (!existing.has('titulo')) {
-    await query(`ALTER TABLE tarefas ADD COLUMN titulo VARCHAR(255) NOT NULL DEFAULT 'Tarefa' AFTER id`)
-    await query(`
-      UPDATE tarefas
-      SET titulo = LEFT(COALESCE(NULLIF(descricao, ''), 'Tarefa'), 255)
-      WHERE titulo = 'Tarefa'
-    `)
-  }
+    if (!existing.has('titulo')) {
+      await query(`ALTER TABLE tarefas ADD COLUMN titulo VARCHAR(255) NOT NULL DEFAULT 'Tarefa' AFTER id`)
+      await query(`
+        UPDATE tarefas
+        SET titulo = LEFT(COALESCE(NULLIF(descricao, ''), 'Tarefa'), 255)
+        WHERE titulo = 'Tarefa'
+      `)
+    }
 
-  if (!existing.has('proposta_id')) {
-    await query(`ALTER TABLE tarefas ADD COLUMN proposta_id VARCHAR(36) NULL`)
-  }
+    if (!existing.has('proposta_id')) {
+      await query(`ALTER TABLE tarefas ADD COLUMN proposta_id VARCHAR(36) NULL`)
+    }
 
-  if (!existing.has('automacao_etapa')) {
-    await query(`ALTER TABLE tarefas ADD COLUMN automacao_etapa VARCHAR(50) NULL`)
-  }
+    if (!existing.has('automacao_etapa')) {
+      await query(`ALTER TABLE tarefas ADD COLUMN automacao_etapa VARCHAR(50) NULL`)
+    }
 
-  if (!existing.has('origem')) {
-    await query(`ALTER TABLE tarefas ADD COLUMN origem VARCHAR(30) NOT NULL DEFAULT 'manual'`)
-  }
+    if (!existing.has('origem')) {
+      await query(`ALTER TABLE tarefas ADD COLUMN origem VARCHAR(30) NOT NULL DEFAULT 'manual'`)
+    }
+
+    await ensureTableIndexes('tarefas', [
+      { name: 'idx_tarefas_cliente_status_data', columns: 'cliente_id, status, data_hora' },
+      { name: 'idx_tarefas_responsavel_status_data', columns: 'responsavel_id, status, data_hora' },
+      { name: 'idx_tarefas_proposta_origem_status', columns: 'proposta_id, origem, status' },
+      { name: 'idx_tarefas_automacao_etapa_data', columns: 'automacao_etapa, status, data_hora' },
+    ])
+  })
 }
 
 export async function ensureUserRoleSchema() {
-  const [column] = await query<any[]>(
-    `SELECT COLUMN_TYPE
-     FROM INFORMATION_SCHEMA.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = 'usuarios'
-       AND COLUMN_NAME = 'role'`
-  )
+  await runCached('ensureUserRoleSchema', SCHEMA_CACHE_MS, async () => {
+    const [column] = await query<any[]>(
+      `SELECT COLUMN_TYPE
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'usuarios'
+         AND COLUMN_NAME = 'role'`
+    )
 
-  const columnType = String(column?.COLUMN_TYPE || '')
-  const permissionColumns = await query<any[]>(
-    `SELECT COLUMN_NAME
-     FROM INFORMATION_SCHEMA.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = 'usuarios'
-       AND COLUMN_NAME = 'module_permissions'`
-  )
+    const columnType = String(column?.COLUMN_TYPE || '')
+    const permissionColumns = await query<any[]>(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'usuarios'
+         AND COLUMN_NAME = 'module_permissions'`
+    )
 
-  if (columnType.includes(`'orcamentista'`)) {
+    if (columnType.includes(`'orcamentista'`)) {
+      if (!permissionColumns.length) {
+        await query(`ALTER TABLE usuarios ADD COLUMN module_permissions JSON NULL AFTER ativo`)
+      }
+      return
+    }
+
+    await query(`
+      ALTER TABLE usuarios
+      MODIFY COLUMN role ENUM('admin', 'gerente', 'vendedor', 'orcamentista') NOT NULL DEFAULT 'vendedor'
+    `)
+
     if (!permissionColumns.length) {
       await query(`ALTER TABLE usuarios ADD COLUMN module_permissions JSON NULL AFTER ativo`)
     }
-    return
-  }
-
-  await query(`
-    ALTER TABLE usuarios
-    MODIFY COLUMN role ENUM('admin', 'gerente', 'vendedor', 'orcamentista') NOT NULL DEFAULT 'vendedor'
-  `)
-
-  if (!permissionColumns.length) {
-    await query(`ALTER TABLE usuarios ADD COLUMN module_permissions JSON NULL AFTER ativo`)
-  }
+  })
 }
 
 export async function ensureClientSchema() {
-  await query(`
-    ALTER TABLE clientes
-    MODIFY COLUMN email VARCHAR(255) NULL,
-    MODIFY COLUMN origem ENUM('site', 'indicacao', 'google', 'facebook', 'instagram', 'telefone', 'outro') NULL DEFAULT NULL
-  `)
+  await runCached('ensureClientSchema', SCHEMA_CACHE_MS, async () => {
+    await query(`
+      ALTER TABLE clientes
+      MODIFY COLUMN email VARCHAR(255) NULL,
+      MODIFY COLUMN origem ENUM('site', 'indicacao', 'google', 'facebook', 'instagram', 'telefone', 'outro') NULL DEFAULT NULL
+    `)
+  })
 }
 
 export async function ensureResponsibilityIntegrity() {
-  const [fallbackSeller] = await query<any[]>(
-    `SELECT id
-     FROM usuarios
-     WHERE ativo = TRUE
-       AND role IN ('admin', 'gerente', 'vendedor')
-     ORDER BY CASE WHEN role = 'admin' THEN 0 WHEN role = 'gerente' THEN 1 ELSE 2 END, created_at ASC
-     LIMIT 1`
-  )
-
-  if (fallbackSeller?.id) {
-    await query(
-      `UPDATE propostas p
-       LEFT JOIN usuarios u ON u.id = p.responsavel_id AND u.ativo = TRUE
-       SET p.responsavel_id = ?
-       WHERE p.responsavel_id IS NULL OR p.responsavel_id = '' OR u.id IS NULL`,
-      [fallbackSeller.id]
+  await runCached('ensureResponsibilityIntegrity', SCHEMA_CACHE_MS, async () => {
+    const [fallbackSeller] = await query<any[]>(
+      `SELECT id
+       FROM usuarios
+       WHERE ativo = TRUE
+         AND role IN ('admin', 'gerente', 'vendedor')
+       ORDER BY CASE WHEN role = 'admin' THEN 0 WHEN role = 'gerente' THEN 1 ELSE 2 END, created_at ASC
+       LIMIT 1`
     )
 
-    await query(
-      `UPDATE tarefas t
-       LEFT JOIN usuarios u ON u.id = t.responsavel_id AND u.ativo = TRUE
-       SET t.responsavel_id = ?
-       WHERE t.responsavel_id IS NULL OR t.responsavel_id = '' OR u.id IS NULL`,
-      [fallbackSeller.id]
-    )
-  }
+    if (fallbackSeller?.id) {
+      await query(
+        `UPDATE propostas p
+         LEFT JOIN usuarios u ON u.id = p.responsavel_id AND u.ativo = TRUE
+         SET p.responsavel_id = ?
+         WHERE p.responsavel_id IS NULL OR p.responsavel_id = '' OR u.id IS NULL`,
+        [fallbackSeller.id]
+      )
+
+      await query(
+        `UPDATE tarefas t
+         LEFT JOIN usuarios u ON u.id = t.responsavel_id AND u.ativo = TRUE
+         SET t.responsavel_id = ?
+         WHERE t.responsavel_id IS NULL OR t.responsavel_id = '' OR u.id IS NULL`,
+        [fallbackSeller.id]
+      )
+    }
+  })
 }
 
 async function deleteAutomatedTasks(propostaId: string) {
@@ -588,41 +728,43 @@ export async function syncProposalAutomation(params: {
 }
 
 export async function syncDueFollowUpStatuses() {
-  for (const step of FOLLOW_UP_SYNC_STEPS) {
-    const propostas = await query<any[]>(
-      `SELECT p.id, p.cliente_id, p.responsavel_id
-       FROM propostas p
-       INNER JOIN tarefas t
-         ON t.proposta_id = p.id
-        AND t.origem = 'automacao_proposta'
-        AND t.automacao_etapa = ?
-        AND t.status = 'pendente'
-       WHERE p.status = ?
-         AND t.data_hora <= NOW()`,
-      [step.stage, step.from]
-    )
+  await runCached('syncDueFollowUpStatuses', RUNTIME_CACHE_MS, async () => {
+    for (const step of FOLLOW_UP_SYNC_STEPS) {
+      const propostas = await query<any[]>(
+        `SELECT p.id, p.cliente_id, p.responsavel_id
+         FROM propostas p
+         INNER JOIN tarefas t
+           ON t.proposta_id = p.id
+          AND t.origem = 'automacao_proposta'
+          AND t.automacao_etapa = ?
+          AND t.status = 'pendente'
+         WHERE p.status = ?
+           AND t.data_hora <= NOW()`,
+        [step.stage, step.from]
+      )
 
-    for (const proposta of propostas) {
-      await query(`UPDATE propostas SET status = ? WHERE id = ?`, [step.to, proposta.id])
-      await query(
-        `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
-         VALUES (?, ?, ?, 'proposta', ?, ?, ?)`,
-        [
-          uuidv4(),
-          proposta.cliente_id,
-           proposta.responsavel_id,
-           `Proposta avancou automaticamente para ${step.to}`,
-           JSON.stringify({
-             proposta_id: proposta.id,
-             novo_status: step.to,
-             origem: 'automatizacao_follow_up',
-             notification_kind: 'proposal_status',
-           }),
-           formatDateTime(new Date()),
-         ]
-       )
+      for (const proposta of propostas) {
+        await query(`UPDATE propostas SET status = ? WHERE id = ?`, [step.to, proposta.id])
+        await query(
+          `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
+           VALUES (?, ?, ?, 'proposta', ?, ?, ?)`,
+          [
+            uuidv4(),
+            proposta.cliente_id,
+             proposta.responsavel_id,
+             `Proposta avancou automaticamente para ${step.to}`,
+             JSON.stringify({
+               proposta_id: proposta.id,
+               novo_status: step.to,
+               origem: 'automatizacao_follow_up',
+               notification_kind: 'proposal_status',
+             }),
+             formatDateTime(new Date()),
+           ]
+         )
+      }
     }
-  }
+  })
 }
 
 export function isEarlyBudgetStatus(status: ProposalWorkflowStatus) {
@@ -631,4 +773,22 @@ export function isEarlyBudgetStatus(status: ProposalWorkflowStatus) {
 
 export function isSellerFollowUpStatus(status: ProposalWorkflowStatus) {
   return ['enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'stand_by'].includes(status)
+}
+
+export function requiresOrcamentistaAssignment(status: ProposalWorkflowStatus) {
+  return ['em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(status)
+}
+
+export function requiresPositiveProposalValue(status: ProposalWorkflowStatus) {
+  return !['novo_cliente', 'em_orcamento', 'em_retificacao'].includes(status)
+}
+
+export function canOrcamentistaAccessProposal(proposta: {
+  status: string
+  orcamentista_id?: string | null
+}, userId: string) {
+  return (
+    ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status) &&
+    (!proposta.orcamentista_id || proposta.orcamentista_id === userId)
+  )
 }

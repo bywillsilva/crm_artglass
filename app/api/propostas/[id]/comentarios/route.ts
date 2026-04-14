@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
 import {
+  canOrcamentistaAccessProposal,
   ensureClientSchema,
   ensureProposalStatusSchema,
   ensureResponsibilityIntegrity,
@@ -47,12 +48,7 @@ function canViewProposal(user: any, proposta: any) {
   if (user.role === 'admin' || user.role === 'gerente') return true
   if (user.role === 'vendedor') return proposta.responsavel_id === user.id
   if (user.role === 'orcamentista') {
-    return (
-      proposta.orcamentista_id === user.id &&
-      ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(
-        proposta.status
-      )
-    )
+    return canOrcamentistaAccessProposal(proposta, user.id)
   }
   return false
 }

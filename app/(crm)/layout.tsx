@@ -3,6 +3,7 @@ import { AppSettingsProvider } from '@/lib/context/app-settings-context'
 import { CRMSidebar } from '@/components/crm/sidebar'
 import { getServerSession } from '@/lib/auth/session'
 import { redirect } from 'next/navigation'
+import { SWRConfig } from 'swr'
 
 export default async function CRMLayout({
   children,
@@ -16,14 +17,25 @@ export default async function CRMLayout({
 
   return (
     <AppSettingsProvider>
-      <CRMProvider>
-        <div className="flex min-h-screen bg-background">
-          <CRMSidebar />
-          <main className="flex-1 flex flex-col overflow-hidden">
-            {children}
-          </main>
-        </div>
-      </CRMProvider>
+      <SWRConfig
+        value={{
+          revalidateOnFocus: false,
+          revalidateOnReconnect: true,
+          keepPreviousData: true,
+          dedupingInterval: 5000,
+          focusThrottleInterval: 15000,
+          errorRetryCount: 1,
+        }}
+      >
+        <CRMProvider>
+          <div className="flex min-h-screen bg-background">
+            <CRMSidebar />
+            <main className="flex-1 flex flex-col overflow-hidden">
+              {children}
+            </main>
+          </div>
+        </CRMProvider>
+      </SWRConfig>
     </AppSettingsProvider>
   )
 }

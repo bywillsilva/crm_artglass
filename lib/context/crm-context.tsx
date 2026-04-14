@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, type ReactNode } from 'react'
+import { createContext, useContext, useMemo, type ReactNode } from 'react'
 import {
   createCliente,
   createInteracao,
@@ -42,8 +42,17 @@ interface CRMState {
   propostas: Proposta[]
 }
 
+interface CRMLookups {
+  clientesById: Map<string, Cliente>
+  usuariosById: Map<string, Usuario>
+  interacoesByClienteId: Map<string, Interacao[]>
+  tarefasByClienteId: Map<string, Tarefa[]>
+  propostasByClienteId: Map<string, Proposta[]>
+}
+
 interface CRMContextType {
   state: CRMState
+  lookups: CRMLookups
   addCliente: (cliente: Omit<Cliente, 'id' | 'criadoEm'>) => Promise<void>
   updateCliente: (cliente: Cliente) => Promise<void>
   deleteCliente: (id: string) => Promise<void>
@@ -80,16 +89,68 @@ export function CRMProvider({ children }: { children: ReactNode }) {
   const { tarefas } = useTarefas()
   const { propostas } = usePropostas()
 
-  const state: CRMState = {
-    clientes,
-    usuarios,
-    interacoes,
-    tarefas,
-    propostas,
-  }
+  const state = useMemo<CRMState>(
+    () => ({
+      clientes,
+      usuarios,
+      interacoes,
+      tarefas,
+      propostas,
+    }),
+    [clientes, interacoes, propostas, tarefas, usuarios]
+  )
 
-  const getCliente = (id: string) => state.clientes.find((cliente) => cliente.id === id)
-  const getUsuario = (id: string) => state.usuarios.find((usuario) => usuario.id === id)
+  const lookups = useMemo<CRMLookups>(() => {
+    const clientesById = new Map<string, Cliente>()
+    const usuariosById = new Map<string, Usuario>()
+    const interacoesByClienteId = new Map<string, Interacao[]>()
+    const tarefasByClienteId = new Map<string, Tarefa[]>()
+    const propostasByClienteId = new Map<string, Proposta[]>()
+
+    for (const cliente of clientes) {
+      clientesById.set(cliente.id, cliente)
+    }
+
+    for (const usuario of usuarios) {
+      usuariosById.set(usuario.id, usuario)
+    }
+
+    for (const interacao of interacoes) {
+      const grouped = interacoesByClienteId.get(interacao.clienteId) || []
+      grouped.push(interacao)
+      interacoesByClienteId.set(interacao.clienteId, grouped)
+    }
+
+    for (const tarefa of tarefas) {
+      const grouped = tarefasByClienteId.get(tarefa.clienteId) || []
+      grouped.push(tarefa)
+      tarefasByClienteId.set(tarefa.clienteId, grouped)
+    }
+
+    for (const proposta of propostas) {
+      const grouped = propostasByClienteId.get(proposta.clienteId) || []
+      grouped.push(proposta)
+      propostasByClienteId.set(proposta.clienteId, grouped)
+    }
+
+    for (const [clienteId, grouped] of interacoesByClienteId.entries()) {
+      interacoesByClienteId.set(
+        clienteId,
+        [...grouped].sort((a, b) => b.criadoEm.getTime() - a.criadoEm.getTime())
+      )
+    }
+
+    return {
+      clientesById,
+      usuariosById,
+      interacoesByClienteId,
+      tarefasByClienteId,
+      propostasByClienteId,
+    }
+  }, [clientes, interacoes, propostas, tarefas, usuarios])
+
+  const getCliente = (id: string) => lookups.clientesById.get(id)
+  const getUsuario = (id: string) => lookups.usuariosById.get(id)
 
   const addCliente = async (cliente: Omit<Cliente, 'id' | 'criadoEm'>) => {
     await createCliente(cliente)
@@ -112,9 +173,7 @@ export function CRMProvider({ children }: { children: ReactNode }) {
   }
 
   const getInteracoesByCliente = (clienteId: string) =>
-    state.interacoes
-      .filter((interacao) => interacao.clienteId === clienteId)
-      .sort((a, b) => b.criadoEm.getTime() - a.criadoEm.getTime())
+    lookups.interacoesByClienteId.get(clienteId) || []
 
   const addTarefa = async (tarefa: Omit<Tarefa, 'id' | 'criadoEm'>) => {
     await createTarefa(tarefa)
@@ -137,7 +196,7 @@ export function CRMProvider({ children }: { children: ReactNode }) {
   }
 
   const getTarefasByCliente = (clienteId: string) =>
-    state.tarefas.filter((tarefa) => tarefa.clienteId === clienteId)
+    lookups.tarefasByClienteId.get(clienteId) || []
 
   const getTarefasHoje = () => {
     const hoje = new Date()
@@ -182,7 +241,7 @@ export function CRMProvider({ children }: { children: ReactNode }) {
   }
 
   const getPropostasByCliente = (clienteId: string) =>
-    state.propostas.filter((proposta) => proposta.clienteId === clienteId)
+    lookups.propostasByClienteId.get(clienteId) || []
 
   const addUsuario = async (usuario: Omit<Usuario, 'id'> & { senha: string }) => {
     await createUsuario(usuario)
@@ -228,35 +287,69 @@ export function CRMProvider({ children }: { children: ReactNode }) {
       ].includes(proposta.status)
     )
 
+  const value = useMemo<CRMContextType>(
+    () => ({
+      state,
+      lookups,
+      addCliente,
+      updateCliente,
+      deleteCliente,
+      getCliente,
+      addInteracao,
+      getInteracoesByCliente,
+      addTarefa,
+      updateTarefa,
+      deleteTarefa,
+      updateTarefaStatus,
+      getTarefasByCliente,
+      getTarefasHoje,
+      getTarefasAtrasadas,
+      addProposta,
+      updateProposta,
+      deleteProposta,
+      updatePropostaStatus,
+      getPropostasByCliente,
+      addUsuario,
+      updateUsuario,
+      deleteUsuario,
+      getUsuario,
+      getClientesSemTarefa,
+      getPropostasEmAberto,
+    }),
+    [
+      addCliente,
+      addInteracao,
+      addProposta,
+      addTarefa,
+      addUsuario,
+      deleteCliente,
+      deleteProposta,
+      deleteTarefa,
+      deleteUsuario,
+      general.confirmDeletes,
+      getClientesSemTarefa,
+      getCliente,
+      getInteracoesByCliente,
+      getPropostasByCliente,
+      getPropostasEmAberto,
+      getTarefasAtrasadas,
+      getTarefasByCliente,
+      getTarefasHoje,
+      getUsuario,
+      lookups,
+      state,
+      updateCliente,
+      updateProposta,
+      updatePropostaStatus,
+      updateTarefa,
+      updateTarefaStatus,
+      updateUsuario,
+    ]
+  )
+
   return (
     <CRMContext.Provider
-      value={{
-        state,
-        addCliente,
-        updateCliente,
-        deleteCliente,
-        getCliente,
-        addInteracao,
-        getInteracoesByCliente,
-        addTarefa,
-        updateTarefa,
-        deleteTarefa,
-        updateTarefaStatus,
-        getTarefasByCliente,
-        getTarefasHoje,
-        getTarefasAtrasadas,
-        addProposta,
-        updateProposta,
-        deleteProposta,
-        updatePropostaStatus,
-        getPropostasByCliente,
-        addUsuario,
-        updateUsuario,
-        deleteUsuario,
-        getUsuario,
-        getClientesSemTarefa,
-        getPropostasEmAberto,
-      }}
+      value={value}
     >
       {children}
     </CRMContext.Provider>

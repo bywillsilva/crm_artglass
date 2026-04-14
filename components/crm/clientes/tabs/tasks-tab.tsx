@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { startTransition, useState } from 'react'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useSession } from '@/lib/hooks/use-api'
+import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -81,19 +82,23 @@ export function TasksTab({ clienteId }: TasksTabProps) {
     setShowEditForm(true)
   }
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = () => {
     if (!editingTarefaId || !editDescricao.trim() || !editDataHora || !editResponsavelId) return
 
-    await updateTarefa({
+    startTransition(() => {
+      setShowEditForm(false)
+      setEditingTarefaId(null)
+    })
+
+    void updateTarefa({
       ...(tarefas.find((tarefa) => tarefa.id === editingTarefaId) as typeof tarefas[number]),
       descricao: editDescricao,
       titulo: editDescricao,
       dataHora: new Date(editDataHora),
       responsavelId: editResponsavelId,
+    }).catch((error: any) => {
+      toast.error(error?.message || 'Nao foi possivel salvar a tarefa.')
     })
-
-    setShowEditForm(false)
-    setEditingTarefaId(null)
   }
 
   const getStatusColor = (status: string) => {

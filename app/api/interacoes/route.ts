@@ -8,16 +8,36 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
     const clienteId = searchParams.get('cliente_id')
+    const tipo = searchParams.get('tipo')
+    const limitParam = searchParams.get('limit')
+    const limit = limitParam ? Math.min(Math.max(Number(limitParam) || 0, 1), 200) : null
+    const whereClauses: string[] = []
+    const params: unknown[] = []
 
-    const sql = `
+    if (clienteId) {
+      whereClauses.push('i.cliente_id = ?')
+      params.push(clienteId)
+    }
+
+    if (tipo) {
+      whereClauses.push('i.tipo = ?')
+      params.push(tipo)
+    }
+
+    let sql = `
       SELECT i.*, u.nome as usuario_nome
       FROM interacoes i
       LEFT JOIN usuarios u ON i.usuario_id = u.id
-      ${clienteId ? 'WHERE i.cliente_id = ?' : ''}
+      ${whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : ''}
       ORDER BY i.created_at DESC
     `
 
-    const interacoes = await query(sql, clienteId ? [clienteId] : [])
+    if (limit) {
+      sql += ' LIMIT ?'
+      params.push(limit)
+    }
+
+    const interacoes = await query(sql, params)
     return NextResponse.json(interacoes)
   } catch (error) {
     console.error('Erro ao buscar interacoes:', error)

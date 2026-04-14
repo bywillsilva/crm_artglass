@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
 import { Paperclip, Upload } from 'lucide-react'
+import { toast } from 'sonner'
 import { useCRM } from '@/lib/context/crm-context'
 import { useProposta, useSession } from '@/lib/hooks/use-api'
 import { statusPropostaLabels, type Proposta, type StatusProposta } from '@/lib/data/types'
@@ -39,6 +40,18 @@ const visibleStatuses: StatusProposta[] = [
   'perdido',
 ]
 
+const statusesWithoutRequiredValue: StatusProposta[] = [
+  'novo_cliente',
+  'em_orcamento',
+  'em_retificacao',
+]
+
+const statusesRequiringOrcamentista: StatusProposta[] = [
+  'em_orcamento',
+  'em_retificacao',
+  'aguardando_aprovacao',
+]
+
 function RequiredLabel({ children }: { children: string }) {
   return (
     <span>
@@ -60,7 +73,7 @@ export function ProposalFormDialog({
   clienteIdInicial,
   propostaId,
 }: ProposalFormDialogProps) {
-  const { state, addProposta, updateProposta } = useCRM()
+  const { state, lookups, addProposta, updateProposta } = useCRM()
   const { user } = useSession()
   const { proposta, isLoading } = useProposta(open && propostaId ? propostaId : null)
   const isEditing = Boolean(propostaId)
@@ -159,14 +172,20 @@ export function ProposalFormDialog({
     ] as StatusProposta[]
   }, [isAdmin, user?.role])
 
-  const handleSubmit = async () => {
-    if (!clienteId || !valor || (!responsavelId && isAdmin) || (orcamentistas.length > 0 && !orcamentistaId)) {
+  const valorObrigatorio = !statusesWithoutRequiredValue.includes(status)
+  const orcamentistaObrigatorio =
+    orcamentistas.length > 0 && statusesRequiringOrcamentista.includes(status)
+  const valorNumerico = Number(valor || 0)
+  const hasRequiredValue = !valorObrigatorio || valorNumerico > 0
+
+  const handleSubmit = () => {
+    if (!clienteId || (!responsavelId && isAdmin) || (orcamentistaObrigatorio && !orcamentistaId) || !hasRequiredValue) {
       return
     }
 
     const payload = {
       clienteId,
-      valor: Number(valor),
+      valor: valorNumerico,
       descricao,
       status,
       responsavelId: isAdmin ? responsavelId : user?.id,
@@ -177,16 +196,19 @@ export function ProposalFormDialog({
       titulo: proposta?.titulo || 'Proposta Comercial',
     }
 
-    if (isEditing && propostaId) {
-      await updateProposta({
-        id: propostaId,
-        ...payload,
-      } as unknown as Proposta)
-    } else {
-      await addProposta(payload as unknown as Omit<Proposta, 'id' | 'criadoEm'>)
-    }
+    startTransition(() => onOpenChange(false))
 
-    onOpenChange(false)
+    const savePromise =
+      isEditing && propostaId
+        ? updateProposta({
+            id: propostaId,
+            ...payload,
+          } as unknown as Proposta)
+        : addProposta(payload as unknown as Omit<Proposta, 'id' | 'criadoEm'>)
+
+    void savePromise.catch((error: any) => {
+      toast.error(error?.message || 'Nao foi possivel salvar a proposta.')
+    })
   }
 
   return (
@@ -253,7 +275,7 @@ export function ProposalFormDialog({
               )}
 
                     <div className="space-y-2">
-                <Label>{orcamentistas.length > 0 ? <RequiredLabel>Orcamentista</RequiredLabel> : 'Orcamentista'}</Label>
+                <Label>{orcamentistaObrigatorio ? <RequiredLabel>Orcamentista</RequiredLabel> : 'Orcamentista'}</Label>
                 <Select value={orcamentistaId || 'nao_definido'} onValueChange={(value) => setOrcamentistaId(value === 'nao_definido' ? '' : value)}>
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione o orcamentista" />
@@ -270,7 +292,7 @@ export function ProposalFormDialog({
               </div>
 
                     <div className="space-y-2">
-                <Label><RequiredLabel>Valor</RequiredLabel></Label>
+                <Label>{valorObrigatorio ? <RequiredLabel>Valor do orçamento</RequiredLabel> : 'Valor do orçamento'}</Label>
                 <Input
                   type="number"
                   min="0"
@@ -279,6 +301,11 @@ export function ProposalFormDialog({
                   value={valor}
                   onChange={(event) => setValor(event.target.value)}
                 />
+                <p className="text-xs text-muted-foreground">
+                  {valorObrigatorio
+                    ? 'O valor passa a ser obrigatorio a partir do momento em que o orçamento segue para aguardando aprovacao.'
+                    : 'Neste momento o valor ainda pode ficar em branco.'}
+                </p>
               </div>
 
                     <div className="space-y-2 md:col-span-2">
@@ -378,7 +405,7 @@ export function ProposalFormDialog({
                     <div className="flex items-center justify-between gap-3">
                       <span>Cliente</span>
                       <span className="font-medium text-foreground">
-                        {state.clientes.find((cliente) => cliente.id === clienteId)?.nome || 'Nao selecionado'}
+                        {lookups.clientesById.get(clienteId)?.nome || 'Nao selecionado'}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-3">
@@ -404,7 +431,7 @@ export function ProposalFormDialog({
               </Button>
               <Button
                 onClick={() => void handleSubmit()}
-                disabled={!clienteId || !valor || (isAdmin && !responsavelId) || (orcamentistas.length > 0 && !orcamentistaId)}
+                disabled={!clienteId || (isAdmin && !responsavelId) || (orcamentistaObrigatorio && !orcamentistaId) || !hasRequiredValue}
               >
                 {isEditing ? 'Salvar proposta' : 'Criar proposta'}
               </Button>

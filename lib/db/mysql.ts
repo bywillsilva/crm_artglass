@@ -1,6 +1,9 @@
 import mysql from 'mysql2/promise'
 
 const MYSQL_TIMEZONE = process.env.MYSQL_TIMEZONE || '-03:00'
+type PoolConnectionWithSessionFlag = mysql.PoolConnection & {
+  __crmTimeZoneReady?: boolean
+}
 
 // Pool de conexoes para melhor performance
 const pool = mysql.createPool({
@@ -18,10 +21,13 @@ const pool = mysql.createPool({
 })
 
 export async function query<T>(sql: string, params?: any[]): Promise<T> {
-  const connection = await pool.getConnection()
+  const connection = (await pool.getConnection()) as PoolConnectionWithSessionFlag
 
   try {
-    await connection.query('SET time_zone = ?', [MYSQL_TIMEZONE])
+    if (!connection.__crmTimeZoneReady) {
+      await connection.query('SET time_zone = ?', [MYSQL_TIMEZONE])
+      connection.__crmTimeZoneReady = true
+    }
     const [results] = await connection.execute(sql, params)
     return results as T
   } finally {
@@ -30,8 +36,11 @@ export async function query<T>(sql: string, params?: any[]): Promise<T> {
 }
 
 export async function getConnection() {
-  const connection = await pool.getConnection()
-  await connection.query('SET time_zone = ?', [MYSQL_TIMEZONE])
+  const connection = (await pool.getConnection()) as PoolConnectionWithSessionFlag
+  if (!connection.__crmTimeZoneReady) {
+    await connection.query('SET time_zone = ?', [MYSQL_TIMEZONE])
+    connection.__crmTimeZoneReady = true
+  }
   return connection
 }
 
