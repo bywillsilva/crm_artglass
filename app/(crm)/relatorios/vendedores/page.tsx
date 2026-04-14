@@ -42,10 +42,7 @@ export default function RelatorioVendedoresPage() {
   const [dateFilter, setDateFilter] = useState(createDefaultDateFilter())
   const [editingMetaUserId, setEditingMetaUserId] = useState<string | null>(null)
   const [metaInput, setMetaInput] = useState('')
-
-  if (!hasModuleAccess(user, 'performance')) {
-    return <ModuleAccessState module="performance" />
-  }
+  const hasPerformanceAccess = hasModuleAccess(user, 'performance')
 
   const vendedores = state.usuarios.filter((usuario) => usuario.role === 'vendedor' || usuario.role === 'gerente')
   const orcamentistas = state.usuarios.filter((usuario) => usuario.role === 'orcamentista')
@@ -56,6 +53,10 @@ export default function RelatorioVendedoresPage() {
       ),
     [dateFilter, state.propostas]
   )
+
+  if (!hasPerformanceAccess) {
+    return <ModuleAccessState module="performance" />
+  }
 
   const performance = vendedores
     .map((vendedor) => {

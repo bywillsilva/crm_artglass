@@ -39,10 +39,7 @@ export default function TarefasPage() {
   const { usuarios } = useUsuarios()
   const { appearance, general, formatDateTime, formatDate } = useAppSettings()
   const { user } = useSession()
-
-  if (!hasModuleAccess(user, 'tarefas')) {
-    return <ModuleAccessState module="tarefas" />
-  }
+  const hasTarefasAccess = hasModuleAccess(user, 'tarefas')
 
   const [showAddForm, setShowAddForm] = useState(false)
   const [showEditForm, setShowEditForm] = useState(false)
@@ -80,6 +77,10 @@ export default function TarefasPage() {
     if (!selectedDate) return []
     return tarefas.filter((tarefa: Tarefa) => isSameDay(new Date(tarefa.dataHora), selectedDate))
   }, [selectedDate, tarefas])
+
+  if (!hasTarefasAccess) {
+    return <ModuleAccessState module="tarefas" />
+  }
 
   const handleAddTarefa = () => {
     if (!descricao.trim() || !dataHora || !responsavelId || !clienteId) return

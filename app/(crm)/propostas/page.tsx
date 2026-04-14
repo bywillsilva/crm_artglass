@@ -60,10 +60,7 @@ export default function PropostasPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editingPropostaId, setEditingPropostaId] = useState<string | null>(null)
   const [detailsPropostaId, setDetailsPropostaId] = useState<string | null>(null)
-
-  if (!hasModuleAccess(user, 'propostas')) {
-    return <ModuleAccessState module="propostas" />
-  }
+  const hasPropostasAccess = hasModuleAccess(user, 'propostas')
 
   const propostasEmAndamento = state.propostas.filter((proposta) => openStatuses.includes(proposta.status))
   const propostasFechadas = state.propostas.filter((proposta) => proposta.status === 'fechado')
@@ -77,6 +74,10 @@ export default function PropostasPage() {
     if (!state.propostas.length) return '0'
     return ((propostasFechadas.length / state.propostas.length) * 100).toFixed(1)
   }, [propostasFechadas.length, state.propostas.length])
+
+  if (!hasPropostasAccess) {
+    return <ModuleAccessState module="propostas" />
+  }
 
   const renderPropostaRow = (proposta: typeof state.propostas[number]) => {
     const cliente = getCliente(proposta.clienteId)

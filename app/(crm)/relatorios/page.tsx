@@ -48,10 +48,7 @@ export default function RelatoriosPage() {
   const { appearance, formatCurrency } = useAppSettings()
   const { user } = useSession()
   const [dateFilter, setDateFilter] = useState(createDefaultDateFilter())
-
-  if (!hasModuleAccess(user, 'relatorios')) {
-    return <ModuleAccessState module="relatorios" />
-  }
+  const hasRelatoriosAccess = hasModuleAccess(user, 'relatorios')
 
   const clientesFiltrados = useMemo(
     () => state.clientes.filter((cliente) => isWithinDateFilter(cliente.criadoEm, dateFilter)),
@@ -65,6 +62,10 @@ export default function RelatoriosPage() {
       ),
     [dateFilter, state.propostas]
   )
+
+  if (!hasRelatoriosAccess) {
+    return <ModuleAccessState module="relatorios" />
+  }
 
   const totalClientes = clientesFiltrados.length
   const totalLeads = propostasFiltradas.filter((proposta) =>
