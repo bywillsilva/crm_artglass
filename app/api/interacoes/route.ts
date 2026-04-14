@@ -1,0 +1,58 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { query } from '@/lib/db/mysql'
+import { v4 as uuidv4 } from 'uuid'
+import { getServerSession } from '@/lib/auth/session'
+import { formatDateTime } from '@/lib/server/proposal-workflow'
+
+export async function GET(request: NextRequest) {
+  try {
+    const searchParams = request.nextUrl.searchParams
+    const clienteId = searchParams.get('cliente_id')
+
+    const sql = `
+      SELECT i.*, u.nome as usuario_nome
+      FROM interacoes i
+      LEFT JOIN usuarios u ON i.usuario_id = u.id
+      ${clienteId ? 'WHERE i.cliente_id = ?' : ''}
+      ORDER BY i.created_at DESC
+    `
+
+    const interacoes = await query(sql, clienteId ? [clienteId] : [])
+    return NextResponse.json(interacoes)
+  } catch (error) {
+    console.error('Erro ao buscar interacoes:', error)
+    return NextResponse.json({ error: 'Erro ao buscar interacoes' }, { status: 500 })
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const session = await getServerSession()
+    if (!session) {
+      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+    }
+
+    const data = await request.json()
+    const id = uuidv4()
+
+    await query(
+      `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        data.clienteId,
+        session.userId,
+        data.tipo,
+        data.descricao,
+        data.dados ? JSON.stringify(data.dados) : null,
+        formatDateTime(new Date()),
+      ]
+    )
+
+    const [interacao] = await query<any[]>('SELECT * FROM interacoes WHERE id = ?', [id])
+    return NextResponse.json(interacao, { status: 201 })
+  } catch (error) {
+    console.error('Erro ao criar interacao:', error)
+    return NextResponse.json({ error: 'Erro ao criar interacao' }, { status: 500 })
+  }
+}
