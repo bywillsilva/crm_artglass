@@ -9,9 +9,15 @@ import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, Tooltip } from 
 import { statusPropostaLabels, type StatusProposta } from '@/lib/data/types'
 
 const funilStages: { status: StatusProposta; color: string }[] = [
-  { status: 'em_cotacao', color: '#64748b' },
+  { status: 'novo_cliente', color: '#0ea5e9' },
+  { status: 'em_orcamento', color: '#64748b' },
+  { status: 'aguardando_aprovacao', color: '#8b5cf6' },
+  { status: 'enviar_ao_cliente', color: '#2563eb' },
   { status: 'enviado_ao_cliente', color: '#3b82f6' },
-  { status: 'em_negociacao', color: '#f59e0b' },
+  { status: 'follow_up_1_dia', color: '#10b981' },
+  { status: 'follow_up_3_dias', color: '#059669' },
+  { status: 'follow_up_7_dias', color: '#047857' },
+  { status: 'stand_by', color: '#71717a' },
   { status: 'em_retificacao', color: '#a855f7' },
   { status: 'fechado', color: '#10b981' },
   { status: 'perdido', color: '#ef4444' },

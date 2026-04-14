@@ -1,16 +1,18 @@
 import { NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
+import { ensureUserRoleSchema } from '@/lib/server/proposal-workflow'
 
 export async function GET() {
   try {
+    await ensureUserRoleSchema()
     const session = await getServerSession()
     if (!session) {
       return NextResponse.json({ user: null }, { status: 401 })
     }
 
     const [user] = await query<any[]>(
-      'SELECT id, nome, email, avatar, role, ativo FROM usuarios WHERE id = ? LIMIT 1',
+      'SELECT id, nome, email, avatar, role, ativo, module_permissions FROM usuarios WHERE id = ? LIMIT 1',
       [session.userId]
     )
 
@@ -26,6 +28,7 @@ export async function GET() {
         avatar: user.avatar,
         role: user.role,
         ativo: user.ativo,
+        modulePermissions: user.module_permissions,
       },
     })
   } catch (error) {

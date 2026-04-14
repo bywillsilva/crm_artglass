@@ -120,18 +120,6 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
     shownBrowserNotificationIds.current = new Set(saved ? JSON.parse(saved) : [])
   }, [user?.id])
 
-  const allowedClienteIds = useMemo(() => {
-    if (user?.role === 'admin') {
-      return new Set(state.clientes.map((cliente) => cliente.id))
-    }
-
-    return new Set(
-      state.propostas
-        .filter((proposta) => proposta.responsavelId === user?.id)
-        .map((proposta) => proposta.clienteId)
-    )
-  }, [state.clientes, state.propostas, user?.id, user?.role])
-
   const allowedPropostaIds = useMemo(() => {
     if (user?.role === 'admin') {
       return new Set(state.propostas.map((proposta) => proposta.id))
@@ -169,37 +157,28 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
 
   const actionNotifications = useMemo<HeaderNotification[]>(() => {
     if (!loadedReadNotifications) return []
+    if (!notifications.propostas) return []
 
     return interacoes
       .filter((interacao: Interacao) => {
-        if (interacao.dados?.silent_notification) {
+        if (interacao.dados?.silent_notification || interacao.tipo !== 'proposta') {
           return false
         }
 
-        if (interacao.tipo === 'proposta') {
-          if (!notifications.propostas) return false
-          const propostaId = String(interacao.dados?.proposta_id || '')
-          return user?.role === 'admin' || allowedPropostaIds.has(propostaId)
+        if (interacao.dados?.notification_kind !== 'proposal_status') {
+          return false
         }
 
-        if (interacao.tipo === 'tarefa') {
-          if (user?.role === 'admin') return true
-          return allowedClienteIds.has(interacao.clienteId) || interacao.usuarioId === user?.id
-        }
-
-        if (user?.role === 'admin') return true
-        if (!notifications.novosLeads) return false
-        return allowedClienteIds.has(interacao.clienteId)
+        const propostaId = String(interacao.dados?.proposta_id || '')
+        return user?.role === 'admin' || allowedPropostaIds.has(propostaId)
       })
       .map((interacao: Interacao) => {
-        const isProposal = interacao.tipo === 'proposta'
-        const isTask = interacao.tipo === 'tarefa'
         return {
           id: `interaction-${interacao.id}`,
-          group: isProposal ? 'propostas' : isTask ? 'tarefas' : 'clientes',
-          title: isProposal ? 'Atualizacao de proposta' : isTask ? 'Atualizacao de tarefa' : 'Atualizacao de cliente',
+          group: 'propostas',
+          title: 'Atualizacao de status da proposta',
           description: interacao.descricao,
-          href: isProposal ? '/propostas' : isTask ? '/tarefas' : `/clientes/${interacao.clienteId}`,
+          href: '/propostas',
           createdAt: new Date(interacao.criadoEm).getTime(),
           persistent: false,
         }
@@ -208,14 +187,11 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
       .sort((a: HeaderNotification, b: HeaderNotification) => b.createdAt - a.createdAt)
       .slice(0, 20)
   }, [
-    allowedClienteIds,
     allowedPropostaIds,
     interacoes,
     loadedReadNotifications,
-    notifications.novosLeads,
     notifications.propostas,
     readNotificationIds,
-    user?.id,
     user?.role,
   ])
 
@@ -300,7 +276,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
         )
       ),
       propostas: state.propostas.filter((proposta) =>
-        [proposta.titulo || '', proposta.descricao].some((value) =>
+        [proposta.titulo || '', proposta.descricao || ''].some((value) =>
           value.toLowerCase().includes(term)
         )
       ),

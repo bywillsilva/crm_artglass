@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
-import { ensureProposalStatusSchema, ensureResponsibilityIntegrity } from '@/lib/server/proposal-workflow'
+import { ensureProposalStatusSchema, ensureResponsibilityIntegrity, syncDueFollowUpStatuses } from '@/lib/server/proposal-workflow'
 
 async function getAuthenticatedUser() {
   const session = await getServerSession()
@@ -58,7 +58,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
 
-    const isAdmin = user.role === 'admin'
+    await syncDueFollowUpStatuses()
+
+    const isAdmin = user.role === 'admin' || user.role === 'gerente'
     const { startDate, endDate } = getDateRange(request)
     const startDateTime = `${startDate} 00:00:00`
     const endDateTime = `${endDate} 23:59:59`
@@ -105,13 +107,13 @@ export async function GET(request: NextRequest) {
     )
 
     const funilData = await query<any[]>(
-      `SELECT status as status_lead, COUNT(*) as count, COALESCE(SUM(valor_final), 0) as valor
-       FROM propostas
-       WHERE 1=1${proposalFilter}
-       GROUP BY status
-       ORDER BY FIELD(status, 'em_cotacao', 'enviado_ao_cliente', 'em_negociacao', 'em_retificacao', 'fechado', 'perdido')`,
-      proposalParams
-    )
+       `SELECT status as status_lead, COUNT(*) as count, COALESCE(SUM(valor_final), 0) as valor
+        FROM propostas
+        WHERE 1=1${proposalFilter}
+        GROUP BY status
+        ORDER BY FIELD(status, 'novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao', 'enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'perdido')`,
+       proposalParams
+     )
 
     const vendasPorMes = await query<any[]>(
       `SELECT
@@ -200,12 +202,12 @@ export async function GET(request: NextRequest) {
     )
 
     const propostasEmAberto = await query<any[]>(
-      `SELECT p.*, c.nome as cliente_nome
-       FROM propostas p
-       LEFT JOIN clientes c ON p.cliente_id = c.id
-       WHERE p.status IN ('em_cotacao', 'enviado_ao_cliente', 'em_negociacao', 'em_retificacao')${proposalAliasedFilter}
-       ORDER BY p.updated_at DESC
-       LIMIT 10`,
+       `SELECT p.*, c.nome as cliente_nome
+        FROM propostas p
+        LEFT JOIN clientes c ON p.cliente_id = c.id
+        WHERE p.status IN ('novo_cliente', 'em_orcamento', 'aguardando_aprovacao', 'enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'stand_by', 'em_retificacao')${proposalAliasedFilter}
+        ORDER BY p.updated_at DESC
+        LIMIT 10`,
       proposalParams
     )
 

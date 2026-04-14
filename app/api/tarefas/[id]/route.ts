@@ -53,7 +53,7 @@ export async function GET(
       return NextResponse.json({ error: 'Tarefa nao encontrada' }, { status: 404 })
     }
 
-    if (user.role !== 'admin' && tarefa.responsavel_id !== user.id) {
+    if (!['admin', 'gerente'].includes(user.role) && tarefa.responsavel_id !== user.id) {
       return NextResponse.json({ error: 'Acesso negado a esta tarefa' }, { status: 403 })
     }
 
@@ -85,7 +85,7 @@ export async function PUT(
       return NextResponse.json({ error: 'Tarefa nao encontrada' }, { status: 404 })
     }
 
-    if (user.role !== 'admin' && tarefaAtual.responsavel_id !== user.id) {
+    if (!['admin', 'gerente'].includes(user.role) && tarefaAtual.responsavel_id !== user.id) {
       return NextResponse.json(
         { error: 'Apenas o responsavel pela tarefa ou o administrador podem edita-la' },
         { status: 403 }
@@ -151,7 +151,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Tarefa nao encontrada' }, { status: 404 })
     }
 
-    if (user.role !== 'admin' && tarefaAtual.responsavel_id !== user.id) {
+    if (!['admin', 'gerente'].includes(user.role) && tarefaAtual.responsavel_id !== user.id) {
       return NextResponse.json(
         { error: 'Apenas o responsavel pela tarefa ou o administrador podem altera-la' },
         { status: 403 }
@@ -208,7 +208,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Tarefa nao encontrada' }, { status: 404 })
     }
 
-    if (user.role !== 'admin' && tarefa.responsavel_id !== user.id) {
+    if (!['admin', 'gerente'].includes(user.role) && tarefa.responsavel_id !== user.id) {
       return NextResponse.json(
         { error: 'Apenas o responsavel pela tarefa ou o administrador podem exclui-la' },
         { status: 403 }

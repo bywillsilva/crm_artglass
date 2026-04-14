@@ -1,11 +1,19 @@
 "use client"
 
 import { useState } from "react"
+import {
+  MODULE_KEYS,
+  getDefaultModulePermissions,
+  hasModuleAccess,
+  moduleLabels,
+  normalizeModulePermissions,
+} from "@/lib/auth/module-access"
 import { useCRM } from "@/lib/context/crm-context"
 import { useAppSettings } from "@/lib/context/app-settings-context"
 import { useSession } from "@/lib/hooks/use-api"
 import type { RoleUsuario, Usuario } from "@/lib/data/types"
 import { CRMHeader } from "@/components/crm/header"
+import { ModuleAccessState } from "@/components/crm/module-access-state"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -54,6 +62,8 @@ export default function UsuariosPage() {
     ativo: true,
     senha: "",
     confirmarSenha: "",
+    permissionMode: "padrao" as "padrao" | "personalizado",
+    modulePermissions: getDefaultModulePermissions("vendedor"),
   })
 
   const filteredUsers = state.usuarios.filter((user) => {
@@ -80,6 +90,8 @@ export default function UsuariosPage() {
         ativo: user.ativo,
         senha: "",
         confirmarSenha: "",
+        permissionMode: "personalizado",
+        modulePermissions: normalizeModulePermissions(user.modulePermissions, user.role),
       })
     } else {
       setEditingUser(null)
@@ -91,6 +103,8 @@ export default function UsuariosPage() {
         ativo: true,
         senha: "",
         confirmarSenha: "",
+        permissionMode: "padrao",
+        modulePermissions: getDefaultModulePermissions("vendedor"),
       })
     }
     setIsDialogOpen(true)
@@ -109,6 +123,11 @@ export default function UsuariosPage() {
       }
     }
 
+    const modulePermissions =
+      formData.permissionMode === "padrao"
+        ? getDefaultModulePermissions(formData.role)
+        : normalizeModulePermissions(formData.modulePermissions, formData.role)
+
     if (editingUser) {
       await updateUsuario({
         ...editingUser,
@@ -117,6 +136,7 @@ export default function UsuariosPage() {
         role: formData.role,
         avatar: formData.avatar,
         ativo: formData.ativo,
+        modulePermissions,
       })
     } else {
       await addUsuario({
@@ -126,6 +146,7 @@ export default function UsuariosPage() {
         avatar: formData.avatar,
         ativo: formData.ativo,
         senha: formData.senha,
+        modulePermissions,
       })
     }
 
@@ -144,11 +165,13 @@ export default function UsuariosPage() {
       admin: "bg-purple-500/20 text-purple-400 border-purple-500/30",
       gerente: "bg-blue-500/20 text-blue-400 border-blue-500/30",
       vendedor: "bg-green-500/20 text-green-400 border-green-500/30",
+      orcamentista: "bg-amber-500/20 text-amber-400 border-amber-500/30",
     }
     const labels = {
       admin: "Administrador",
       gerente: "Gerente",
       vendedor: "Vendedor",
+      orcamentista: "Orcamentista",
     }
     return <Badge variant="outline" className={styles[role]}>{labels[role]}</Badge>
   }
@@ -159,24 +182,15 @@ export default function UsuariosPage() {
         return <Shield className="h-4 w-4" />
       case "gerente":
         return <Users className="h-4 w-4" />
+      case "orcamentista":
+        return <UserIcon className="h-4 w-4" />
       default:
         return <UserIcon className="h-4 w-4" />
     }
   }
 
-  if (sessionUser && sessionUser.role !== "admin") {
-    return (
-      <>
-        <CRMHeader title="Usuarios" subtitle="Area restrita a administradores" />
-        <div className="flex-1 overflow-auto p-6">
-          <Card className="bg-card border-border">
-            <CardContent className="p-6 text-muted-foreground">
-              Apenas administradores podem acessar esta area.
-            </CardContent>
-          </Card>
-        </div>
-      </>
-    )
+  if (!hasModuleAccess(sessionUser, "usuarios")) {
+    return <ModuleAccessState module="usuarios" />
   }
 
   const totalUsers = state.usuarios.length
@@ -184,6 +198,7 @@ export default function UsuariosPage() {
   const adminCount = state.usuarios.filter((u) => u.role === "admin").length
   const gerenteCount = state.usuarios.filter((u) => u.role === "gerente").length
   const vendedorCount = state.usuarios.filter((u) => u.role === "vendedor").length
+  const orcamentistaCount = state.usuarios.filter((u) => u.role === "orcamentista").length
 
   return (
     <>
@@ -194,12 +209,13 @@ export default function UsuariosPage() {
       />
 
       <div className="flex-1 overflow-auto p-6 space-y-6">
-        <div className="grid gap-4 md:grid-cols-5">
+        <div className="grid gap-4 md:grid-cols-6">
           <SummaryCard title="Total" value={totalUsers} icon={<Users className="h-4 w-4 text-muted-foreground" />} />
           <SummaryCard title="Ativos" value={activeUsers} icon={<div className="h-2 w-2 rounded-full bg-green-500" />} />
           <SummaryCard title="Admins" value={adminCount} icon={<Shield className="h-4 w-4 text-purple-400" />} />
           <SummaryCard title="Gerentes" value={gerenteCount} icon={<Users className="h-4 w-4 text-blue-400" />} />
           <SummaryCard title="Vendedores" value={vendedorCount} icon={<UserIcon className="h-4 w-4 text-green-400" />} />
+          <SummaryCard title="Orcamentistas" value={orcamentistaCount} icon={<UserIcon className="h-4 w-4 text-amber-400" />} />
         </div>
 
         <Card className="bg-card border-border">
@@ -227,6 +243,7 @@ export default function UsuariosPage() {
                   <SelectItem value="admin">Administrador</SelectItem>
                   <SelectItem value="gerente">Gerente</SelectItem>
                   <SelectItem value="vendedor">Vendedor</SelectItem>
+                  <SelectItem value="orcamentista">Orcamentista</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -327,7 +344,16 @@ export default function UsuariosPage() {
               <Label htmlFor="role">Funcao</Label>
               <Select
                 value={formData.role}
-                onValueChange={(value: RoleUsuario) => setFormData({ ...formData, role: value })}
+                onValueChange={(value: RoleUsuario) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    role: value,
+                    modulePermissions:
+                      prev.permissionMode === "padrao"
+                        ? getDefaultModulePermissions(value)
+                        : prev.modulePermissions,
+                  }))
+                }
                 disabled={isEditingSelfAdmin}
               >
                 <SelectTrigger>
@@ -337,6 +363,7 @@ export default function UsuariosPage() {
                   <SelectItem value="admin">Administrador</SelectItem>
                   <SelectItem value="gerente">Gerente</SelectItem>
                   <SelectItem value="vendedor">Vendedor</SelectItem>
+                  <SelectItem value="orcamentista">Orcamentista</SelectItem>
                 </SelectContent>
               </Select>
               {isEditingSelfAdmin && (
@@ -344,6 +371,92 @@ export default function UsuariosPage() {
                   O administrador nao pode alterar o proprio nivel de acesso.
                 </p>
               )}
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="permission-mode">Modelo de Permissao</Label>
+              <Select
+                value={isEditingSelfAdmin || formData.role === "admin" ? "padrao" : formData.permissionMode}
+                onValueChange={(value: "padrao" | "personalizado") =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    permissionMode: value,
+                    modulePermissions:
+                      value === "padrao"
+                        ? getDefaultModulePermissions(prev.role)
+                        : normalizeModulePermissions(prev.modulePermissions, prev.role),
+                  }))
+                }
+                disabled={isEditingSelfAdmin || formData.role === "admin"}
+              >
+                <SelectTrigger id="permission-mode">
+                  <SelectValue placeholder="Escolha o modelo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="padrao">Permissao predefinida</SelectItem>
+                  <SelectItem value="personalizado">Permissao personalizada</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                O admin sempre possui acesso total. Para os demais usuarios voce pode manter o padrao da funcao ou personalizar modulo por modulo.
+              </p>
+            </div>
+            <div className="grid gap-3 rounded-lg border border-border p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-foreground">Modulos liberados</p>
+                  <p className="text-xs text-muted-foreground">Controle o que este usuario pode acessar na leftbar e nas paginas.</p>
+                </div>
+                {formData.permissionMode === "personalizado" && formData.role !== "admin" && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        modulePermissions: getDefaultModulePermissions(prev.role),
+                      }))
+                    }
+                  >
+                    Reaplicar padrao
+                  </Button>
+                )}
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {MODULE_KEYS.map((moduleKey) => {
+                  const checked =
+                    formData.role === "admin"
+                      ? true
+                      : normalizeModulePermissions(formData.modulePermissions, formData.role)[moduleKey]
+                  return (
+                    <div key={moduleKey} className="flex items-center justify-between rounded-md bg-secondary/30 px-3 py-2">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">{moduleLabels[moduleKey]}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {checked ? "Acesso liberado" : "Acesso bloqueado"}
+                        </p>
+                      </div>
+                      <Switch
+                        checked={checked}
+                        disabled={
+                          formData.role === "admin" ||
+                          isEditingSelfAdmin ||
+                          formData.permissionMode !== "personalizado"
+                        }
+                        onCheckedChange={(nextChecked) =>
+                          setFormData((prev) => ({
+                            ...prev,
+                            modulePermissions: {
+                              ...normalizeModulePermissions(prev.modulePermissions, prev.role),
+                              [moduleKey]: nextChecked,
+                            },
+                          }))
+                        }
+                      />
+                    </div>
+                  )
+                })}
+              </div>
             </div>
             {!editingUser && (
               <>

@@ -63,7 +63,7 @@ export const propostasIniciais: Proposta[] = [
     clienteId: 'client-3',
     valor: 32000,
     descricao: 'Sistema fotovoltaico 5kWp - Residencial',
-    status: 'em_cotacao',
+    status: 'em_orcamento',
     dataEnvio: new Date('2026-03-16'),
     criadoEm: new Date('2026-03-16'),
   },

@@ -212,7 +212,20 @@ export function CRMProvider({ children }: { children: ReactNode }) {
 
   const getPropostasEmAberto = () =>
     state.propostas.filter((proposta) =>
-      ['em_cotacao', 'enviado_ao_cliente', 'em_negociacao', 'em_retificacao'].includes(proposta.status)
+      [
+        'novo_cliente',
+        'em_orcamento',
+        'aguardando_aprovacao',
+        'enviar_ao_cliente',
+        'enviado_ao_cliente',
+        'follow_up_1_dia',
+        'aguardando_follow_up_3_dias',
+        'follow_up_3_dias',
+        'aguardando_follow_up_7_dias',
+        'follow_up_7_dias',
+        'stand_by',
+        'em_retificacao',
+      ].includes(proposta.status)
     )
 
   return (

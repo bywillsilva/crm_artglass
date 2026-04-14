@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
+import { ensureUserRoleSchema } from '@/lib/server/proposal-workflow'
+import { normalizeModulePermissions } from '@/lib/auth/module-access'
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureUserRoleSchema()
     await query(`
       ALTER TABLE usuarios
       ADD COLUMN IF NOT EXISTS meta_vendas DECIMAL(15, 2) NOT NULL DEFAULT 0
@@ -15,7 +18,7 @@ export async function GET(
 
     const { id } = await params
     const [usuario] = await query<any[]>(
-      'SELECT id, nome, email, avatar, role, ativo, meta_vendas, created_at FROM usuarios WHERE id = ?',
+      'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, created_at FROM usuarios WHERE id = ?',
       [id]
     )
 
@@ -35,6 +38,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureUserRoleSchema()
     await query(`
       ALTER TABLE usuarios
       ADD COLUMN IF NOT EXISTS meta_vendas DECIMAL(15, 2) NOT NULL DEFAULT 0
@@ -45,7 +49,7 @@ export async function PUT(
     const session = await getServerSession()
 
     const [usuarioAtual] = await query<any[]>(
-      'SELECT id, role FROM usuarios WHERE id = ? LIMIT 1',
+      'SELECT id, role, module_permissions FROM usuarios WHERE id = ? LIMIT 1',
       [id]
     )
 
@@ -74,15 +78,24 @@ export async function PUT(
       .toUpperCase()
       .slice(0, 2)
 
+    const nextRole = data.role || usuarioAtual.role
+    const modulePermissions = normalizeModulePermissions(
+      data.modulePermissions ?? usuarioAtual.module_permissions,
+      nextRole
+    )
+
     let sql = 'UPDATE usuarios SET nome = ?, email = ?, avatar = ?, role = ?, ativo = ?, meta_vendas = ?'
     const queryParams: unknown[] = [
       data.nome,
       data.email,
       iniciais,
-      data.role,
+      nextRole,
       data.ativo,
       Number(data.metaVendas ?? data.meta_vendas ?? 0),
     ]
+
+    sql += ', module_permissions = ?'
+    queryParams.push(JSON.stringify(modulePermissions))
 
     if (data.senha) {
       const senhaHash = await bcrypt.hash(data.senha, 10)
@@ -96,7 +109,7 @@ export async function PUT(
     await query(sql, queryParams)
 
     const [usuario] = await query<any[]>(
-      'SELECT id, nome, email, avatar, role, ativo, meta_vendas, created_at FROM usuarios WHERE id = ?',
+      'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, created_at FROM usuarios WHERE id = ?',
       [id]
     )
 

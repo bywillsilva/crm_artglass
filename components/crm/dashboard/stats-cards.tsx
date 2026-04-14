@@ -38,7 +38,18 @@ export function StatsCards() {
   }
 
   const propostasEmAberto = state.propostas.filter((proposta) =>
-    ['em_cotacao', 'enviado_ao_cliente', 'em_negociacao', 'em_retificacao'].includes(proposta.status)
+    [
+      'novo_cliente',
+      'em_orcamento',
+      'aguardando_aprovacao',
+      'enviar_ao_cliente',
+      'enviado_ao_cliente',
+      'follow_up_1_dia',
+      'follow_up_3_dias',
+      'follow_up_7_dias',
+      'stand_by',
+      'em_retificacao',
+    ].includes(proposta.status)
   )
   const vendasFechadas = state.propostas.filter((proposta) => proposta.status === 'fechado')
   const totalVendas = vendasFechadas.reduce((acc, proposta) => acc + proposta.valor, 0)

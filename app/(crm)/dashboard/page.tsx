@@ -1,6 +1,9 @@
 'use client'
 
 import dynamic from 'next/dynamic'
+import { hasModuleAccess } from '@/lib/auth/module-access'
+import { useSession } from '@/lib/hooks/use-api'
+import { ModuleAccessState } from '@/components/crm/module-access-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 
@@ -83,5 +86,11 @@ function DashboardSkeleton() {
 }
 
 export default function DashboardPage() {
+  const { user } = useSession()
+
+  if (!hasModuleAccess(user, 'dashboard')) {
+    return <ModuleAccessState module="dashboard" />
+  }
+
   return <DashboardContent />
 }

@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { query } from '@/lib/db/mysql'
 import { createSessionToken, SESSION_COOKIE } from '@/lib/auth/session'
+import { ensureUserRoleSchema } from '@/lib/server/proposal-workflow'
 
 export async function POST(request: NextRequest) {
   try {
+    await ensureUserRoleSchema()
     const { email, senha } = await request.json()
 
     if (!email || !senha) {
@@ -12,7 +14,7 @@ export async function POST(request: NextRequest) {
     }
 
     const [user] = await query<any[]>(
-      'SELECT id, nome, email, senha, avatar, role, ativo FROM usuarios WHERE email = ? LIMIT 1',
+      'SELECT id, nome, email, senha, avatar, role, ativo, module_permissions FROM usuarios WHERE email = ? LIMIT 1',
       [email]
     )
 
@@ -37,6 +39,7 @@ export async function POST(request: NextRequest) {
         email: user.email,
         avatar: user.avatar,
         role: user.role,
+        modulePermissions: user.module_permissions,
       },
     })
 

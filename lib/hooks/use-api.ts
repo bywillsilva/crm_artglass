@@ -1,4 +1,6 @@
+import { useMemo } from 'react'
 import useSWR, { mutate } from 'swr'
+import { normalizeModulePermissions } from '@/lib/auth/module-access'
 import {
   formatDateOnlyLocalValue,
   formatMysqlDateTimeValue,
@@ -25,6 +27,7 @@ type SessionUser = {
   avatar: string
   role: string
   ativo: boolean
+  modulePermissions?: JsonRecord | null
 }
 
 type JsonRecord = Record<string, any>
@@ -34,6 +37,15 @@ const toDate = parseDateTimeValue
 function toNumber(value: unknown) {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+function parseJsonObject(value: unknown) {
+  if (typeof value !== 'string') return value
+  try {
+    return JSON.parse(value)
+  } catch {
+    return null
+  }
 }
 
 function joinAddress(row: JsonRecord) {
@@ -47,42 +59,78 @@ function inferTipoCliente(row: JsonRecord): TipoCliente {
 
 function mapPropostaStatusFromApi(status?: string): StatusProposta {
   switch (status) {
-    case 'em_cotacao':
-      return 'em_cotacao'
+    case 'novo_cliente':
+      return 'novo_cliente'
+    case 'em_orcamento':
+      return 'em_orcamento'
+    case 'aguardando_aprovacao':
+      return 'aguardando_aprovacao'
+    case 'enviar_ao_cliente':
+      return 'enviar_ao_cliente'
     case 'enviado_ao_cliente':
       return 'enviado_ao_cliente'
-    case 'em_negociacao':
-      return 'em_negociacao'
+    case 'follow_up_1_dia':
+      return 'follow_up_1_dia'
+    case 'aguardando_follow_up_3_dias':
+      return 'aguardando_follow_up_3_dias'
+    case 'follow_up_3_dias':
+      return 'follow_up_3_dias'
+    case 'aguardando_follow_up_7_dias':
+      return 'aguardando_follow_up_7_dias'
+    case 'follow_up_7_dias':
+      return 'follow_up_7_dias'
+    case 'stand_by':
+      return 'stand_by'
     case 'em_retificacao':
       return 'em_retificacao'
     case 'fechado':
       return 'fechado'
     case 'perdido':
       return 'perdido'
+    case 'em_cotacao':
+      return 'em_orcamento'
+    case 'em_negociacao':
+      return 'follow_up_1_dia'
     case 'rascunho':
-      return 'em_cotacao'
+      return 'em_orcamento'
     case 'enviada':
       return 'enviado_ao_cliente'
     case 'em_analise':
-      return 'em_negociacao'
+      return 'follow_up_1_dia'
     case 'aprovada':
       return 'fechado'
     case 'rejeitada':
     case 'expirada':
       return 'perdido'
     default:
-      return 'em_cotacao'
+      return 'novo_cliente'
   }
 }
 
 function mapPropostaStatusToApi(status?: StatusProposta | string) {
   switch (status) {
-    case 'em_cotacao':
-      return 'em_cotacao'
+    case 'novo_cliente':
+      return 'novo_cliente'
+    case 'em_orcamento':
+      return 'em_orcamento'
+    case 'aguardando_aprovacao':
+      return 'aguardando_aprovacao'
+    case 'enviar_ao_cliente':
+      return 'enviar_ao_cliente'
     case 'enviado_ao_cliente':
       return 'enviado_ao_cliente'
-    case 'em_negociacao':
-      return 'em_negociacao'
+    case 'follow_up_1_dia':
+      return 'follow_up_1_dia'
+    case 'aguardando_follow_up_3_dias':
+      return 'aguardando_follow_up_3_dias'
+    case 'follow_up_3_dias':
+      return 'follow_up_3_dias'
+    case 'aguardando_follow_up_7_dias':
+      return 'aguardando_follow_up_7_dias'
+    case 'follow_up_7_dias':
+      return 'follow_up_7_dias'
+    case 'stand_by':
+      return 'stand_by'
     case 'em_retificacao':
       return 'em_retificacao'
     case 'fechado':
@@ -90,7 +138,7 @@ function mapPropostaStatusToApi(status?: StatusProposta | string) {
     case 'perdido':
       return 'perdido'
     default:
-      return 'em_cotacao'
+      return 'novo_cliente'
   }
 }
 
@@ -104,7 +152,7 @@ function normalizeCliente(row: JsonRecord): Cliente {
     cargo: row.cargo ?? '',
     endereco: joinAddress(row),
     tipo: inferTipoCliente(row),
-    origem: row.origem ?? 'site',
+    origem: row.origem ?? '',
     observacoes: row.observacoes ?? '',
     status: (row.status ?? row.status_funil ?? 'lead_novo') as StatusFunil,
     valorEstimado: toNumber(row.valorEstimado ?? row.valor_potencial),
@@ -114,14 +162,19 @@ function normalizeCliente(row: JsonRecord): Cliente {
 }
 
 function normalizeUsuario(row: JsonRecord): Usuario {
+  const role = (row.role ?? 'vendedor') as Usuario['role']
   return {
     id: row.id,
     nome: row.nome ?? '',
     email: row.email ?? '',
     avatar: row.avatar ?? '',
-    role: row.role ?? 'vendedor',
+    role,
     ativo: Boolean(row.ativo),
     metaVendas: toNumber(row.metaVendas ?? row.meta_vendas),
+    modulePermissions: normalizeModulePermissions(
+      parseJsonObject(row.modulePermissions ?? row.module_permissions ?? null),
+      role
+    ),
   }
 }
 
@@ -135,6 +188,9 @@ function normalizeTarefa(row: JsonRecord): Tarefa {
     status: (row.status === 'cancelada' ? 'pendente' : row.status ?? 'pendente') as StatusTarefa,
     tipo: row.tipo ?? 'ligacao',
     responsavelId: row.responsavelId ?? row.responsavel_id ?? '',
+    propostaId: row.propostaId ?? row.proposta_id ?? '',
+    automacaoEtapa: row.automacaoEtapa ?? row.automacao_etapa ?? null,
+    origem: row.origem ?? 'manual',
     criadoEm: toDate(row.criadoEm ?? row.created_at),
   }
 }
@@ -143,11 +199,45 @@ function normalizeProposta(row: JsonRecord): Proposta {
   return {
     id: row.id,
     clienteId: row.clienteId ?? row.cliente_id ?? '',
+    clienteNome: row.clienteNome ?? row.cliente_nome ?? '',
+    numero: row.numero ?? '',
     titulo: row.titulo ?? 'Proposta Comercial',
     valor: toNumber(row.valor_final ?? row.valor),
-    descricao: row.descricao ?? row.titulo ?? '',
+    descricao: row.descricao ?? '',
     status: mapPropostaStatusFromApi(row.status),
     responsavelId: row.responsavelId ?? row.responsavel_id ?? '',
+    responsavelNome: row.responsavelNome ?? row.responsavel_nome ?? '',
+    orcamentistaId: row.orcamentistaId ?? row.orcamentista_id ?? '',
+    orcamentistaNome: row.orcamentistaNome ?? row.orcamentista_nome ?? '',
+    retificacoesCount: toNumber(row.retificacoesCount ?? row.retificacoes_count),
+    anexosCount: toNumber(row.anexosCount ?? row.anexos_count),
+    comentariosCount: toNumber(row.comentariosCount ?? row.comentarios_count),
+    anexos: Array.isArray(row.anexos)
+      ? row.anexos.map((anexo: JsonRecord) => ({
+          id: anexo.id,
+          nome: anexo.nome_original ?? anexo.nome ?? '',
+          url: anexo.url ?? '',
+          tipoMime: anexo.tipo_mime ?? anexo.tipoMime ?? '',
+          tamanho: toNumber(anexo.tamanho),
+          usuarioId: anexo.usuario_id ?? anexo.usuarioId ?? '',
+          criadoEm: toDate(anexo.created_at ?? anexo.criadoEm ?? row.created_at),
+        }))
+      : [],
+    comentarios: Array.isArray(row.comentarios)
+      ? row.comentarios.map((comentario: JsonRecord) => ({
+          id: comentario.id,
+          propostaId: comentario.proposta_id ?? comentario.propostaId ?? row.id,
+          usuarioId: comentario.usuario_id ?? comentario.usuarioId ?? '',
+          usuarioNome: comentario.usuario_nome ?? comentario.usuarioNome ?? '',
+          comentario: comentario.comentario ?? '',
+          criadoEm: toDate(comentario.created_at ?? comentario.criadoEm ?? row.created_at),
+        }))
+      : [],
+    followUpBaseAt:
+      row.followUpBaseAt ?? row.follow_up_base_at
+        ? toDate(row.followUpBaseAt ?? row.follow_up_base_at)
+        : null,
+    followUpTime: row.followUpTime ?? row.follow_up_time ?? null,
     dataEnvio: toDate(row.dataEnvio ?? row.created_at ?? row.validade),
     criadoEm: toDate(row.criadoEm ?? row.created_at),
   }
@@ -191,6 +281,25 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   return data as T
 }
 
+function buildProposalFormData(payload: JsonRecord, anexos: File[]) {
+  const formData = new FormData()
+
+  Object.entries(payload).forEach(([key, value]) => {
+    if (value === undefined || value === null) return
+    if (Array.isArray(value)) {
+      formData.append(key, JSON.stringify(value))
+      return
+    }
+    formData.append(key, String(value))
+  })
+
+  anexos.forEach((file) => {
+    formData.append('anexos', file)
+  })
+
+  return formData
+}
+
 function mutateByPrefix(prefix: string) {
   mutate((key) => typeof key === 'string' && key.startsWith(prefix))
 }
@@ -219,9 +328,10 @@ export function useClientes(params?: { status?: string; responsavel?: string; se
 
   const url = `/api/clientes${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
   const { data, error, isLoading } = useSWR(url, fetcher)
+  const clientes = useMemo(() => (data || []).map(normalizeCliente), [data])
 
   return {
-    clientes: (data || []).map(normalizeCliente),
+    clientes,
     isLoading,
     error,
     mutate: () => mutate(url),
@@ -231,9 +341,10 @@ export function useClientes(params?: { status?: string; responsavel?: string; se
 export function useCliente(id: string | null) {
   const key = id ? `/api/clientes/${id}` : null
   const { data, error, isLoading } = useSWR(key, fetcher)
+  const cliente = useMemo(() => (data ? normalizeCliente(data) : undefined), [data])
 
   return {
-    cliente: data ? normalizeCliente(data) : undefined,
+    cliente,
     isLoading,
     error,
     mutate: () => (key ? mutate(key) : undefined),
@@ -250,9 +361,10 @@ export function useTarefas(params?: { status?: string; tipo?: string; responsave
 
   const url = `/api/tarefas${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
   const { data, error, isLoading } = useSWR(url, fetcher)
+  const tarefas = useMemo(() => (data || []).map(normalizeTarefa), [data])
 
   return {
-    tarefas: (data || []).map(normalizeTarefa),
+    tarefas,
     isLoading,
     error,
     mutate: () => mutate(url),
@@ -267,12 +379,26 @@ export function usePropostas(params?: { status?: string; clienteId?: string }) {
 
   const url = `/api/propostas${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
   const { data, error, isLoading } = useSWR(url, fetcher)
+  const propostas = useMemo(() => (data || []).map(normalizeProposta), [data])
 
   return {
-    propostas: (data || []).map(normalizeProposta),
+    propostas,
     isLoading,
     error,
     mutate: () => mutate(url),
+  }
+}
+
+export function useProposta(id: string | null) {
+  const key = id ? `/api/propostas/${id}` : null
+  const { data, error, isLoading } = useSWR(key, fetcher)
+  const proposta = useMemo(() => (data ? normalizeProposta(data) : undefined), [data])
+
+  return {
+    proposta,
+    isLoading,
+    error,
+    mutate: () => (key ? mutate(key) : undefined),
   }
 }
 
@@ -284,9 +410,10 @@ export function useUsuarios(params?: { role?: string; ativo?: string }) {
 
   const url = `/api/usuarios${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
   const { data, error, isLoading } = useSWR(url, fetcher)
+  const usuarios = useMemo(() => (data || []).map(normalizeUsuario), [data])
 
   return {
-    usuarios: (data || []).map(normalizeUsuario),
+    usuarios,
     isLoading,
     error,
     mutate: () => mutate(url),
@@ -296,9 +423,10 @@ export function useUsuarios(params?: { role?: string; ativo?: string }) {
 export function useUsuario(id: string | null) {
   const key = id ? `/api/usuarios/${id}` : null
   const { data, error, isLoading } = useSWR(key, fetcher)
+  const usuario = useMemo(() => (data ? normalizeUsuario(data) : undefined), [data])
 
   return {
-    usuario: data ? normalizeUsuario(data) : undefined,
+    usuario,
     isLoading,
     error,
     mutate: () => (key ? mutate(key) : undefined),
@@ -315,9 +443,10 @@ export function useInteracoes(clienteId?: string | null) {
         : '/api/interacoes'
 
   const { data, error, isLoading } = useSWR(url, fetcher)
+  const interacoes = useMemo(() => (data || []).map(normalizeInteracao), [data])
 
   return {
-    interacoes: (data || []).map(normalizeInteracao),
+    interacoes,
     isLoading,
     error,
     mutate: () => (url ? mutate(url) : undefined),
@@ -326,9 +455,21 @@ export function useInteracoes(clienteId?: string | null) {
 
 export function useSession() {
   const { data, error, isLoading, mutate: localMutate } = useSWR('/api/auth/session', fetcher)
+  const user = useMemo(() => {
+    if (!data?.user) return null
+    const role = (data.user.role ?? 'vendedor') as Usuario['role']
+    return {
+      ...data.user,
+      role,
+      modulePermissions: normalizeModulePermissions(
+        parseJsonObject(data.user.modulePermissions ?? null),
+        role
+      ),
+    } as SessionUser & { role: Usuario['role'] }
+  }, [data])
 
   return {
-    user: (data?.user ?? null) as SessionUser | null,
+    user,
     error,
     isLoading,
     mutate: localMutate,
@@ -342,7 +483,7 @@ export async function createCliente(data: Partial<Cliente> & JsonRecord) {
     email: data.email || null,
     telefone: data.telefone || null,
     endereco: data.endereco || null,
-    origem: data.origem || 'site',
+    origem: data.origem || null,
     statusFunil: data.statusFunil || data.status || 'lead_novo',
     valorPotencial: data.valorPotencial ?? data.valorEstimado ?? 0,
     observacoes: data.observacoes || null,
@@ -371,7 +512,7 @@ export async function updateCliente(id: string, data: Partial<Cliente> & JsonRec
     email: data.email || null,
     telefone: data.telefone || null,
     endereco: data.endereco || null,
-    origem: data.origem || 'site',
+    origem: data.origem || null,
     statusFunil: data.statusFunil || data.status || 'lead_novo',
     valorPotencial: data.valorPotencial ?? data.valorEstimado ?? 0,
     observacoes: data.observacoes || null,
@@ -484,12 +625,19 @@ export async function createProposta(data: Partial<Proposta> & JsonRecord) {
     servicos: data.servicos || [],
     condicoes: data.condicoes || null,
     responsavelId: data.responsavelId || null,
+    orcamentistaId: data.orcamentistaId || null,
+    comentario: data.comentario || null,
+    followUpTime: data.followUpTime || null,
   }
-
+  const anexos = Array.isArray(data.anexos)
+    ? (data.anexos as unknown[]).filter((item): item is File => item instanceof File)
+    : []
+  const isMultipart = anexos.some((item) => item instanceof File)
+  const body = isMultipart ? buildProposalFormData(payload, anexos) : JSON.stringify(payload)
   const created = await requestJson('/api/propostas', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    ...(isMultipart ? {} : { headers: { 'Content-Type': 'application/json' } }),
+    body,
   })
 
   mutateByPrefix('/api/propostas')
@@ -510,12 +658,20 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     servicos: data.servicos || [],
     condicoes: data.condicoes || null,
     responsavelId: data.responsavelId || null,
+    orcamentistaId: data.orcamentistaId || null,
+    comentario: data.comentario || null,
+    clienteId: data.clienteId || null,
+    followUpTime: data.followUpTime || null,
   }
-
+  const anexos = Array.isArray(data.anexos)
+    ? (data.anexos as unknown[]).filter((item): item is File => item instanceof File)
+    : []
+  const isMultipart = anexos.some((item) => item instanceof File)
+  const body = isMultipart ? buildProposalFormData(payload, anexos) : JSON.stringify(payload)
   const updated = await requestJson(`/api/propostas/${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    ...(isMultipart ? {} : { headers: { 'Content-Type': 'application/json' } }),
+    body,
   })
 
   mutateByPrefix('/api/propostas')
@@ -540,6 +696,7 @@ export async function updatePropostaStatus(id: string, status: StatusProposta) {
         : propostaAtual.servicos || [],
     condicoes: propostaAtual.condicoes,
     responsavelId: propostaAtual.responsavel_id ?? propostaAtual.responsavelId,
+    orcamentistaId: propostaAtual.orcamentista_id ?? propostaAtual.orcamentistaId,
   })
 }
 

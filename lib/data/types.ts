@@ -26,15 +26,33 @@ export type StatusTarefa = 'pendente' | 'concluida' | 'atrasada'
 
 // Status de proposta
 export type StatusProposta =
-  | 'em_cotacao'
+  | 'novo_cliente'
+  | 'em_orcamento'
+  | 'aguardando_aprovacao'
+  | 'enviar_ao_cliente'
   | 'enviado_ao_cliente'
-  | 'em_negociacao'
+  | 'follow_up_1_dia'
+  | 'aguardando_follow_up_3_dias'
+  | 'follow_up_3_dias'
+  | 'aguardando_follow_up_7_dias'
+  | 'follow_up_7_dias'
+  | 'stand_by'
   | 'em_retificacao'
   | 'fechado'
   | 'perdido'
 
 // Role de usuario
-export type RoleUsuario = 'admin' | 'gerente' | 'vendedor'
+export type RoleUsuario = 'admin' | 'gerente' | 'vendedor' | 'orcamentista'
+export type ModuleKey =
+  | 'dashboard'
+  | 'clientes'
+  | 'funil'
+  | 'propostas'
+  | 'tarefas'
+  | 'relatorios'
+  | 'performance'
+  | 'usuarios'
+export type ModulePermissions = Record<ModuleKey, boolean>
 
 // Interface do Cliente
 export interface Cliente {
@@ -46,12 +64,31 @@ export interface Cliente {
   cargo?: string
   endereco: string
   tipo: TipoCliente
-  origem: string
+  origem?: string
   observacoes: string
   status: StatusFunil
   responsavelId?: string
   valorEstimado: number
   ultimoContato: Date
+  criadoEm: Date
+}
+
+export interface PropostaAnexo {
+  id: string
+  nome: string
+  url: string
+  tipoMime: string
+  tamanho: number
+  usuarioId?: string
+  criadoEm: Date
+}
+
+export interface PropostaComentario {
+  id: string
+  propostaId: string
+  usuarioId: string
+  usuarioNome?: string
+  comentario: string
   criadoEm: Date
 }
 
@@ -76,6 +113,9 @@ export interface Tarefa {
   status: StatusTarefa
   tipo?: string
   responsavelId: string
+  propostaId?: string
+  automacaoEtapa?: string | null
+  origem?: string
   criadoEm: Date
 }
 
@@ -83,11 +123,23 @@ export interface Tarefa {
 export interface Proposta {
   id: string
   clienteId: string
+  clienteNome?: string
+  numero?: string
   titulo?: string
   valor: number
-  descricao: string
+  descricao?: string
   status: StatusProposta
   responsavelId?: string
+  responsavelNome?: string
+  orcamentistaId?: string
+  orcamentistaNome?: string
+  retificacoesCount?: number
+  anexosCount?: number
+  comentariosCount?: number
+  anexos?: PropostaAnexo[]
+  comentarios?: PropostaComentario[]
+  followUpBaseAt?: Date | null
+  followUpTime?: string | null
   dataEnvio: Date
   criadoEm: Date
 }
@@ -101,6 +153,7 @@ export interface Usuario {
   role: RoleUsuario
   ativo: boolean
   metaVendas?: number
+  modulePermissions?: Partial<ModulePermissions>
 }
 
 // Labels para o funil
@@ -144,18 +197,34 @@ export const statusTarefaLabels: Record<StatusTarefa, string> = {
 
 // Labels para status de proposta
 export const statusPropostaLabels: Record<StatusProposta, string> = {
-  em_cotacao: 'Em Cotacao',
+  novo_cliente: 'Novo Cliente',
+  em_orcamento: 'Em Orcamento',
+  aguardando_aprovacao: 'Orcamento Pronto Aguardando Aprovacao',
+  enviar_ao_cliente: 'Enviar ao Cliente',
   enviado_ao_cliente: 'Enviado ao Cliente',
-  em_negociacao: 'Em Negociacao',
+  follow_up_1_dia: 'Follow-up 1 Dia',
+  aguardando_follow_up_3_dias: 'Aguardando Follow-up 3 Dias',
+  follow_up_3_dias: 'Follow-up 3 Dias',
+  aguardando_follow_up_7_dias: 'Aguardando Follow-up 7 Dias',
+  follow_up_7_dias: 'Follow-up 7 Dias',
+  stand_by: 'Stand-by',
   em_retificacao: 'Em Retificacao',
   fechado: 'Fechado',
   perdido: 'Perdido',
 }
 
 export const statusPropostaColors: Record<StatusProposta, string> = {
-  em_cotacao: 'bg-slate-500/20 text-slate-300 border-slate-500/30',
+  novo_cliente: 'bg-sky-500/20 text-sky-300 border-sky-500/30',
+  em_orcamento: 'bg-slate-500/20 text-slate-300 border-slate-500/30',
+  aguardando_aprovacao: 'bg-violet-500/20 text-violet-300 border-violet-500/30',
+  enviar_ao_cliente: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
   enviado_ao_cliente: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-  em_negociacao: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+  follow_up_1_dia: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+  aguardando_follow_up_3_dias: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+  follow_up_3_dias: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+  aguardando_follow_up_7_dias: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+  follow_up_7_dias: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+  stand_by: 'bg-zinc-500/20 text-zinc-300 border-zinc-500/30',
   em_retificacao: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
   fechado: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
   perdido: 'bg-red-500/20 text-red-400 border-red-500/30',
@@ -166,4 +235,5 @@ export const roleLabels: Record<RoleUsuario, string> = {
   admin: 'Administrador',
   gerente: 'Gerente',
   vendedor: 'Vendedor',
+  orcamentista: 'Orcamentista',
 }

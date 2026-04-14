@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
 import { getServerSession } from '@/lib/auth/session'
-import { formatDateTime } from '@/lib/server/proposal-workflow'
+import { ensureClientSchema, formatDateTime } from '@/lib/server/proposal-workflow'
 
 export async function GET(request: NextRequest) {
   try {
+    await ensureClientSchema()
     const searchParams = request.nextUrl.searchParams
     const status = searchParams.get('status')
     const search = searchParams.get('search')
@@ -40,6 +41,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    await ensureClientSchema()
     const session = await getServerSession()
     if (!session) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
@@ -64,7 +66,7 @@ export async function POST(request: NextRequest) {
         data.cidade || null,
         data.estado || null,
         data.cep || null,
-        data.origem || 'site',
+        data.origem || null,
         data.statusFunil || 'lead_novo',
         data.valorPotencial || 0,
         data.observacoes || null,

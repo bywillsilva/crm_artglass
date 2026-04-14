@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
 import bcrypt from 'bcryptjs'
+import { ensureUserRoleSchema } from '@/lib/server/proposal-workflow'
+import { normalizeModulePermissions } from '@/lib/auth/module-access'
 
 export async function GET(request: NextRequest) {
   try {
+    await ensureUserRoleSchema()
     const searchParams = request.nextUrl.searchParams
     const role = searchParams.get('role')
     const ativo = searchParams.get('ativo')
@@ -14,7 +17,7 @@ export async function GET(request: NextRequest) {
       ADD COLUMN IF NOT EXISTS meta_vendas DECIMAL(15, 2) NOT NULL DEFAULT 0
     `)
 
-    let sql = 'SELECT id, nome, email, avatar, role, ativo, meta_vendas, created_at FROM usuarios WHERE 1=1'
+    let sql = 'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, created_at FROM usuarios WHERE 1=1'
     const params: unknown[] = []
 
     if (role && role !== 'todos') {
@@ -39,6 +42,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    await ensureUserRoleSchema()
     await query(`
       ALTER TABLE usuarios
       ADD COLUMN IF NOT EXISTS meta_vendas DECIMAL(15, 2) NOT NULL DEFAULT 0
@@ -55,6 +59,7 @@ export async function POST(request: NextRequest) {
     }
 
     const senhaHash = await bcrypt.hash(data.senha, 10)
+    const modulePermissions = normalizeModulePermissions(data.modulePermissions, data.role || 'vendedor')
 
     // Gerar avatar a partir das iniciais
     const iniciais = data.nome
@@ -65,8 +70,8 @@ export async function POST(request: NextRequest) {
       .slice(0, 2)
 
     await query(
-      `INSERT INTO usuarios (id, nome, email, senha, avatar, role, ativo, meta_vendas)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO usuarios (id, nome, email, senha, avatar, role, ativo, meta_vendas, module_permissions)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         data.nome,
@@ -76,11 +81,12 @@ export async function POST(request: NextRequest) {
         data.role || 'vendedor',
         data.ativo ?? true,
         Number(data.metaVendas ?? data.meta_vendas ?? 0),
+        JSON.stringify(modulePermissions),
       ]
     )
 
     const [usuario] = await query<any[]>(
-      'SELECT id, nome, email, avatar, role, ativo, meta_vendas, created_at FROM usuarios WHERE id = ?',
+      'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, created_at FROM usuarios WHERE id = ?',
       [id]
     )
     return NextResponse.json(usuario, { status: 201 })

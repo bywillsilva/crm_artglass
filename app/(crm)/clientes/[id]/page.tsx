@@ -2,7 +2,9 @@
 
 import { use, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { hasModuleAccess } from '@/lib/auth/module-access'
 import { useCRM } from '@/lib/context/crm-context'
+import { useSession } from '@/lib/hooks/use-api'
 import { CRMHeader } from '@/components/crm/header'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -12,6 +14,7 @@ import { HistoryTab } from '@/components/crm/clientes/tabs/history-tab'
 import { TasksTab } from '@/components/crm/clientes/tabs/tasks-tab'
 import { ProposalsTab } from '@/components/crm/clientes/tabs/proposals-tab'
 import { ClientForm } from '@/components/crm/clientes/client-form'
+import { ModuleAccessState } from '@/components/crm/module-access-state'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -21,9 +24,14 @@ export default function ClienteDetailPage({ params }: PageProps) {
   const { id } = use(params)
   const router = useRouter()
   const { getCliente } = useCRM()
+  const { user } = useSession()
   const [showEditForm, setShowEditForm] = useState(false)
 
   const cliente = getCliente(id)
+
+  if (!hasModuleAccess(user, 'clientes')) {
+    return <ModuleAccessState module="clientes" />
+  }
 
   if (!cliente) {
     return (

@@ -13,8 +13,10 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import { hasModuleAccess } from '@/lib/auth/module-access'
 import { CRMHeader } from '@/components/crm/header'
 import { DateRangeFilter } from '@/components/crm/date-range-filter'
+import { ModuleAccessState } from '@/components/crm/module-access-state'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -41,22 +43,12 @@ export default function RelatorioVendedoresPage() {
   const [editingMetaUserId, setEditingMetaUserId] = useState<string | null>(null)
   const [metaInput, setMetaInput] = useState('')
 
-  if (user && user.role !== 'admin') {
-    return (
-      <>
-        <CRMHeader title="Performance de Vendedores" subtitle="Acesso restrito ao administrador" />
-        <div className="flex flex-1 items-center justify-center p-6">
-          <Card className="w-full max-w-xl border-border bg-card">
-            <CardContent className="p-8 text-center text-muted-foreground">
-              Apenas o administrador pode visualizar esta analise de performance.
-            </CardContent>
-          </Card>
-        </div>
-      </>
-    )
+  if (!hasModuleAccess(user, 'performance')) {
+    return <ModuleAccessState module="performance" />
   }
 
   const vendedores = state.usuarios.filter((usuario) => usuario.role === 'vendedor' || usuario.role === 'gerente')
+  const orcamentistas = state.usuarios.filter((usuario) => usuario.role === 'orcamentista')
   const propostasFiltradas = useMemo(
     () =>
       state.propostas.filter((proposta) =>
@@ -102,6 +94,38 @@ export default function RelatorioVendedoresPage() {
   const proposalMixData = performance.map((item) => ({
     name: item.nome.split(' ')[0],
     value: item.propostas,
+  }))
+
+  const budgetPerformance = orcamentistas.map((orcamentista) => {
+    const propostas = propostasFiltradas.filter((proposta) => proposta.orcamentistaId === orcamentista.id)
+    const recebidas = propostas.length
+    const emAndamento = propostas.filter((proposta) =>
+      ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
+    ).length
+    const aprovadasSemRetificacao = propostas.filter(
+      (proposta) =>
+        ['enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'perdido'].includes(proposta.status) &&
+        Number(proposta.retificacoesCount || 0) === 0
+    ).length
+    const comRetificacao = propostas.filter((proposta) => Number(proposta.retificacoesCount || 0) > 0).length
+    const aguardandoAprovacao = propostas.filter((proposta) => proposta.status === 'aguardando_aprovacao').length
+
+    return {
+      id: orcamentista.id,
+      nome: orcamentista.nome,
+      recebidas,
+      emAndamento,
+      aprovadasSemRetificacao,
+      comRetificacao,
+      aguardandoAprovacao,
+    }
+  })
+
+  const budgetChartData = budgetPerformance.map((item) => ({
+    name: item.nome.split(' ')[0],
+    recebidas: item.recebidas,
+    aprovadas: item.aprovadasSemRetificacao,
+    retificadas: item.comRetificacao,
   }))
 
   const handleOpenMetaDialog = (userId: string, currentMeta: number) => {
@@ -202,6 +226,27 @@ export default function RelatorioVendedoresPage() {
           </Card>
         </div>
 
+        <div className="grid grid-cols-1 gap-6">
+          <Card className="border-border bg-card">
+            <CardHeader>
+              <CardTitle>Performance de Orcamentistas</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={320}>
+                <BarChart data={budgetChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#243041" vertical={false} />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} />
+                  <YAxis axisLine={false} tickLine={false} allowDecimals={false} />
+                  <Tooltip />
+                  <Bar dataKey="recebidas" fill="#2563eb" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="aprovadas" fill="#10b981" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="retificadas" fill="#f59e0b" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        </div>
+
         <Card className="border-border bg-card">
           <CardHeader>
             <CardTitle>Resumo por Vendedor</CardTitle>
@@ -262,6 +307,62 @@ export default function RelatorioVendedoresPage() {
                   </div>
                 </div>
               ))
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-border bg-card">
+          <CardHeader>
+            <CardTitle>Resumo por Orcamentista</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {budgetPerformance.length === 0 ? (
+              <p className="py-6 text-center text-muted-foreground">Nenhum orcamentista encontrado.</p>
+            ) : (
+              budgetPerformance.map((item) => {
+                const taxaSemRetificacao =
+                  item.recebidas > 0 ? (item.aprovadasSemRetificacao / item.recebidas) * 100 : 0
+
+                return (
+                  <div key={item.id} className="rounded-xl border border-border bg-secondary/30 p-4">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="text-lg font-semibold text-foreground">{item.nome}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {item.recebidas} propostas recebidas no periodo
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-lg font-semibold text-foreground">{item.aprovadasSemRetificacao}</p>
+                        <p className="text-sm text-muted-foreground">
+                          aprovadas sem retificacao
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+                      <MiniMetric label="Recebidas" value={item.recebidas} />
+                      <MiniMetric label="Em andamento" value={item.emAndamento} />
+                      <MiniMetric label="Sem retificacao" value={item.aprovadasSemRetificacao} />
+                      <MiniMetric label="Com retificacao" value={item.comRetificacao} />
+                      <MiniMetric label="Aguardando aprovacao" value={item.aguardandoAprovacao} />
+                    </div>
+
+                    <div className="mt-4 space-y-2 rounded-lg border border-border bg-background/40 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium text-foreground">Taxa sem retificacao</p>
+                          <p className="text-xs text-muted-foreground">
+                            {item.aprovadasSemRetificacao} de {item.recebidas} propostas aprovadas direto
+                          </p>
+                        </div>
+                        <p className="text-sm font-semibold text-foreground">{taxaSemRetificacao.toFixed(1)}%</p>
+                      </div>
+                      <Progress value={taxaSemRetificacao} className="h-2.5" />
+                    </div>
+                  </div>
+                )
+              })
             )}
           </CardContent>
         </Card>

@@ -1,9 +1,11 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { hasModuleAccess } from '@/lib/auth/module-access'
 import { useTarefas, useClientes, useUsuarios, createTarefa, updateTarefa, updateTarefaStatus, deleteTarefa, useSession } from '@/lib/hooks/use-api'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { CRMHeader } from '@/components/crm/header'
+import { ModuleAccessState } from '@/components/crm/module-access-state'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -36,6 +38,10 @@ export default function TarefasPage() {
   const { usuarios } = useUsuarios()
   const { appearance, general, formatDateTime, formatDate } = useAppSettings()
   const { user } = useSession()
+
+  if (!hasModuleAccess(user, 'tarefas')) {
+    return <ModuleAccessState module="tarefas" />
+  }
 
   const [showAddForm, setShowAddForm] = useState(false)
   const [showEditForm, setShowEditForm] = useState(false)
@@ -182,9 +188,11 @@ export default function TarefasPage() {
               <Pencil className="w-4 h-4" />
             </Button>
           )}
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => handleDelete(tarefa.id)}>
-            <Trash2 className="w-4 h-4" />
-          </Button>
+          {canEdit && (
+            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => handleDelete(tarefa.id)}>
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          )}
         </div>
       </div>
     )

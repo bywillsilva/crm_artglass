@@ -1,11 +1,13 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { hasModuleAccess } from '@/lib/auth/module-access'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useSession } from '@/lib/hooks/use-api'
 import { CRMHeader } from '@/components/crm/header'
 import { DateRangeFilter } from '@/components/crm/date-range-filter'
+import { ModuleAccessState } from '@/components/crm/module-access-state'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   BarChart,
@@ -27,9 +29,15 @@ import { statusPropostaLabels, type Proposta, type StatusProposta } from '@/lib/
 import { createDefaultDateFilter, isWithinDateFilter, type DateFilterValue } from '@/lib/utils/date-filter'
 
 const funnelStatuses: { status: StatusProposta; color: string }[] = [
-  { status: 'em_cotacao', color: '#64748b' },
+  { status: 'novo_cliente', color: '#0ea5e9' },
+  { status: 'em_orcamento', color: '#64748b' },
+  { status: 'aguardando_aprovacao', color: '#8b5cf6' },
+  { status: 'enviar_ao_cliente', color: '#2563eb' },
   { status: 'enviado_ao_cliente', color: '#3b82f6' },
-  { status: 'em_negociacao', color: '#f59e0b' },
+  { status: 'follow_up_1_dia', color: '#10b981' },
+  { status: 'follow_up_3_dias', color: '#059669' },
+  { status: 'follow_up_7_dias', color: '#047857' },
+  { status: 'stand_by', color: '#71717a' },
   { status: 'em_retificacao', color: '#a855f7' },
   { status: 'fechado', color: '#10b981' },
   { status: 'perdido', color: '#ef4444' },
@@ -41,19 +49,8 @@ export default function RelatoriosPage() {
   const { user } = useSession()
   const [dateFilter, setDateFilter] = useState(createDefaultDateFilter())
 
-  if (user && user.role !== 'admin') {
-    return (
-      <>
-        <CRMHeader title="Relatorios" subtitle="Acesso restrito ao administrador" />
-        <div className="flex flex-1 items-center justify-center p-6">
-          <Card className="w-full max-w-xl border-border bg-card">
-            <CardContent className="p-8 text-center text-muted-foreground">
-              Apenas o administrador pode visualizar os relatorios consolidados.
-            </CardContent>
-          </Card>
-        </div>
-      </>
-    )
+  if (!hasModuleAccess(user, 'relatorios')) {
+    return <ModuleAccessState module="relatorios" />
   }
 
   const clientesFiltrados = useMemo(
@@ -71,7 +68,18 @@ export default function RelatoriosPage() {
 
   const totalClientes = clientesFiltrados.length
   const totalLeads = propostasFiltradas.filter((proposta) =>
-    ['em_cotacao', 'enviado_ao_cliente', 'em_negociacao', 'em_retificacao'].includes(proposta.status)
+    [
+      'novo_cliente',
+      'em_orcamento',
+      'aguardando_aprovacao',
+      'enviar_ao_cliente',
+      'enviado_ao_cliente',
+      'follow_up_1_dia',
+      'follow_up_3_dias',
+      'follow_up_7_dias',
+      'stand_by',
+      'em_retificacao',
+    ].includes(proposta.status)
   ).length
   const vendasFechadas = propostasFiltradas.filter((proposta) => proposta.status === 'fechado')
   const totalReceita = vendasFechadas.reduce((acc, proposta) => acc + proposta.valor, 0)
@@ -90,7 +98,7 @@ export default function RelatoriosPage() {
   })
 
   const vendedoresData = state.usuarios
-    .filter((usuario) => usuario.role !== 'admin')
+    .filter((usuario) => usuario.role === 'vendedor' || usuario.role === 'gerente')
     .map((vendedor) => {
       const clientes = new Set(
         propostasFiltradas
@@ -112,11 +120,12 @@ export default function RelatoriosPage() {
 
   const origensData = clientesFiltrados.reduce(
     (acc, cliente) => {
-      const existente = acc.find((item) => item.name === cliente.origem)
+      const origem = cliente.origem || 'Nao informado'
+      const existente = acc.find((item) => item.name === origem)
       if (existente) {
         existente.value += 1
       } else {
-        acc.push({ name: cliente.origem, value: 1 })
+        acc.push({ name: origem, value: 1 })
       }
       return acc
     },
@@ -197,7 +206,14 @@ export default function RelatoriosPage() {
               <ResponsiveContainer width="100%" height={360}>
                 <BarChart data={funilData} layout="vertical">
                   <XAxis type="number" hide />
-                  <YAxis dataKey="name" type="category" width={140} axisLine={false} tickLine={false} />
+                  <YAxis
+                    dataKey="name"
+                    type="category"
+                    width={220}
+                    axisLine={false}
+                    tickLine={false}
+                    tick={<WrappedYAxisTick />}
+                  />
                   <Tooltip />
                   <Bar dataKey="count" radius={[0, 4, 4, 0]}>
                     {funilData.map((entry, index) => (
@@ -273,6 +289,41 @@ export default function RelatoriosPage() {
         </div>
       </div>
     </>
+  )
+}
+
+function WrappedYAxisTick(props: any) {
+  const { x, y, payload } = props
+  const words = String(payload?.value || '').split(' ')
+  const lines: string[] = []
+
+  words.forEach((word) => {
+    const currentLine = lines[lines.length - 1]
+    if (!currentLine || `${currentLine} ${word}`.trim().length > 18) {
+      lines.push(word)
+      return
+    }
+
+    lines[lines.length - 1] = `${currentLine} ${word}`
+  })
+
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text
+        x={0}
+        y={0}
+        dy={4}
+        textAnchor="end"
+        fill="currentColor"
+        className="fill-muted-foreground text-xs"
+      >
+        {lines.map((line, index) => (
+          <tspan key={`${line}-${index}`} x={0} dy={index === 0 ? 0 : 14}>
+            {line}
+          </tspan>
+        ))}
+      </text>
+    </g>
   )
 }
 

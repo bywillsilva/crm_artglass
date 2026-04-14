@@ -16,19 +16,20 @@ import {
   Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { hasModuleAccess, type ModuleKey } from '@/lib/auth/module-access'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useSession } from '@/lib/hooks/use-api'
 import { cn } from '@/lib/utils'
 
 const menuItems = [
-  { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { title: 'Clientes', href: '/clientes', icon: Users },
-  { title: 'Funil de Vendas', href: '/funil', icon: Kanban },
-  { title: 'Tarefas', href: '/tarefas', icon: CheckSquare },
-  { title: 'Propostas', href: '/propostas', icon: FileText },
-  { title: 'Relatorios', href: '/relatorios', icon: BarChart3, adminOnly: true },
-  { title: 'Performance', href: '/relatorios/vendedores', icon: BarChart3, adminOnly: true },
-  { title: 'Usuarios', href: '/usuarios', icon: UserCog, adminOnly: true },
+  { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, module: 'dashboard' as ModuleKey },
+  { title: 'Clientes', href: '/clientes', icon: Users, module: 'clientes' as ModuleKey },
+  { title: 'Funil de Vendas', href: '/funil', icon: Kanban, module: 'funil' as ModuleKey },
+  { title: 'Propostas', href: '/propostas', icon: FileText, module: 'propostas' as ModuleKey },
+  { title: 'Tarefas', href: '/tarefas', icon: CheckSquare, module: 'tarefas' as ModuleKey },
+  { title: 'Relatorios', href: '/relatorios', icon: BarChart3, module: 'relatorios' as ModuleKey },
+  { title: 'Performance', href: '/relatorios/vendedores', icon: BarChart3, module: 'performance' as ModuleKey },
+  { title: 'Usuarios', href: '/usuarios', icon: UserCog, module: 'usuarios' as ModuleKey },
 ]
 
 export function CRMSidebar() {
@@ -37,7 +38,7 @@ export function CRMSidebar() {
   const { company } = useAppSettings()
   const { user } = useSession()
 
-  const visibleMenuItems = menuItems.filter((item) => !item.adminOnly || user?.role === 'admin')
+  const visibleMenuItems = menuItems.filter((item) => hasModuleAccess(user, item.module))
 
   return (
     <aside

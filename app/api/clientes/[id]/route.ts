@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
 import { getServerSession } from '@/lib/auth/session'
-import { formatDateTime } from '@/lib/server/proposal-workflow'
+import { ensureClientSchema, formatDateTime } from '@/lib/server/proposal-workflow'
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureClientSchema()
     const { id } = await params
     const [cliente] = await query<any[]>(
       `SELECT c.*
@@ -33,6 +34,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureClientSchema()
     const session = await getServerSession()
     if (!session) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
@@ -63,7 +65,7 @@ export async function PUT(
         data.cidade || null,
         data.estado || null,
         data.cep || null,
-        data.origem || 'site',
+        data.origem || null,
         data.statusFunil || 'lead_novo',
         data.valorPotencial || 0,
         data.observacoes || null,

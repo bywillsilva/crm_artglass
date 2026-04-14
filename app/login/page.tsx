@@ -5,6 +5,13 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -23,12 +30,14 @@ export default function LoginPage() {
   const [registerPassword, setRegisterPassword] = useState('')
   const [registerPasswordConfirm, setRegisterPasswordConfirm] = useState('')
   const [registerTokenRequested, setRegisterTokenRequested] = useState(false)
+  const [registerTokenDialogOpen, setRegisterTokenDialogOpen] = useState(false)
 
   const [resetEmail, setResetEmail] = useState('')
   const [resetToken, setResetToken] = useState('')
   const [resetPassword, setResetPassword] = useState('')
   const [resetPasswordConfirm, setResetPasswordConfirm] = useState('')
   const [resetTokenRequested, setResetTokenRequested] = useState(false)
+  const [resetTokenDialogOpen, setResetTokenDialogOpen] = useState(false)
 
   useEffect(() => {
     let isMounted = true
@@ -110,6 +119,7 @@ export default function LoginPage() {
       }
 
       setRegisterTokenRequested(true)
+      setRegisterTokenDialogOpen(true)
       toast.success('Enviamos um token de confirmacao para o seu e-mail.')
     } catch (error: any) {
       toast.error(error.message || 'Nao foi possivel solicitar o token')
@@ -167,6 +177,7 @@ export default function LoginPage() {
       }
 
       setResetTokenRequested(true)
+      setResetTokenDialogOpen(true)
       toast.success('Se existir uma conta com este e-mail, enviamos um token temporario.')
     } catch (error: any) {
       toast.error(error.message || 'Nao foi possivel solicitar o token')
@@ -209,6 +220,7 @@ export default function LoginPage() {
       setResetPassword('')
       setResetPasswordConfirm('')
       setResetTokenRequested(false)
+      setResetTokenDialogOpen(false)
       toast.success('Senha redefinida com sucesso. Agora voce ja pode entrar.')
     } catch (error: any) {
       toast.error(error.message || 'Nao foi possivel redefinir a senha')
@@ -298,7 +310,7 @@ export default function LoginPage() {
                   placeholder="Repita a senha"
                 />
               </div>
-              {!registerTokenRequested ? (
+              <div className="grid gap-2">
                 <Button
                   onClick={handleRegister}
                   className="w-full"
@@ -310,41 +322,19 @@ export default function LoginPage() {
                     !registerPasswordConfirm
                   }
                 >
-                  {isLoading ? 'Enviando token...' : 'Enviar Token de Cadastro'}
+                  {isLoading ? 'Enviando token...' : registerTokenRequested ? 'Reenviar Token de Cadastro' : 'Enviar Token de Cadastro'}
                 </Button>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="register-token">Token de Confirmacao</Label>
-                    <Input
-                      id="register-token"
-                      value={registerToken}
-                      onChange={(event) => setRegisterToken(event.target.value)}
-                      placeholder="Digite o token recebido"
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Button
-                      onClick={handleConfirmRegister}
-                      className="w-full"
-                      disabled={isLoading || !registerEmail || !registerToken}
-                    >
-                      {isLoading ? 'Confirmando...' : 'Confirmar Token e Criar Conta'}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        setRegisterTokenRequested(false)
-                        setRegisterToken('')
-                      }}
-                      disabled={isLoading}
-                    >
-                      Solicitar Novo Token
-                    </Button>
-                  </div>
-                </>
-              )}
+                {registerTokenRequested && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setRegisterTokenDialogOpen(true)}
+                    disabled={isLoading}
+                  >
+                    Abrir confirmacao do token
+                  </Button>
+                )}
+              </div>
             </TabsContent>
 
             <TabsContent value="reset" className="space-y-4">
@@ -358,79 +348,143 @@ export default function LoginPage() {
                   placeholder="seu@email.com"
                 />
               </div>
-              {!resetTokenRequested ? (
+              <div className="grid gap-2">
                 <Button
                   onClick={handleRequestResetToken}
                   className="w-full"
                   disabled={isLoading || !resetEmail}
                 >
-                  {isLoading ? 'Enviando token...' : 'Enviar Token por E-mail'}
+                  {isLoading ? 'Enviando token...' : resetTokenRequested ? 'Reenviar Token por E-mail' : 'Enviar Token por E-mail'}
                 </Button>
-              ) : (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="reset-token">Token Recebido</Label>
-                    <Input
-                      id="reset-token"
-                      value={resetToken}
-                      onChange={(event) => setResetToken(event.target.value)}
-                      placeholder="Digite o token de 6 digitos"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="reset-password">Nova Senha</Label>
-                    <Input
-                      id="reset-password"
-                      type="password"
-                      value={resetPassword}
-                      onChange={(event) => setResetPassword(event.target.value)}
-                      placeholder="Minimo de 8 caracteres"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="reset-password-confirm">Confirmar Nova Senha</Label>
-                    <Input
-                      id="reset-password-confirm"
-                      type="password"
-                      value={resetPasswordConfirm}
-                      onChange={(event) => setResetPasswordConfirm(event.target.value)}
-                      placeholder="Repita a nova senha"
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Button
-                      onClick={handleResetPassword}
-                      className="w-full"
-                      disabled={
-                        isLoading ||
-                        !resetEmail ||
-                        !resetToken ||
-                        !resetPassword ||
-                        !resetPasswordConfirm
-                      }
-                    >
-                      {isLoading ? 'Confirmando...' : 'Confirmar Token e Redefinir'}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        setResetTokenRequested(false)
-                        setResetToken('')
-                        setResetPassword('')
-                        setResetPasswordConfirm('')
-                      }}
-                      disabled={isLoading}
-                    >
-                      Solicitar Novo Token
-                    </Button>
-                  </div>
-                </>
-              )}
+                {resetTokenRequested && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setResetTokenDialogOpen(true)}
+                    disabled={isLoading}
+                  >
+                    Abrir redefinicao com token
+                  </Button>
+                )}
+              </div>
             </TabsContent>
           </Tabs>
         </CardContent>
       </Card>
+
+      <Dialog open={registerTokenDialogOpen} onOpenChange={setRegisterTokenDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirmar Cadastro</DialogTitle>
+            <DialogDescription>
+              Digite o token recebido por e-mail para concluir a criacao da conta.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="register-token">Token de Confirmacao</Label>
+              <Input
+                id="register-token"
+                value={registerToken}
+                onChange={(event) => setRegisterToken(event.target.value)}
+                placeholder="Digite o token recebido"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Button
+                onClick={handleConfirmRegister}
+                className="w-full"
+                disabled={isLoading || !registerEmail || !registerToken}
+              >
+                {isLoading ? 'Confirmando...' : 'Confirmar Token e Criar Conta'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setRegisterTokenRequested(false)
+                  setRegisterTokenDialogOpen(false)
+                  setRegisterToken('')
+                }}
+                disabled={isLoading}
+              >
+                Solicitar Novo Token
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={resetTokenDialogOpen} onOpenChange={setResetTokenDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Redefinir Senha</DialogTitle>
+            <DialogDescription>
+              Informe o token recebido e a nova senha para concluir a recuperacao do acesso.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="reset-token">Token Recebido</Label>
+              <Input
+                id="reset-token"
+                value={resetToken}
+                onChange={(event) => setResetToken(event.target.value)}
+                placeholder="Digite o token de 6 digitos"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="reset-password">Nova Senha</Label>
+              <Input
+                id="reset-password"
+                type="password"
+                value={resetPassword}
+                onChange={(event) => setResetPassword(event.target.value)}
+                placeholder="Minimo de 8 caracteres"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="reset-password-confirm">Confirmar Nova Senha</Label>
+              <Input
+                id="reset-password-confirm"
+                type="password"
+                value={resetPasswordConfirm}
+                onChange={(event) => setResetPasswordConfirm(event.target.value)}
+                placeholder="Repita a nova senha"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Button
+                onClick={handleResetPassword}
+                className="w-full"
+                disabled={
+                  isLoading ||
+                  !resetEmail ||
+                  !resetToken ||
+                  !resetPassword ||
+                  !resetPasswordConfirm
+                }
+              >
+                {isLoading ? 'Confirmando...' : 'Confirmar Token e Redefinir'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setResetTokenRequested(false)
+                  setResetTokenDialogOpen(false)
+                  setResetToken('')
+                  setResetPassword('')
+                  setResetPasswordConfirm('')
+                }}
+                disabled={isLoading}
+              >
+                Solicitar Novo Token
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

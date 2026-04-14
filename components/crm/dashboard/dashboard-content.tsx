@@ -36,21 +36,35 @@ import { statusPropostaLabels, type StatusProposta } from '@/lib/data/types'
 import { createDefaultDateFilter } from '@/lib/utils/date-filter'
 
 const funnelStatuses: StatusProposta[] = [
-  'em_cotacao',
+  'novo_cliente',
+  'em_orcamento',
+  'aguardando_aprovacao',
+  'enviar_ao_cliente',
   'enviado_ao_cliente',
-  'em_negociacao',
+  'follow_up_1_dia',
+  'follow_up_3_dias',
+  'follow_up_7_dias',
+  'stand_by',
   'em_retificacao',
   'fechado',
   'perdido',
 ]
 
 const statusColors: Record<StatusProposta, string> = {
-  em_cotacao: '#64748b',
+  novo_cliente: '#0ea5e9',
+  em_orcamento: '#64748b',
+  aguardando_aprovacao: '#8b5cf6',
+  enviar_ao_cliente: '#2563eb',
   enviado_ao_cliente: '#3b82f6',
-  em_negociacao: '#f59e0b',
+  follow_up_1_dia: '#10b981',
+  follow_up_3_dias: '#059669',
+  follow_up_7_dias: '#047857',
+  stand_by: '#71717a',
   em_retificacao: '#a855f7',
   fechado: '#10b981',
   perdido: '#ef4444',
+  aguardando_follow_up_3_dias: '#f59e0b',
+  aguardando_follow_up_7_dias: '#f59e0b',
 }
 
 export function DashboardContent() {
@@ -116,7 +130,7 @@ export function DashboardContent() {
     valor: Number(item.valor),
     quantidade: item.quantidade,
   }))
-  const vendedorAtual = user?.role === 'admin' ? null : rankingVendedores?.[0]
+  const vendedorAtual = user?.role === 'admin' || user?.role === 'gerente' ? null : rankingVendedores?.[0]
   const metaAtual = Number(vendedorAtual?.meta_vendas || 0)
   const valorAtual = Number(vendedorAtual?.valor_total || 0)
   const progressoMeta = metaAtual > 0 ? Math.min((valorAtual / metaAtual) * 100, 100) : 0
@@ -182,11 +196,11 @@ export function DashboardContent() {
           <Card className="bg-card border-border">
             <CardHeader>
               <CardTitle className="text-foreground text-lg">
-                {user?.role === 'admin' ? 'Ranking de Vendedores' : 'Minhas Vendas'}
+                {user?.role === 'admin' || user?.role === 'gerente' ? 'Ranking de Vendedores' : 'Minhas Vendas'}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {user?.role !== 'admin' && vendedorAtual ? (
+              {user?.role !== 'admin' && user?.role !== 'gerente' && vendedorAtual ? (
                 <div className="space-y-4">
                   <div className="flex items-center gap-4">
                     <Avatar className="h-10 w-10">

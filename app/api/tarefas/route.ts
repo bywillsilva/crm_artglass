@@ -40,7 +40,9 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get('status')
     const tipo = searchParams.get('tipo')
     const responsavel =
-      user.role === 'admin' ? searchParams.get('responsavel') : user.id
+      user.role === 'admin' || user.role === 'gerente'
+        ? searchParams.get('responsavel')
+        : user.id
     const clienteId = searchParams.get('cliente_id')
 
     let sql = `

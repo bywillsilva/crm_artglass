@@ -41,15 +41,28 @@ function formatPhone(value: string) {
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 3)} ${digits.slice(3, 7)}-${digits.slice(7)}`
 }
 
+function RequiredLabel({ children }: { children: string }) {
+  return (
+    <span>
+      {children} <span className="text-destructive">*</span>
+    </span>
+  )
+}
+
+const emailSchema = z
+  .string()
+  .trim()
+  .refine((value) => !value || z.string().email().safeParse(value).success, 'E-mail invalido')
+
 const clienteSchema = z.object({
   nome: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
   telefone: z.string().regex(phoneRegex, 'Telefone deve estar no formato (xx) 9 xxxx-xxxx'),
-  email: z.string().email('E-mail invalido'),
+  email: emailSchema,
   empresa: z.string().optional(),
   cargo: z.string().optional(),
   endereco: z.string().min(5, 'Endereco muito curto'),
   tipo: z.enum(['residencial', 'comercial']),
-  origem: z.string().min(1, 'Selecione a origem'),
+  origem: z.string().optional(),
   observacoes: z.string().optional(),
   valorEstimado: z.number().min(0, 'Valor deve ser positivo'),
 }).superRefine((data, ctx) => {
@@ -88,7 +101,7 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
           cargo: cliente.cargo || '',
           endereco: cliente.endereco,
           tipo: cliente.tipo,
-          origem: cliente.origem,
+          origem: cliente.origem || '',
           observacoes: cliente.observacoes,
           valorEstimado: cliente.valorEstimado,
         }
@@ -119,7 +132,7 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
               cargo: cliente.cargo || '',
               endereco: cliente.endereco,
               tipo: cliente.tipo,
-              origem: cliente.origem,
+              origem: cliente.origem || '',
               observacoes: cliente.observacoes,
               valorEstimado: cliente.valorEstimado,
             }
@@ -144,6 +157,8 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
       ...data,
       empresa: data.tipo === 'comercial' ? data.empresa?.trim() || '' : '',
       cargo: data.tipo === 'comercial' ? data.cargo?.trim() || '' : '',
+      email: data.email.trim(),
+      origem: data.origem === 'nao_informado' ? '' : data.origem?.trim() || '',
       status: cliente?.status ?? 'lead_novo',
     }
 
@@ -178,8 +193,8 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
                 control={form.control}
                 name="nome"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Nome</FormLabel>
+                    <FormItem>
+                    <FormLabel><RequiredLabel>Nome</RequiredLabel></FormLabel>
                     <FormControl>
                       <Input placeholder="Nome completo" {...field} />
                     </FormControl>
@@ -193,7 +208,7 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
                 name="telefone"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Telefone</FormLabel>
+                    <FormLabel><RequiredLabel>Telefone</RequiredLabel></FormLabel>
                     <FormControl>
                       <Input
                         placeholder="(11) 9 9999-9999"
@@ -239,7 +254,7 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
                     name="empresa"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Empresa</FormLabel>
+                        <FormLabel><RequiredLabel>Empresa</RequiredLabel></FormLabel>
                         <FormControl>
                           <Input placeholder="Nome da empresa" {...field} value={field.value ?? ''} />
                         </FormControl>
@@ -269,7 +284,7 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
                 name="tipo"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Tipo</FormLabel>
+                    <FormLabel><RequiredLabel>Tipo</RequiredLabel></FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
@@ -291,7 +306,7 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
                 name="endereco"
                 render={({ field }) => (
                   <FormItem className="md:col-span-2">
-                    <FormLabel>Endereco</FormLabel>
+                    <FormLabel><RequiredLabel>Endereco</RequiredLabel></FormLabel>
                     <FormControl>
                       <Input placeholder="Rua, numero - Cidade, UF" {...field} />
                     </FormControl>
@@ -306,13 +321,14 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Origem</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value || 'nao_informado'}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Como chegou ate nos?" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
+                        <SelectItem value="nao_informado">Nao informado</SelectItem>
                         {origens.map((origem) => (
                           <SelectItem key={origem} value={origem}>
                             {origem}
@@ -330,7 +346,7 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
                 name="valorEstimado"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Valor Estimado</FormLabel>
+                    <FormLabel><RequiredLabel>Valor Estimado</RequiredLabel></FormLabel>
                     <FormControl>
                       <Input
                         type="number"

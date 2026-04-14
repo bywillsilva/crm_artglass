@@ -2,44 +2,179 @@ import { v4 as uuidv4 } from 'uuid'
 import { query } from '@/lib/db/mysql'
 
 export type ProposalWorkflowStatus =
-  | 'em_cotacao'
+  | 'novo_cliente'
+  | 'em_orcamento'
+  | 'aguardando_aprovacao'
+  | 'enviar_ao_cliente'
   | 'enviado_ao_cliente'
-  | 'em_negociacao'
+  | 'follow_up_1_dia'
+  | 'aguardando_follow_up_3_dias'
+  | 'follow_up_3_dias'
+  | 'aguardando_follow_up_7_dias'
+  | 'follow_up_7_dias'
+  | 'stand_by'
   | 'em_retificacao'
   | 'fechado'
   | 'perdido'
 
-const LEGACY_STATUSES = ['rascunho', 'enviada', 'em_analise', 'aprovada', 'rejeitada', 'expirada']
-const FINAL_STATUSES: ProposalWorkflowStatus[] = [
+const LEGACY_STATUSES = [
+  'rascunho',
+  'enviada',
+  'em_analise',
+  'aprovada',
+  'rejeitada',
+  'expirada',
   'em_cotacao',
-  'enviado_ao_cliente',
   'em_negociacao',
+]
+
+const FINAL_STATUSES: ProposalWorkflowStatus[] = [
+  'novo_cliente',
+  'em_orcamento',
+  'aguardando_aprovacao',
+  'enviar_ao_cliente',
+  'enviado_ao_cliente',
+  'follow_up_1_dia',
+  'aguardando_follow_up_3_dias',
+  'follow_up_3_dias',
+  'aguardando_follow_up_7_dias',
+  'follow_up_7_dias',
+  'stand_by',
   'em_retificacao',
   'fechado',
   'perdido',
 ]
 
+const FOLLOW_UP_SYNC_STEPS = [
+  { from: 'enviado_ao_cliente', to: 'follow_up_1_dia', stage: 'follow_up_1_dia' },
+  { from: 'aguardando_follow_up_3_dias', to: 'follow_up_3_dias', stage: 'follow_up_3_dias' },
+  { from: 'aguardando_follow_up_7_dias', to: 'follow_up_7_dias', stage: 'follow_up_7_dias' },
+] as const
+
+function enumValues(values: readonly string[]) {
+  return values.map((value) => `'${value}'`).join(', ')
+}
+
 export function normalizeProposalStatus(status?: string | null): ProposalWorkflowStatus {
   switch (status) {
+    case 'novo_cliente':
+    case 'em_orcamento':
+    case 'aguardando_aprovacao':
+    case 'enviar_ao_cliente':
     case 'enviado_ao_cliente':
-    case 'em_negociacao':
+    case 'follow_up_1_dia':
+    case 'aguardando_follow_up_3_dias':
+    case 'follow_up_3_dias':
+    case 'aguardando_follow_up_7_dias':
+    case 'follow_up_7_dias':
+    case 'stand_by':
     case 'em_retificacao':
     case 'fechado':
     case 'perdido':
-    case 'em_cotacao':
       return status
+    case 'em_cotacao':
+    case 'rascunho':
+      return 'em_orcamento'
     case 'enviada':
       return 'enviado_ao_cliente'
     case 'em_analise':
-      return 'em_negociacao'
+    case 'em_negociacao':
+      return 'follow_up_1_dia'
     case 'aprovada':
       return 'fechado'
     case 'rejeitada':
     case 'expirada':
       return 'perdido'
     default:
-      return 'em_cotacao'
+      return 'novo_cliente'
   }
+}
+
+export function formatDateTime(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  const seconds = String(date.getSeconds()).padStart(2, '0')
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date)
+  next.setDate(next.getDate() + days)
+  return next
+}
+
+function addHours(date: Date, hours: number) {
+  const next = new Date(date)
+  next.setHours(next.getHours() + hours)
+  return next
+}
+
+function applyTimeToDate(baseDate: Date, timeValue?: string | null) {
+  const next = new Date(baseDate)
+  if (!timeValue) {
+    return next
+  }
+
+  const [hours, minutes = '0', seconds = '0'] = timeValue.split(':')
+  next.setHours(Number(hours) || 0, Number(minutes) || 0, Number(seconds) || 0, 0)
+  return next
+}
+
+async function ensureProposalColumns() {
+  const columns = await query<any[]>(
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'propostas'
+       AND COLUMN_NAME IN ('orcamentista_id', 'retificacoes_count', 'follow_up_base_at', 'follow_up_time')`
+  )
+
+  const existing = new Set(columns.map((column) => column.COLUMN_NAME))
+
+  if (!existing.has('orcamentista_id')) {
+    await query(`ALTER TABLE propostas ADD COLUMN orcamentista_id VARCHAR(36) NULL AFTER responsavel_id`)
+  }
+
+  if (!existing.has('retificacoes_count')) {
+    await query(`ALTER TABLE propostas ADD COLUMN retificacoes_count INT NOT NULL DEFAULT 0 AFTER orcamentista_id`)
+  }
+
+  if (!existing.has('follow_up_base_at')) {
+    await query(`ALTER TABLE propostas ADD COLUMN follow_up_base_at DATETIME NULL AFTER retificacoes_count`)
+  }
+
+  if (!existing.has('follow_up_time')) {
+    await query(`ALTER TABLE propostas ADD COLUMN follow_up_time TIME NULL AFTER follow_up_base_at`)
+  }
+}
+
+async function ensureProposalSupportTables() {
+  await query(`
+    CREATE TABLE IF NOT EXISTS proposta_anexos (
+      id VARCHAR(36) PRIMARY KEY,
+      proposta_id VARCHAR(36) NOT NULL,
+      nome_original VARCHAR(255) NOT NULL,
+      nome_arquivo VARCHAR(255) NOT NULL,
+      caminho VARCHAR(500) NOT NULL,
+      tipo_mime VARCHAR(150) NOT NULL,
+      tamanho BIGINT NOT NULL DEFAULT 0,
+      usuario_id VARCHAR(36) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
+
+  await query(`
+    CREATE TABLE IF NOT EXISTS proposta_comentarios (
+      id VARCHAR(36) PRIMARY KEY,
+      proposta_id VARCHAR(36) NOT NULL,
+      usuario_id VARCHAR(36) NOT NULL,
+      comentario TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `)
 }
 
 export async function ensureProposalStatusSchema() {
@@ -55,6 +190,9 @@ export async function ensureProposalStatusSchema() {
   const hasLegacyStatuses = LEGACY_STATUSES.some((status) => columnType.includes(`'${status}'`))
   const hasFinalStatuses = FINAL_STATUSES.every((status) => columnType.includes(`'${status}'`))
 
+  await ensureProposalColumns()
+  await ensureProposalSupportTables()
+
   if (!hasLegacyStatuses && hasFinalStatuses) {
     return
   }
@@ -62,37 +200,21 @@ export async function ensureProposalStatusSchema() {
   await query(`
     ALTER TABLE propostas
     MODIFY COLUMN status ENUM(
-      'rascunho',
-      'enviada',
-      'em_analise',
-      'aprovada',
-      'rejeitada',
-      'expirada',
-      'em_cotacao',
-      'enviado_ao_cliente',
-      'em_negociacao',
-      'em_retificacao',
-      'fechado',
-      'perdido'
-    ) DEFAULT 'em_cotacao'
+      ${enumValues([...LEGACY_STATUSES, ...FINAL_STATUSES])}
+    ) DEFAULT 'novo_cliente'
   `)
 
-  await query(`UPDATE propostas SET status = 'em_cotacao' WHERE status = 'rascunho'`)
+  await query(`UPDATE propostas SET status = 'em_orcamento' WHERE status IN ('rascunho', 'em_cotacao')`)
   await query(`UPDATE propostas SET status = 'enviado_ao_cliente' WHERE status = 'enviada'`)
-  await query(`UPDATE propostas SET status = 'em_negociacao' WHERE status = 'em_analise'`)
+  await query(`UPDATE propostas SET status = 'follow_up_1_dia' WHERE status IN ('em_analise', 'em_negociacao')`)
   await query(`UPDATE propostas SET status = 'fechado' WHERE status = 'aprovada'`)
   await query(`UPDATE propostas SET status = 'perdido' WHERE status IN ('rejeitada', 'expirada')`)
 
   await query(`
     ALTER TABLE propostas
     MODIFY COLUMN status ENUM(
-      'em_cotacao',
-      'enviado_ao_cliente',
-      'em_negociacao',
-      'em_retificacao',
-      'fechado',
-      'perdido'
-    ) DEFAULT 'em_cotacao'
+      ${enumValues(FINAL_STATUSES)}
+    ) DEFAULT 'novo_cliente'
   `)
 }
 
@@ -129,81 +251,94 @@ export async function ensureTaskSchema() {
   }
 }
 
-export async function ensureResponsibilityIntegrity() {
-  const [fallbackUser] = await query<any[]>(
-    `SELECT id
-     FROM usuarios
-     WHERE ativo = TRUE
-     ORDER BY CASE WHEN role = 'admin' THEN 0 ELSE 1 END, created_at ASC
-     LIMIT 1`
+export async function ensureUserRoleSchema() {
+  const [column] = await query<any[]>(
+    `SELECT COLUMN_TYPE
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'usuarios'
+       AND COLUMN_NAME = 'role'`
   )
 
-  if (!fallbackUser?.id) {
+  const columnType = String(column?.COLUMN_TYPE || '')
+  const permissionColumns = await query<any[]>(
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'usuarios'
+       AND COLUMN_NAME = 'module_permissions'`
+  )
+
+  if (columnType.includes(`'orcamentista'`)) {
+    if (!permissionColumns.length) {
+      await query(`ALTER TABLE usuarios ADD COLUMN module_permissions JSON NULL AFTER ativo`)
+    }
     return
   }
 
-  await query(
-    `UPDATE propostas p
-     LEFT JOIN usuarios u ON u.id = p.responsavel_id AND u.ativo = TRUE
-     SET p.responsavel_id = ?
-     WHERE p.responsavel_id IS NULL OR p.responsavel_id = '' OR u.id IS NULL`,
-    [fallbackUser.id]
-  )
+  await query(`
+    ALTER TABLE usuarios
+    MODIFY COLUMN role ENUM('admin', 'gerente', 'vendedor', 'orcamentista') NOT NULL DEFAULT 'vendedor'
+  `)
 
-  await query(
-    `UPDATE tarefas t
-     LEFT JOIN usuarios u ON u.id = t.responsavel_id AND u.ativo = TRUE
-     SET t.responsavel_id = ?
-     WHERE t.responsavel_id IS NULL OR t.responsavel_id = '' OR u.id IS NULL`,
-    [fallbackUser.id]
-  )
-}
-
-export function formatDateTime(date: Date) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  const seconds = String(date.getSeconds()).padStart(2, '0')
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
-}
-
-function addDays(date: Date, days: number) {
-  const next = new Date(date)
-  next.setDate(next.getDate() + days)
-  return next
-}
-
-function addHours(date: Date, hours: number) {
-  const next = new Date(date)
-  next.setHours(next.getHours() + hours)
-  return next
-}
-
-async function concludeAutomatedTasks(propostaId: string, stages?: ProposalWorkflowStatus[]) {
-  let sql = `
-    UPDATE tarefas
-    SET status = 'concluida'
-    WHERE proposta_id = ?
-      AND origem = 'automacao_proposta'
-      AND status <> 'concluida'
-  `
-  const params: unknown[] = [propostaId]
-
-  if (stages && stages.length > 0) {
-    sql += ` AND automacao_etapa IN (${stages.map(() => '?').join(', ')})`
-    params.push(...stages)
+  if (!permissionColumns.length) {
+    await query(`ALTER TABLE usuarios ADD COLUMN module_permissions JSON NULL AFTER ativo`)
   }
+}
 
-  await query(sql, params)
+export async function ensureClientSchema() {
+  await query(`
+    ALTER TABLE clientes
+    MODIFY COLUMN email VARCHAR(255) NULL,
+    MODIFY COLUMN origem ENUM('site', 'indicacao', 'google', 'facebook', 'instagram', 'telefone', 'outro') NULL DEFAULT NULL
+  `)
+}
+
+export async function ensureResponsibilityIntegrity() {
+  const [fallbackSeller] = await query<any[]>(
+    `SELECT id
+     FROM usuarios
+     WHERE ativo = TRUE
+       AND role IN ('admin', 'gerente', 'vendedor')
+     ORDER BY CASE WHEN role = 'admin' THEN 0 WHEN role = 'gerente' THEN 1 ELSE 2 END, created_at ASC
+     LIMIT 1`
+  )
+
+  if (fallbackSeller?.id) {
+    await query(
+      `UPDATE propostas p
+       LEFT JOIN usuarios u ON u.id = p.responsavel_id AND u.ativo = TRUE
+       SET p.responsavel_id = ?
+       WHERE p.responsavel_id IS NULL OR p.responsavel_id = '' OR u.id IS NULL`,
+      [fallbackSeller.id]
+    )
+
+    await query(
+      `UPDATE tarefas t
+       LEFT JOIN usuarios u ON u.id = t.responsavel_id AND u.ativo = TRUE
+       SET t.responsavel_id = ?
+       WHERE t.responsavel_id IS NULL OR t.responsavel_id = '' OR u.id IS NULL`,
+      [fallbackSeller.id]
+    )
+  }
+}
+
+async function deleteAutomatedTasks(propostaId: string) {
+  await query(
+    `DELETE FROM tarefas
+     WHERE proposta_id = ?
+       AND origem = 'automacao_proposta'
+       AND status <> 'concluida'`,
+    [propostaId]
+  )
 }
 
 async function createAutomatedTask(params: {
   clienteId: string
+  clienteNome: string
   responsavelId: string
   propostaId: string
-  etapa: ProposalWorkflowStatus
+  etapa: string
   titulo: string
   descricao: string
   dataHora: Date
@@ -230,13 +365,13 @@ async function createAutomatedTask(params: {
   )
 
   await query(
-    `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados)
-     VALUES (?, ?, ?, 'tarefa', ?, ?)`,
+    `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
+     VALUES (?, ?, ?, 'tarefa', ?, ?, ?)`,
     [
       uuidv4(),
       params.clienteId,
       params.responsavelId,
-      `Tarefa automatica criada para a etapa ${params.etapa}: ${params.titulo}`,
+      `Tarefa automatica criada para a proposta do cliente ${params.clienteNome}: ${params.titulo}`,
       JSON.stringify({
         proposta_id: params.propostaId,
         automacao_etapa: params.etapa,
@@ -244,97 +379,256 @@ async function createAutomatedTask(params: {
         origem: 'automacao_proposta',
         silent_notification: true,
       }),
+      formatDateTime(new Date()),
     ]
   )
 }
 
+async function createAutomationForStatus(params: {
+  clienteId: string
+  clienteNome: string
+  propostaId: string
+  responsavelId: string
+  orcamentistaId?: string | null
+  status: ProposalWorkflowStatus
+  changedAt: Date
+  followUpBaseAt?: Date | null
+  followUpTime?: string | null
+}) {
+  const followUpBaseAt = params.followUpBaseAt ?? params.changedAt
+  const followUpTime = params.followUpTime || null
+
+  switch (params.status) {
+    case 'em_orcamento':
+      if (!params.orcamentistaId) return
+      await createAutomatedTask({
+        clienteId: params.clienteId,
+        clienteNome: params.clienteNome,
+        responsavelId: params.orcamentistaId,
+        propostaId: params.propostaId,
+        etapa: 'em_orcamento',
+        titulo: `Entregar orcamento do cliente ${params.clienteNome} em ate 2 dias`,
+        descricao: 'Produzir e entregar o orcamento inicial da proposta.',
+        dataHora: addDays(params.changedAt, 2),
+      })
+      return
+    case 'em_retificacao':
+      if (!params.orcamentistaId) return
+      await createAutomatedTask({
+        clienteId: params.clienteId,
+        clienteNome: params.clienteNome,
+        responsavelId: params.orcamentistaId,
+        propostaId: params.propostaId,
+        etapa: 'em_retificacao',
+        titulo: `Retificar orcamento do cliente ${params.clienteNome}`,
+        descricao: 'Ajustar o orcamento com base no retorno comercial.',
+        dataHora: addDays(params.changedAt, 1),
+      })
+      return
+    case 'enviar_ao_cliente':
+      await createAutomatedTask({
+        clienteId: params.clienteId,
+        clienteNome: params.clienteNome,
+        responsavelId: params.responsavelId,
+        propostaId: params.propostaId,
+        etapa: 'enviar_ao_cliente',
+        titulo: `Enviar proposta ao cliente ${params.clienteNome}`,
+        descricao: 'Enviar a proposta ao cliente no mesmo dia apos a aprovacao.',
+        dataHora: addHours(params.changedAt, 2),
+      })
+      return
+    case 'enviado_ao_cliente':
+      await createAutomatedTask({
+        clienteId: params.clienteId,
+        clienteNome: params.clienteNome,
+        responsavelId: params.responsavelId,
+        propostaId: params.propostaId,
+        etapa: 'follow_up_1_dia',
+        titulo: `Fazer follow-up do cliente ${params.clienteNome}`,
+        descricao: 'Entrar em contato com o cliente um dia apos o envio.',
+        dataHora: applyTimeToDate(addDays(followUpBaseAt, 1), followUpTime),
+      })
+      return
+    case 'follow_up_1_dia':
+      await createAutomatedTask({
+        clienteId: params.clienteId,
+        clienteNome: params.clienteNome,
+        responsavelId: params.responsavelId,
+        propostaId: params.propostaId,
+        etapa: 'follow_up_1_dia',
+        titulo: `Fazer follow-up do cliente ${params.clienteNome}`,
+        descricao: 'Entrar em contato com o cliente no primeiro follow-up.',
+        dataHora: applyTimeToDate(addDays(followUpBaseAt, 1), followUpTime),
+      })
+      return
+    case 'aguardando_follow_up_3_dias':
+      await createAutomatedTask({
+        clienteId: params.clienteId,
+        clienteNome: params.clienteNome,
+        responsavelId: params.responsavelId,
+        propostaId: params.propostaId,
+        etapa: 'follow_up_3_dias',
+        titulo: `Fazer follow-up do cliente ${params.clienteNome}`,
+        descricao: 'Realizar o follow-up em tres dias.',
+        dataHora: applyTimeToDate(addDays(followUpBaseAt, 3), followUpTime),
+      })
+      return
+    case 'follow_up_3_dias':
+      await createAutomatedTask({
+        clienteId: params.clienteId,
+        clienteNome: params.clienteNome,
+        responsavelId: params.responsavelId,
+        propostaId: params.propostaId,
+        etapa: 'follow_up_3_dias',
+        titulo: `Fazer follow-up do cliente ${params.clienteNome}`,
+        descricao: 'Realizar o follow-up em tres dias.',
+        dataHora: applyTimeToDate(addDays(followUpBaseAt, 3), followUpTime),
+      })
+      return
+    case 'aguardando_follow_up_7_dias':
+      await createAutomatedTask({
+        clienteId: params.clienteId,
+        clienteNome: params.clienteNome,
+        responsavelId: params.responsavelId,
+        propostaId: params.propostaId,
+        etapa: 'follow_up_7_dias',
+        titulo: `Fazer follow-up do cliente ${params.clienteNome}`,
+        descricao: 'Realizar o follow-up em sete dias.',
+        dataHora: applyTimeToDate(addDays(followUpBaseAt, 7), followUpTime),
+      })
+      return
+    case 'follow_up_7_dias':
+      await createAutomatedTask({
+        clienteId: params.clienteId,
+        clienteNome: params.clienteNome,
+        responsavelId: params.responsavelId,
+        propostaId: params.propostaId,
+        etapa: 'follow_up_7_dias',
+        titulo: `Fazer follow-up do cliente ${params.clienteNome}`,
+        descricao: 'Realizar o follow-up em sete dias.',
+        dataHora: applyTimeToDate(addDays(followUpBaseAt, 7), followUpTime),
+      })
+      return
+    case 'fechado':
+      await createAutomatedTask({
+        clienteId: params.clienteId,
+        clienteNome: params.clienteNome,
+        responsavelId: params.responsavelId,
+        propostaId: params.propostaId,
+        etapa: 'fechado',
+        titulo: `Fazer contrato do cliente ${params.clienteNome}`,
+        descricao: 'Iniciar o fluxo de contrato logo apos o fechamento.',
+        dataHora: addHours(params.changedAt, 2),
+      })
+      return
+    default:
+      return
+  }
+}
+
 export async function handleProposalAutomationOnCreate(params: {
   clienteId: string
+  clienteNome: string
   responsavelId: string
+  orcamentistaId?: string | null
   propostaId: string
   status: ProposalWorkflowStatus
   createdAt: Date
+  followUpBaseAt?: Date | null
+  followUpTime?: string | null
 }) {
-  if (params.status !== 'em_cotacao') return
-
-  await createAutomatedTask({
+  await deleteAutomatedTasks(params.propostaId)
+  await createAutomationForStatus({
     clienteId: params.clienteId,
-    responsavelId: params.responsavelId,
+    clienteNome: params.clienteNome,
     propostaId: params.propostaId,
-    etapa: 'em_cotacao',
-    titulo: 'Preparar orcamento da proposta',
-    descricao: 'Concluir o orcamento da proposta em ate 2 dias.',
-    dataHora: addDays(params.createdAt, 2),
+    responsavelId: params.responsavelId,
+    orcamentistaId: params.orcamentistaId,
+    status: params.status,
+    changedAt: params.createdAt,
+    followUpBaseAt: params.followUpBaseAt,
+    followUpTime: params.followUpTime,
   })
 }
 
 export async function syncProposalAutomation(params: {
   propostaId: string
   clienteId: string
+  clienteNome: string
   responsavelId: string
+  orcamentistaId?: string | null
+  previousStatus: ProposalWorkflowStatus
   newStatus: ProposalWorkflowStatus
   changedAt: Date
+  followUpBaseAt?: Date | null
+  followUpTime?: string | null
 }) {
-  if (params.newStatus === 'em_cotacao') {
-    await concludeAutomatedTasks(params.propostaId)
-    await createAutomatedTask({
-      clienteId: params.clienteId,
-      responsavelId: params.responsavelId,
-      propostaId: params.propostaId,
-      etapa: 'em_cotacao',
-      titulo: 'Preparar orcamento da proposta',
-      descricao: 'Concluir o orcamento da proposta em ate 2 dias.',
-      dataHora: addDays(params.changedAt, 2),
-    })
-    return
+  await deleteAutomatedTasks(params.propostaId)
+
+  if (params.previousStatus !== params.newStatus && params.newStatus === 'em_retificacao') {
+    await query(
+      `UPDATE propostas
+       SET retificacoes_count = COALESCE(retificacoes_count, 0) + 1
+       WHERE id = ?`,
+      [params.propostaId]
+    )
   }
 
-  if (params.newStatus === 'enviado_ao_cliente') {
-    await concludeAutomatedTasks(params.propostaId, ['em_cotacao'])
-    await createAutomatedTask({
-      clienteId: params.clienteId,
-      responsavelId: params.responsavelId,
-      propostaId: params.propostaId,
-      etapa: 'enviado_ao_cliente',
-      titulo: 'Fazer follow-up com o cliente',
-      descricao: 'Entrar em contato 1 dia apos o envio da proposta.',
-      dataHora: addDays(params.changedAt, 1),
-    })
-    return
-  }
+  await createAutomationForStatus({
+    clienteId: params.clienteId,
+    clienteNome: params.clienteNome,
+    propostaId: params.propostaId,
+    responsavelId: params.responsavelId,
+    orcamentistaId: params.orcamentistaId,
+    status: params.newStatus,
+    changedAt: params.changedAt,
+    followUpBaseAt: params.followUpBaseAt,
+    followUpTime: params.followUpTime,
+  })
+}
 
-  if (params.newStatus === 'em_negociacao') {
-    await concludeAutomatedTasks(params.propostaId)
-    return
-  }
+export async function syncDueFollowUpStatuses() {
+  for (const step of FOLLOW_UP_SYNC_STEPS) {
+    const propostas = await query<any[]>(
+      `SELECT p.id, p.cliente_id, p.responsavel_id
+       FROM propostas p
+       INNER JOIN tarefas t
+         ON t.proposta_id = p.id
+        AND t.origem = 'automacao_proposta'
+        AND t.automacao_etapa = ?
+        AND t.status = 'pendente'
+       WHERE p.status = ?
+         AND t.data_hora <= NOW()`,
+      [step.stage, step.from]
+    )
 
-  if (params.newStatus === 'em_retificacao') {
-    await concludeAutomatedTasks(params.propostaId)
-    await createAutomatedTask({
-      clienteId: params.clienteId,
-      responsavelId: params.responsavelId,
-      propostaId: params.propostaId,
-      etapa: 'em_retificacao',
-      titulo: 'Retificar proposta',
-      descricao: 'Realizar a retificacao solicitada em ate 1 dia.',
-      dataHora: addDays(params.changedAt, 1),
-    })
-    return
+    for (const proposta of propostas) {
+      await query(`UPDATE propostas SET status = ? WHERE id = ?`, [step.to, proposta.id])
+      await query(
+        `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
+         VALUES (?, ?, ?, 'proposta', ?, ?, ?)`,
+        [
+          uuidv4(),
+          proposta.cliente_id,
+           proposta.responsavel_id,
+           `Proposta avancou automaticamente para ${step.to}`,
+           JSON.stringify({
+             proposta_id: proposta.id,
+             novo_status: step.to,
+             origem: 'automatizacao_follow_up',
+             notification_kind: 'proposal_status',
+           }),
+           formatDateTime(new Date()),
+         ]
+       )
+    }
   }
+}
 
-  if (params.newStatus === 'fechado') {
-    await concludeAutomatedTasks(params.propostaId)
-    await createAutomatedTask({
-      clienteId: params.clienteId,
-      responsavelId: params.responsavelId,
-      propostaId: params.propostaId,
-      etapa: 'fechado',
-      titulo: 'Iniciar pos-venda da proposta fechada',
-      descricao: 'Realizar o proximo passo 2 horas apos o fechamento.',
-      dataHora: addHours(params.changedAt, 2),
-    })
-    return
-  }
+export function isEarlyBudgetStatus(status: ProposalWorkflowStatus) {
+  return ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(status)
+}
 
-  await concludeAutomatedTasks(params.propostaId)
+export function isSellerFollowUpStatus(status: ProposalWorkflowStatus) {
+  return ['enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'stand_by'].includes(status)
 }

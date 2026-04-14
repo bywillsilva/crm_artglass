@@ -11,9 +11,10 @@ export async function POST() {
         email VARCHAR(255) NOT NULL UNIQUE,
         senha VARCHAR(255) NOT NULL,
         avatar VARCHAR(10),
-        role ENUM('admin', 'gerente', 'vendedor') NOT NULL DEFAULT 'vendedor',
+        role ENUM('admin', 'gerente', 'vendedor', 'orcamentista') NOT NULL DEFAULT 'vendedor',
         ativo BOOLEAN DEFAULT TRUE,
         meta_vendas DECIMAL(15, 2) NOT NULL DEFAULT 0,
+        module_permissions JSON NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       )
@@ -31,7 +32,7 @@ export async function POST() {
         cidade VARCHAR(100),
         estado VARCHAR(2),
         cep VARCHAR(10),
-        origem ENUM('site', 'indicacao', 'google', 'facebook', 'instagram', 'telefone', 'outro') DEFAULT 'site',
+        origem ENUM('site', 'indicacao', 'google', 'facebook', 'instagram', 'telefone', 'outro') NULL DEFAULT NULL,
         status_funil ENUM('lead_novo', 'em_atendimento', 'orcamento_enviado', 'negociacao', 'fechado', 'perdido') DEFAULT 'lead_novo',
         valor_potencial DECIMAL(15, 2) DEFAULT 0,
         observacoes TEXT,
@@ -64,17 +65,58 @@ export async function POST() {
         numero VARCHAR(50) NOT NULL UNIQUE,
         cliente_id VARCHAR(36) NOT NULL,
         responsavel_id VARCHAR(36) NOT NULL,
+        orcamentista_id VARCHAR(36) NULL,
+        retificacoes_count INT NOT NULL DEFAULT 0,
         titulo VARCHAR(255) NOT NULL,
         descricao TEXT,
         valor DECIMAL(15, 2) NOT NULL,
         desconto DECIMAL(5, 2) DEFAULT 0,
         valor_final DECIMAL(15, 2) NOT NULL,
-        status ENUM('em_cotacao', 'enviado_ao_cliente', 'em_negociacao', 'em_retificacao', 'fechado', 'perdido') DEFAULT 'em_cotacao',
+        status ENUM(
+          'novo_cliente',
+          'em_orcamento',
+          'aguardando_aprovacao',
+          'enviar_ao_cliente',
+          'enviado_ao_cliente',
+          'follow_up_1_dia',
+          'aguardando_follow_up_3_dias',
+          'follow_up_3_dias',
+          'aguardando_follow_up_7_dias',
+          'follow_up_7_dias',
+          'stand_by',
+          'em_retificacao',
+          'fechado',
+          'perdido'
+        ) DEFAULT 'novo_cliente',
         validade DATE,
         servicos JSON,
         condicoes TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `)
+
+    await query(`
+      CREATE TABLE IF NOT EXISTS proposta_anexos (
+        id VARCHAR(36) PRIMARY KEY,
+        proposta_id VARCHAR(36) NOT NULL,
+        nome_original VARCHAR(255) NOT NULL,
+        nome_arquivo VARCHAR(255) NOT NULL,
+        caminho VARCHAR(500) NOT NULL,
+        tipo_mime VARCHAR(150) NOT NULL,
+        tamanho BIGINT NOT NULL DEFAULT 0,
+        usuario_id VARCHAR(36) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
+
+    await query(`
+      CREATE TABLE IF NOT EXISTS proposta_comentarios (
+        id VARCHAR(36) PRIMARY KEY,
+        proposta_id VARCHAR(36) NOT NULL,
+        usuario_id VARCHAR(36) NOT NULL,
+        comentario TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `)
 
@@ -160,8 +202,9 @@ export async function POST() {
          ('user-2', 'Ana Oliveira', 'ana@solartech.com', ?, 'AO', 'gerente', TRUE),
          ('user-3', 'Pedro Santos', 'pedro@solartech.com', ?, 'PS', 'vendedor', TRUE),
          ('user-4', 'Maria Costa', 'maria@solartech.com', ?, 'MC', 'vendedor', TRUE),
-         ('user-5', 'Joao Ferreira', 'joao@solartech.com', ?, 'JF', 'vendedor', FALSE)`,
-        [senhaHash, senhaHash, senhaHash, senhaHash, senhaHash]
+         ('user-5', 'Joao Ferreira', 'joao@solartech.com', ?, 'JF', 'vendedor', FALSE),
+         ('user-6', 'Bruno Rocha', 'bruno@solartech.com', ?, 'BR', 'orcamentista', TRUE)`,
+        [senhaHash, senhaHash, senhaHash, senhaHash, senhaHash, senhaHash]
       )
 
       await query(`
@@ -183,17 +226,17 @@ export async function POST() {
       `)
 
       await query(`
-        INSERT INTO propostas (id, numero, cliente_id, responsavel_id, titulo, descricao, valor, desconto, valor_final, status, validade, servicos) VALUES
-        ('prop-1', 'PROP-2026-001', 'cli-1', 'user-3', 'Sistema Fotovoltaico 50kWp', 'Sistema completo para industria com monitoramento', 90000.00, 5.56, 85000.00, 'enviado_ao_cliente', DATE_ADD(CURDATE(), INTERVAL 30 DAY), '["Paineis solares 550W (91 unidades)", "Inversor string 50kW", "Estrutura de fixacao", "Instalacao completa", "Monitoramento remoto", "Garantia 25 anos"]'),
-        ('prop-2', 'PROP-2026-002', 'cli-2', 'user-3', 'Sistema Fotovoltaico 12kWp', 'Sistema para comercio de medio porte', 35000.00, 8.57, 32000.00, 'enviado_ao_cliente', DATE_ADD(CURDATE(), INTERVAL 15 DAY), '["Paineis solares 550W (22 unidades)", "Inversor string 12kW", "Estrutura de fixacao", "Instalacao completa", "Garantia 25 anos"]'),
-        ('prop-3', 'PROP-2026-003', 'cli-5', 'user-3', 'Sistema Fotovoltaico 80kWp', 'Sistema de grande porte para hotel', 100000.00, 5.00, 95000.00, 'fechado', DATE_SUB(CURDATE(), INTERVAL 30 DAY), '["Paineis solares 550W (146 unidades)", "Inversores string", "Estrutura completa", "Instalacao", "Monitoramento", "Manutencao 2 anos"]'),
-        ('prop-4', 'PROP-2026-004', 'cli-6', 'user-4', 'Sistema Fotovoltaico 18kWp', 'Sistema para instituicao de ensino', 48000.00, 6.25, 45000.00, 'em_negociacao', DATE_ADD(CURDATE(), INTERVAL 20 DAY), '["Paineis solares 550W (33 unidades)", "Inversor string 20kW", "Estrutura de fixacao", "Instalacao completa", "Garantia 25 anos"]')
+        INSERT INTO propostas (id, numero, cliente_id, responsavel_id, orcamentista_id, titulo, descricao, valor, desconto, valor_final, status, validade, servicos) VALUES
+        ('prop-1', 'PROP-2026-001', 'cli-1', 'user-3', 'user-6', 'Sistema Fotovoltaico 50kWp', 'Sistema completo para industria com monitoramento', 90000.00, 5.56, 85000.00, 'enviado_ao_cliente', DATE_ADD(CURDATE(), INTERVAL 30 DAY), '["Paineis solares 550W (91 unidades)", "Inversor string 50kW", "Estrutura de fixacao", "Instalacao completa", "Monitoramento remoto", "Garantia 25 anos"]'),
+        ('prop-2', 'PROP-2026-002', 'cli-2', 'user-3', 'user-6', 'Sistema Fotovoltaico 12kWp', 'Sistema para comercio de medio porte', 35000.00, 8.57, 32000.00, 'follow_up_1_dia', DATE_ADD(CURDATE(), INTERVAL 15 DAY), '["Paineis solares 550W (22 unidades)", "Inversor string 12kW", "Estrutura de fixacao", "Instalacao completa", "Garantia 25 anos"]'),
+        ('prop-3', 'PROP-2026-003', 'cli-5', 'user-3', 'user-6', 'Sistema Fotovoltaico 80kWp', 'Sistema de grande porte para hotel', 100000.00, 5.00, 95000.00, 'fechado', DATE_SUB(CURDATE(), INTERVAL 30 DAY), '["Paineis solares 550W (146 unidades)", "Inversores string", "Estrutura completa", "Instalacao", "Monitoramento", "Manutencao 2 anos"]'),
+        ('prop-4', 'PROP-2026-004', 'cli-6', 'user-4', 'user-6', 'Sistema Fotovoltaico 18kWp', 'Sistema para instituicao de ensino', 48000.00, 6.25, 45000.00, 'em_orcamento', DATE_ADD(CURDATE(), INTERVAL 20 DAY), '["Paineis solares 550W (33 unidades)", "Inversor string 20kW", "Estrutura de fixacao", "Instalacao completa", "Garantia 25 anos"]')
       `)
 
       await query(`
         INSERT INTO configuracoes (id, chave, scope, user_id, valor) VALUES
         ('conf-1', 'empresa', 'global', '', '{"nome": "SolarTech Energia", "cnpj": "12.345.678/0001-90", "telefone": "(11) 3333-4444", "email": "contato@solartech.com", "endereco": "Av. Paulista, 1000", "cidade": "Sao Paulo", "estado": "SP", "cep": "01310-100"}'),
-        ('conf-2', 'funil', 'global', '', '{"etapas": ["em_cotacao", "enviado_ao_cliente", "em_negociacao", "em_retificacao", "fechado", "perdido"]}')
+        ('conf-2', 'funil', 'global', '', '{"etapas": ["novo_cliente", "em_orcamento", "em_retificacao", "aguardando_aprovacao", "enviar_ao_cliente", "enviado_ao_cliente", "follow_up_1_dia", "follow_up_3_dias", "follow_up_7_dias", "stand_by", "fechado", "perdido"]}')
       `)
     }
 
