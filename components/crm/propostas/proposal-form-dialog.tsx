@@ -1,6 +1,6 @@
 'use client'
 
-import { startTransition, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Paperclip, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { useCRM } from '@/lib/context/crm-context'
@@ -87,6 +87,7 @@ export function ProposalFormDialog({
   const [descricao, setDescricao] = useState('')
   const [status, setStatus] = useState<StatusProposta>('novo_cliente')
   const [files, setFiles] = useState<File[]>([])
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const hydratedKeyRef = useRef<string | null>(null)
   const propostaHydrationKey = proposta
     ? [
@@ -178,7 +179,8 @@ export function ProposalFormDialog({
   const valorNumerico = Number(valor || 0)
   const hasRequiredValue = !valorObrigatorio || valorNumerico > 0
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (isSubmitting) return
     if (!clienteId || (!responsavelId && isAdmin) || (orcamentistaObrigatorio && !orcamentistaId) || !hasRequiredValue) {
       return
     }
@@ -196,19 +198,26 @@ export function ProposalFormDialog({
       titulo: proposta?.titulo || 'Proposta Comercial',
     }
 
-    startTransition(() => onOpenChange(false))
+    setIsSubmitting(true)
 
-    const savePromise =
-      isEditing && propostaId
-        ? updateProposta({
-            id: propostaId,
-            ...payload,
-          } as unknown as Proposta)
-        : addProposta(payload as unknown as Omit<Proposta, 'id' | 'criadoEm'>)
+    try {
+      if (isEditing && propostaId) {
+        await updateProposta({
+          id: propostaId,
+          ...payload,
+        } as unknown as Proposta)
+        toast.success('Proposta atualizada com sucesso.')
+      } else {
+        await addProposta(payload as unknown as Omit<Proposta, 'id' | 'criadoEm'>)
+        toast.success('Proposta criada com sucesso.')
+      }
 
-    void savePromise.catch((error: any) => {
+      onOpenChange(false)
+    } catch (error: any) {
       toast.error(error?.message || 'Nao foi possivel salvar a proposta.')
-    })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -426,12 +435,13 @@ export function ProposalFormDialog({
             </div>
 
             <div className="flex justify-end gap-3 pt-1">
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
+              <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
                 Cancelar
               </Button>
               <Button
                 onClick={() => void handleSubmit()}
-                disabled={!clienteId || (isAdmin && !responsavelId) || (orcamentistaObrigatorio && !orcamentistaId) || !hasRequiredValue}
+                pending={isSubmitting}
+                disabled={isSubmitting || !clienteId || (isAdmin && !responsavelId) || (orcamentistaObrigatorio && !orcamentistaId) || !hasRequiredValue}
               >
                 {isEditing ? 'Salvar proposta' : 'Criar proposta'}
               </Button>

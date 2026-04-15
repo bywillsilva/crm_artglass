@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { CRMHeader } from '@/components/crm/header'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -28,15 +29,26 @@ export default function ConfiguracoesPage() {
     requestNotificationPermission,
     canEditCompany,
   } = useAppSettings()
+  const [isSaving, setIsSaving] = useState(false)
 
   const handleSave = async () => {
-    await saveAll()
+    if (isSaving) return
 
-    if (notifications.browser) {
-      await requestNotificationPermission()
+    setIsSaving(true)
+
+    try {
+      await saveAll()
+
+      if (notifications.browser) {
+        await requestNotificationPermission()
+      }
+
+      toast.success('Configuracoes salvas com sucesso!')
+    } catch (error: any) {
+      toast.error(error?.message || 'Nao foi possivel salvar as configuracoes.')
+    } finally {
+      setIsSaving(false)
     }
-
-    toast.success('Configuracoes salvas com sucesso!')
   }
 
   return (
@@ -452,7 +464,7 @@ export default function ConfiguracoesPage() {
           </Tabs>
 
           <div className="flex justify-end pt-4">
-            <Button onClick={() => void handleSave()} size="lg" disabled={isLoading}>
+            <Button onClick={() => void handleSave()} size="lg" pending={isSaving} disabled={isLoading || isSaving}>
               Salvar Configuracoes
             </Button>
           </div>

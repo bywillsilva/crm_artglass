@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { toast } from 'sonner'
 import Link from 'next/link'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
@@ -130,7 +131,15 @@ export function ClientsTable({ onNewClient }: ClientsTableProps) {
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             className="text-destructive"
-                            onClick={() => deleteCliente(cliente.id)}
+                            onClick={() => {
+                              void deleteCliente(cliente.id)
+                                .then(() => {
+                                  toast.success('Cliente excluido com sucesso.')
+                                })
+                                .catch((error: any) => {
+                                  toast.error(error?.message || 'Nao foi possivel excluir o cliente.')
+                                })
+                            }}
                           >
                             <Trash2 className="mr-2 h-4 w-4" />
                             Excluir

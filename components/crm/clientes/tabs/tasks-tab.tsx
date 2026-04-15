@@ -54,24 +54,35 @@ export function TasksTab({ clienteId }: TasksTabProps) {
   const [editDescricao, setEditDescricao] = useState('')
   const [editDataHora, setEditDataHora] = useState('')
   const [editResponsavelId, setEditResponsavelId] = useState('')
+  const [isCreatingTask, setIsCreatingTask] = useState(false)
+  const [isSavingTask, setIsSavingTask] = useState(false)
 
   const tarefas = getTarefasByCliente(clienteId)
 
-  const handleAddTarefa = () => {
-    if (!descricao.trim() || !dataHora || !responsavelId) return
+  const handleAddTarefa = async () => {
+    if (isCreatingTask || !descricao.trim() || !dataHora || !responsavelId) return
 
-    addTarefa({
-      clienteId,
-      descricao,
-      dataHora: new Date(dataHora),
-      status: 'pendente',
-      responsavelId,
-    })
+    setIsCreatingTask(true)
 
-    setShowAddForm(false)
-    setDescricao('')
-    setDataHora('')
-    setResponsavelId('')
+    try {
+      await addTarefa({
+        clienteId,
+        descricao,
+        dataHora: new Date(dataHora),
+        status: 'pendente',
+        responsavelId,
+      })
+
+      setShowAddForm(false)
+      setDescricao('')
+      setDataHora('')
+      setResponsavelId('')
+      toast.success('Tarefa criada com sucesso.')
+    } catch (error: any) {
+      toast.error(error?.message || 'Nao foi possivel salvar a tarefa.')
+    } finally {
+      setIsCreatingTask(false)
+    }
   }
 
   const openEditDialog = (tarefa: typeof tarefas[number]) => {
@@ -82,23 +93,30 @@ export function TasksTab({ clienteId }: TasksTabProps) {
     setShowEditForm(true)
   }
 
-  const handleSaveEdit = () => {
-    if (!editingTarefaId || !editDescricao.trim() || !editDataHora || !editResponsavelId) return
+  const handleSaveEdit = async () => {
+    if (isSavingTask || !editingTarefaId || !editDescricao.trim() || !editDataHora || !editResponsavelId) return
 
-    startTransition(() => {
-      setShowEditForm(false)
-      setEditingTarefaId(null)
-    })
+    setIsSavingTask(true)
 
-    void updateTarefa({
-      ...(tarefas.find((tarefa) => tarefa.id === editingTarefaId) as typeof tarefas[number]),
-      descricao: editDescricao,
-      titulo: editDescricao,
-      dataHora: new Date(editDataHora),
-      responsavelId: editResponsavelId,
-    }).catch((error: any) => {
+    try {
+      await updateTarefa({
+        ...(tarefas.find((tarefa) => tarefa.id === editingTarefaId) as typeof tarefas[number]),
+        descricao: editDescricao,
+        titulo: editDescricao,
+        dataHora: new Date(editDataHora),
+        responsavelId: editResponsavelId,
+      })
+
+      startTransition(() => {
+        setShowEditForm(false)
+        setEditingTarefaId(null)
+      })
+      toast.success('Tarefa atualizada com sucesso.')
+    } catch (error: any) {
       toast.error(error?.message || 'Nao foi possivel salvar a tarefa.')
-    })
+    } finally {
+      setIsSavingTask(false)
+    }
   }
 
   const getStatusColor = (status: string) => {
@@ -207,7 +225,13 @@ export function TasksTab({ clienteId }: TasksTabProps) {
                             !general.confirmDeletes ||
                             confirm('Tem certeza que deseja excluir esta tarefa?')
                           ) {
-                            deleteTarefa(tarefa.id)
+                            void deleteTarefa(tarefa.id)
+                              .then(() => {
+                                toast.success('Tarefa excluida com sucesso.')
+                              })
+                              .catch((error: any) => {
+                                toast.error(error?.message || 'Nao foi possivel excluir a tarefa.')
+                              })
                           }
                         }}
                       >
@@ -265,12 +289,13 @@ export function TasksTab({ clienteId }: TasksTabProps) {
             </div>
 
             <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setShowAddForm(false)}>
+              <Button variant="outline" onClick={() => setShowAddForm(false)} disabled={isCreatingTask}>
                 Cancelar
               </Button>
               <Button
-                onClick={handleAddTarefa}
-                disabled={!descricao.trim() || !dataHora || !responsavelId}
+                onClick={() => void handleAddTarefa()}
+                pending={isCreatingTask}
+                disabled={isCreatingTask || !descricao.trim() || !dataHora || !responsavelId}
               >
                 Criar Tarefa
               </Button>
@@ -314,10 +339,10 @@ export function TasksTab({ clienteId }: TasksTabProps) {
             </div>
 
             <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setShowEditForm(false)}>
+              <Button variant="outline" onClick={() => setShowEditForm(false)} disabled={isSavingTask}>
                 Cancelar
               </Button>
-              <Button onClick={() => void handleSaveEdit()} disabled={!editDescricao.trim() || !editDataHora || !editResponsavelId}>
+              <Button onClick={() => void handleSaveEdit()} pending={isSavingTask} disabled={isSavingTask || !editDescricao.trim() || !editDataHora || !editResponsavelId}>
                 Salvar alteracoes
               </Button>
             </div>

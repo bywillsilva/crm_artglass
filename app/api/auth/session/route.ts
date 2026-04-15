@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
-import { getServerSession } from '@/lib/auth/session'
+import { clearSessionCookie, getServerSession } from '@/lib/auth/session'
 import { ensureUserManagementSchema } from '@/lib/server/proposal-workflow'
 
 export async function GET() {
@@ -8,7 +8,9 @@ export async function GET() {
     await ensureUserManagementSchema()
     const session = await getServerSession()
     if (!session) {
-      return NextResponse.json({ user: null }, { status: 401 })
+      const response = NextResponse.json({ user: null }, { status: 401 })
+      clearSessionCookie(response)
+      return response
     }
 
     const [user] = await query<any[]>(
@@ -17,7 +19,9 @@ export async function GET() {
     )
 
     if (!user || !user.ativo) {
-      return NextResponse.json({ user: null }, { status: 401 })
+      const response = NextResponse.json({ user: null }, { status: 401 })
+      clearSessionCookie(response)
+      return response
     }
 
     return NextResponse.json({

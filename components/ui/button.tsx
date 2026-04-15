@@ -43,6 +43,7 @@ function Button({
   variant,
   size,
   asChild = false,
+  type,
   disabled,
   onClick,
   pending = false,
@@ -59,6 +60,8 @@ function Button({
   const Comp = asChild ? Slot : 'button'
   const [isLocked, setIsLocked] = React.useState(false)
   const unlockTimeoutRef = React.useRef<number | null>(null)
+  const isSubmitLikeButton = !asChild && (type === 'submit' || type === 'reset')
+  const shouldAutoLock = !disableAutoLock && !asChild && !isSubmitLikeButton
   const isDisabled = Boolean(disabled || pending || isLocked)
 
   React.useEffect(() => {
@@ -86,14 +89,14 @@ function Button({
       return
     }
 
-    if (!disableAutoLock && !asChild) {
+    if (shouldAutoLock) {
       setIsLocked(true)
     }
 
     try {
       const result = onClick?.(event)
 
-      if (disableAutoLock || asChild) {
+      if (!shouldAutoLock) {
         return result
       }
 
@@ -126,6 +129,7 @@ function Button({
       className={cn(buttonVariants({ variant, size, className }))}
       aria-busy={pending || isLocked}
       disabled={asChild ? undefined : isDisabled}
+      type={asChild ? undefined : type}
       onClick={handleClick}
       {...props}
     />

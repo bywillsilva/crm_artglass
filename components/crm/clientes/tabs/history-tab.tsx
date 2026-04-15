@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { createInteracao, useInteracoes, useSession, useUsuarios } from '@/lib/hooks/use-api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -98,6 +99,7 @@ export function HistoryTab({ clienteId }: HistoryTabProps) {
       setShowAddForm(false)
       setDescricao('')
       setTipo('ligacao')
+      toast.success('Interacao registrada com sucesso.')
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : 'Erro ao registrar interacao.')
     } finally {
@@ -200,7 +202,7 @@ export function HistoryTab({ clienteId }: HistoryTabProps) {
               <Button variant="outline" onClick={() => setShowAddForm(false)} disabled={saving}>
                 Cancelar
               </Button>
-              <Button onClick={() => void handleAddInteracao()} disabled={!descricao.trim() || saving}>
+              <Button onClick={() => void handleAddInteracao()} pending={saving} disabled={!descricao.trim() || saving}>
                 {saving ? 'Registrando...' : 'Registrar'}
               </Button>
             </div>

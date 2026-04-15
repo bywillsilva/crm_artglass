@@ -2,7 +2,6 @@ import mysql from 'mysql2/promise'
 
 const MYSQL_TIMEZONE = process.env.MYSQL_TIMEZONE || '-03:00'
 const MYSQL_PORT = Math.max(Number(process.env.MYSQL_PORT || 3306), 1)
-const MYSQL_IP_FAMILY = Number(process.env.MYSQL_IP_FAMILY || 4)
 const MYSQL_SSL_ENABLED = /^(1|true|required)$/i.test(process.env.MYSQL_SSL || '')
 const MYSQL_CONNECTION_LIMIT = Math.max(Number(process.env.MYSQL_CONNECTION_LIMIT || 12), 1)
 const MYSQL_CONNECT_TIMEOUT = Math.max(Number(process.env.MYSQL_CONNECT_TIMEOUT_MS || 8000), 1000)
@@ -42,7 +41,6 @@ const pool = mysql.createPool({
   connectTimeout: MYSQL_CONNECT_TIMEOUT,
   enableKeepAlive: true,
   keepAliveInitialDelay: 0,
-  ...(MYSQL_IP_FAMILY === 4 || MYSQL_IP_FAMILY === 6 ? { family: MYSQL_IP_FAMILY } : {}),
   ...(MYSQL_SSL_ENABLED ? { ssl: { rejectUnauthorized: false } } : {}),
 })
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
-import { getServerSession } from '@/lib/auth/session'
+import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { formatDateTime } from '@/lib/server/proposal-workflow'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 
@@ -48,8 +48,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession()
-    if (!session) {
+    const user = await getAuthenticatedServerUser()
+    if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
 
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
       [
         id,
         data.clienteId,
-        session.userId,
+        user.id,
         data.tipo,
         data.descricao,
         data.dados ? JSON.stringify(data.dados) : null,
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
     )
 
     await publishRealtimeEvent({
-      actorUserId: session.userId,
+      actorUserId: user.id,
       resource: 'interacao',
       resourceId: id,
     })

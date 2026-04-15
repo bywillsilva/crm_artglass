@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { toast } from 'sonner'
 import { useCRM } from '@/lib/context/crm-context'
 import {
   Dialog,
@@ -35,10 +36,45 @@ const phoneRegex = /^\(\d{2}\) 9 \d{4}-\d{4}$/
 
 function formatPhone(value: string) {
   const digits = value.replace(/\D/g, '').slice(0, 11)
+  if (!digits) return ''
   if (digits.length <= 2) return digits
   if (digits.length <= 3) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
   if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2, 3)} ${digits.slice(3)}`
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 3)} ${digits.slice(3, 7)}-${digits.slice(7)}`
+}
+
+function getClientFormDefaults(cliente?: Cliente) {
+  if (cliente) {
+    return {
+      nome: cliente.nome,
+      telefone: formatPhone(cliente.telefone || ''),
+      email: cliente.email || '',
+      empresa: cliente.empresa || '',
+      cargo: cliente.cargo || '',
+      endereco: cliente.endereco || '',
+      tipo: cliente.tipo,
+      origem: cliente.origem || '',
+      observacoes: cliente.observacoes || '',
+      valorEstimado: cliente.valorEstimado > 0 ? String(cliente.valorEstimado) : '',
+    }
+  }
+
+  return {
+    nome: '',
+    telefone: '',
+    email: '',
+    empresa: '',
+    cargo: '',
+    endereco: '',
+    tipo: 'residencial' as const,
+    origem: '',
+    observacoes: '',
+    valorEstimado: '',
+  }
+}
+
+function normalizeOptionalText(value: string | undefined) {
+  return value?.trim() || ''
 }
 
 function RequiredLabel({ children }: { children: string }) {
@@ -54,25 +90,33 @@ const emailSchema = z
   .trim()
   .refine((value) => !value || z.string().email().safeParse(value).success, 'E-mail invalido')
 
+const optionalPhoneSchema = z
+  .string()
+  .trim()
+  .refine((value) => !value || phoneRegex.test(value), 'Telefone deve estar no formato (xx) 9 xxxx-xxxx')
+
+const optionalAddressSchema = z
+  .string()
+  .trim()
+  .refine((value) => !value || value.length >= 5, 'Endereco muito curto')
+
 const clienteSchema = z.object({
   nome: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
-  telefone: z.string().regex(phoneRegex, 'Telefone deve estar no formato (xx) 9 xxxx-xxxx'),
+  telefone: optionalPhoneSchema,
   email: emailSchema,
   empresa: z.string().optional(),
   cargo: z.string().optional(),
-  endereco: z.string().min(5, 'Endereco muito curto'),
+  endereco: optionalAddressSchema,
   tipo: z.enum(['residencial', 'comercial']),
   origem: z.string().optional(),
   observacoes: z.string().optional(),
-  valorEstimado: z.number().min(0, 'Valor deve ser positivo'),
-}).superRefine((data, ctx) => {
-  if (data.tipo === 'comercial' && !data.empresa?.trim()) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['empresa'],
-      message: 'Empresa obrigatoria para cliente comercial',
-    })
-  }
+  valorEstimado: z
+    .string()
+    .optional()
+    .refine(
+      (value) => !value || (!Number.isNaN(Number(value)) && Number(value) >= 0),
+      'Valor deve ser positivo'
+    ),
 })
 
 type ClienteFormData = z.infer<typeof clienteSchema>
@@ -87,96 +131,73 @@ const origens = ['Google Ads', 'Facebook', 'Instagram', 'Site', 'Indicacao', 'Pr
 
 export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
   const { addCliente, updateCliente } = useCRM()
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState('')
 
   const form = useForm<ClienteFormData>({
     resolver: zodResolver(clienteSchema),
     mode: 'onBlur',
     reValidateMode: 'onBlur',
-    defaultValues: cliente
-      ? {
-          nome: cliente.nome,
-          telefone: cliente.telefone,
-          email: cliente.email,
-          empresa: cliente.empresa || '',
-          cargo: cliente.cargo || '',
-          endereco: cliente.endereco,
-          tipo: cliente.tipo,
-          origem: cliente.origem || '',
-          observacoes: cliente.observacoes,
-          valorEstimado: cliente.valorEstimado,
-        }
-      : {
-          nome: '',
-          telefone: '',
-          email: '',
-          empresa: '',
-          cargo: '',
-          endereco: '',
-          tipo: 'residencial',
-          origem: '',
-          observacoes: '',
-          valorEstimado: 0,
-        },
+    defaultValues: getClientFormDefaults(cliente),
   })
   const tipoSelecionado = form.watch('tipo')
 
   useEffect(() => {
     if (open) {
-      form.reset(
-        cliente
-          ? {
-              nome: cliente.nome,
-              telefone: cliente.telefone,
-              email: cliente.email,
-              empresa: cliente.empresa || '',
-              cargo: cliente.cargo || '',
-              endereco: cliente.endereco,
-              tipo: cliente.tipo,
-              origem: cliente.origem || '',
-              observacoes: cliente.observacoes,
-              valorEstimado: cliente.valorEstimado,
-            }
-          : {
-              nome: '',
-              telefone: '',
-              email: '',
-              empresa: '',
-              cargo: '',
-              endereco: '',
-              tipo: 'residencial',
-              origem: '',
-              observacoes: '',
-              valorEstimado: 0,
-            }
-      )
+      form.reset(getClientFormDefaults(cliente))
+      setSubmitError('')
+      setIsSubmitting(false)
     }
   }, [cliente, form, open])
 
   const onSubmit = async (data: ClienteFormData) => {
+    if (isSubmitting) return
+
+    setIsSubmitting(true)
+    setSubmitError('')
+
     const normalizedData = {
       ...data,
-      empresa: data.tipo === 'comercial' ? data.empresa?.trim() || '' : '',
-      cargo: data.tipo === 'comercial' ? data.cargo?.trim() || '' : '',
+      empresa: data.tipo === 'comercial' ? normalizeOptionalText(data.empresa) : '',
+      cargo: data.tipo === 'comercial' ? normalizeOptionalText(data.cargo) : '',
       email: data.email.trim(),
-      origem: data.origem === 'nao_informado' ? '' : data.origem?.trim() || '',
+      telefone: formatPhone(data.telefone),
+      endereco: normalizeOptionalText(data.endereco),
+      observacoes: normalizeOptionalText(data.observacoes),
+      origem: data.origem === 'nao_informado' ? '' : normalizeOptionalText(data.origem),
+      valorEstimado: Number(data.valorEstimado || 0),
       status: cliente?.status ?? 'lead_novo',
     }
 
-    if (cliente) {
-      await updateCliente({
-        ...cliente,
-        ...normalizedData,
-      })
-    } else {
-      await addCliente({
-        ...normalizedData,
-        observacoes: normalizedData.observacoes ?? '',
-        ultimoContato: new Date(),
-      })
-    }
+    try {
+      if (cliente) {
+        await updateCliente({
+          ...cliente,
+          ...normalizedData,
+        })
+        toast.success('Cliente atualizado com sucesso')
+      } else {
+        await addCliente({
+          ...normalizedData,
+          observacoes: normalizedData.observacoes ?? '',
+          ultimoContato: new Date(),
+        })
+        toast.success('Cliente criado com sucesso')
+      }
 
-    onClose()
-    form.reset()
+      onClose()
+      form.reset(getClientFormDefaults())
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Erro ao salvar cliente.'
+      setSubmitError(message)
+      toast.error(message)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const onInvalid = () => {
+    toast.error('Revise os campos obrigatorios antes de salvar o cliente.')
   }
 
   return (
@@ -187,7 +208,7 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
         </DialogHeader>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <form noValidate onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField
                 control={form.control}
@@ -208,7 +229,7 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
                 name="telefone"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel><RequiredLabel>Telefone</RequiredLabel></FormLabel>
+                    <FormLabel>Telefone</FormLabel>
                     <FormControl>
                       <Input
                         placeholder="(11) 9 9999-9999"
@@ -254,7 +275,7 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
                     name="empresa"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel><RequiredLabel>Empresa</RequiredLabel></FormLabel>
+                        <FormLabel>Empresa</FormLabel>
                         <FormControl>
                           <Input placeholder="Nome da empresa" {...field} value={field.value ?? ''} />
                         </FormControl>
@@ -306,7 +327,7 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
                 name="endereco"
                 render={({ field }) => (
                   <FormItem className="md:col-span-2">
-                    <FormLabel><RequiredLabel>Endereco</RequiredLabel></FormLabel>
+                    <FormLabel>Endereco</FormLabel>
                     <FormControl>
                       <Input placeholder="Rua, numero - Cidade, UF" {...field} />
                     </FormControl>
@@ -346,13 +367,15 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
                 name="valorEstimado"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel><RequiredLabel>Valor Estimado</RequiredLabel></FormLabel>
+                    <FormLabel>Valor Pretendido</FormLabel>
                     <FormControl>
                       <Input
                         type="number"
                         placeholder="0"
-                        {...field}
-                        onChange={(e) => field.onChange(Number(e.target.value))}
+                        min="0"
+                        step="0.01"
+                        value={field.value ?? ''}
+                        onChange={(e) => field.onChange(e.target.value)}
                       />
                     </FormControl>
                     <FormMessage />
@@ -375,11 +398,15 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
               />
             </div>
 
+            {submitError && <p className="text-sm text-destructive">{submitError}</p>}
+
             <div className="flex justify-end gap-3 pt-4">
-              <Button type="button" variant="outline" onClick={onClose}>
+              <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
                 Cancelar
               </Button>
-              <Button type="submit">{cliente ? 'Salvar Alteracoes' : 'Criar Cliente'}</Button>
+              <Button type="submit" pending={isSubmitting}>
+                {cliente ? 'Salvar Alteracoes' : 'Criar Cliente'}
+              </Button>
             </div>
           </form>
         </Form>

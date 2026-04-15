@@ -79,6 +79,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const [touchMovePropostaId, setTouchMovePropostaId] = useState<string | null>(null)
   const [touchMoveStatus, setTouchMoveStatus] = useState<StatusProposta | ''>('')
   const [isTouchDevice, setIsTouchDevice] = useState(false)
+  const [isSubmittingMove, setIsSubmittingMove] = useState(false)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -212,9 +213,10 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   }
 
   const confirmMove = async () => {
-    if (!pendingMove) return
+    if (!pendingMove || isSubmittingMove) return
     const proposta = propostasById.get(pendingMove.propostaId)
     if (!proposta) return
+    const currentPendingMove = pendingMove
     const persistedStatus = resolveProposalStatusForPersistence(proposta.status, pendingMove.targetStatus)
     const nextValue = pendingMove.targetStatus === 'aguardando_aprovacao' ? Number(moveValue || 0) : proposta.valor
     const optimisticPatch: Partial<Proposta> = {
@@ -223,21 +225,23 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       followUpTime: followUpTime || proposta.followUpTime || null,
     }
 
+    setIsSubmittingMove(true)
     setOptimisticPropostas((prev) => ({ ...prev, [proposta.id]: optimisticPatch }))
     setUpdatingProposalIds((prev) => ({ ...prev, [proposta.id]: true }))
-    setPendingMove(null)
-    setMoveComment('')
-    setFollowUpTime('')
-    setMoveValue('')
 
     try {
       await updateProposta({
         ...proposta,
-        status: pendingMove.targetStatus,
+        status: currentPendingMove.targetStatus,
         valor: nextValue,
         comentario: moveComment,
         followUpTime: followUpTime || proposta.followUpTime || null,
       } as Proposta)
+      toast.success('Proposta atualizada com sucesso.')
+      setPendingMove(null)
+      setMoveComment('')
+      setFollowUpTime('')
+      setMoveValue('')
     } catch (error: any) {
       setOptimisticPropostas((prev) => {
         const next = { ...prev }
@@ -246,6 +250,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       })
       toast.error(error?.message || 'Nao foi possivel atualizar a proposta.')
     } finally {
+      setIsSubmittingMove(false)
       setUpdatingProposalIds((prev) => {
         const next = { ...prev }
         delete next[proposta.id]
@@ -508,12 +513,14 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
               </div>
             )}
             <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setPendingMove(null)}>
+              <Button variant="outline" onClick={() => setPendingMove(null)} disabled={isSubmittingMove}>
                 Cancelar
               </Button>
               <Button
                 onClick={() => void confirmMove()}
+                pending={isSubmittingMove}
                 disabled={
+                  isSubmittingMove ||
                   (requiresBudgetValue && Number(moveValue || 0) <= 0) ||
                   (requiresMoveComment && !moveComment.trim()) ||
                   (requiresFollowUpTime && !followUpTime)

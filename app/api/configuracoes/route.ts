@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
-import { getServerSession } from '@/lib/auth/session'
+import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 
 const USER_KEYS = ['geral', 'notificacoes', 'aparencia']
@@ -71,8 +71,8 @@ export async function GET(request: NextRequest) {
   try {
     await ensureConfiguracoesSchema()
 
-    const session = await getServerSession()
-    if (!session) {
+    const user = await getAuthenticatedServerUser()
+    if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
 
@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
            )
          ORDER BY CASE WHEN scope = 'user' THEN 0 ELSE 1 END
          LIMIT 1`,
-        [chave, session.userId]
+        [chave, user.id]
       )
       return NextResponse.json(config || null)
     }
@@ -112,7 +112,7 @@ export async function GET(request: NextRequest) {
                OR (scope = 'global' AND user_id = '')
              ))
        ORDER BY chave, CASE WHEN scope = 'user' THEN 0 ELSE 1 END`,
-      [session.userId]
+      [user.id]
     )
 
     const byKey = new Map<string, any>()
@@ -133,15 +133,15 @@ export async function POST(request: NextRequest) {
   try {
     await ensureConfiguracoesSchema()
 
-    const session = await getServerSession()
-    if (!session) {
+    const user = await getAuthenticatedServerUser()
+    if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
 
     const data = await request.json()
     const isCompanyConfig = data.chave === 'empresa'
 
-    if (isCompanyConfig && session.role !== 'admin') {
+    if (isCompanyConfig && user.role !== 'admin') {
       return NextResponse.json(
         { error: 'Apenas o administrador pode alterar os dados da empresa' },
         { status: 403 }
@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
     }
 
     const scope = isCompanyConfig ? 'global' : 'user'
-    const userId = isCompanyConfig ? '' : session.userId
+    const userId = isCompanyConfig ? '' : user.id
 
     const [existing] = await query<any[]>(
       'SELECT * FROM configuracoes WHERE chave = ? AND scope = ? AND user_id = ? LIMIT 1',
@@ -174,7 +174,7 @@ export async function POST(request: NextRequest) {
     )
 
     await publishRealtimeEvent({
-      actorUserId: session.userId,
+      actorUserId: user.id,
       resource: data.chave === 'empresa' ? 'config_global' : 'config_usuario',
       resourceId: data.chave,
     })

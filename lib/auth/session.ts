@@ -1,5 +1,7 @@
 import { createHmac, timingSafeEqual } from 'crypto'
 import { cookies } from 'next/headers'
+import { NextResponse } from 'next/server'
+import { query } from '@/lib/db/mysql'
 
 export const SESSION_COOKIE = 'solarcrm_session'
 
@@ -7,6 +9,16 @@ type SessionPayload = {
   userId: string
   role: string
   expiresAt: number
+}
+
+export type AuthenticatedServerUser = {
+  id: string
+  nome?: string
+  email?: string
+  avatar?: string
+  role: string
+  ativo: boolean
+  modulePermissions?: unknown
 }
 
 function getSecret() {
@@ -55,4 +67,43 @@ export function verifySessionToken(token?: string | null): SessionPayload | null
 export async function getServerSession() {
   const cookieStore = await cookies()
   return verifySessionToken(cookieStore.get(SESSION_COOKIE)?.value)
+}
+
+export async function getAuthenticatedServerUser() {
+  const session = await getServerSession()
+  if (!session) {
+    return null
+  }
+
+  const [user] = await query<any[]>(
+    `SELECT id, nome, email, avatar, role, ativo, module_permissions
+     FROM usuarios
+     WHERE id = ?
+     LIMIT 1`,
+    [session.userId]
+  )
+
+  if (!user || !user.ativo) {
+    return null
+  }
+
+  return {
+    id: user.id,
+    nome: user.nome ?? undefined,
+    email: user.email ?? undefined,
+    avatar: user.avatar ?? undefined,
+    role: user.role,
+    ativo: Boolean(user.ativo),
+    modulePermissions: user.module_permissions ?? null,
+  } as AuthenticatedServerUser
+}
+
+export function clearSessionCookie(response: NextResponse) {
+  response.cookies.set(SESSION_COOKIE, '', {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    maxAge: 0,
+  })
 }

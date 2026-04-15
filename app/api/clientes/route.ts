@@ -1,13 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { query } from '@/lib/db/mysql'
+import { getConnection, query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
-import { getServerSession } from '@/lib/auth/session'
+import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import {
   ensureCrmRuntimeSchema,
   getNextProposalNumber,
   formatDateTime,
 } from '@/lib/server/proposal-workflow'
+
+function normalizeNullableText(value: unknown) {
+  if (typeof value !== 'string') {
+    return value == null ? null : String(value)
+  }
+
+  const trimmed = value.trim()
+  return trimmed ? trimmed : null
+}
+
+function parseNullableNumber(value: unknown, fallback = 0) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : fallback
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return fallback
+    const parsed = Number(trimmed.replace(',', '.'))
+    return Number.isFinite(parsed) ? parsed : fallback
+  }
+
+  return fallback
+}
 
 async function ensureBaseSchema() {
   await ensureCrmRuntimeSchema()
@@ -57,11 +81,14 @@ async function getDefaultProposalOrcamentista(userId: string) {
   return (fallbackOrcamentista?.id || null) as string | null
 }
 
-async function createInitialProposalForClient(params: {
-  clienteId: string
-  clienteNome: string
-  usuarioId: string
-}) {
+async function createInitialProposalForClient(
+  connection: Awaited<ReturnType<typeof getConnection>>,
+  params: {
+    clienteId: string
+    clienteNome: string
+    usuarioId: string
+  }
+) {
   const propostaId = uuidv4()
   const responsavelId = await getDefaultProposalResponsavel(params.usuarioId)
   const orcamentistaId = await getDefaultProposalOrcamentista(params.usuarioId)
@@ -72,7 +99,7 @@ async function createInitialProposalForClient(params: {
     const nextNumero = await getNextProposalNumber()
 
     try {
-      await query(
+      await connection.execute(
         `INSERT INTO propostas (
           id, numero, cliente_id, responsavel_id, orcamentista_id, retificacoes_count, titulo, descricao,
           valor, desconto, valor_final, status, validade, servicos, condicoes, follow_up_base_at, follow_up_time
@@ -115,14 +142,14 @@ async function createInitialProposalForClient(params: {
     throw new Error('Nao foi possivel gerar um numero unico para a proposta inicial do cliente.')
   }
 
-  await query(
+  await connection.execute(
     `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
      VALUES (?, ?, ?, 'proposta', ?, ?, ?)`,
     [
       uuidv4(),
       params.clienteId,
       params.usuarioId,
-      `Card inicial da proposta criado automaticamente para o novo cliente`,
+      'Card inicial da proposta criado automaticamente para o novo cliente',
       JSON.stringify({
         proposta_id: propostaId,
         status: 'novo_cliente',
@@ -170,54 +197,84 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  let connection: Awaited<ReturnType<typeof getConnection>> | null = null
+
   try {
     await ensureBaseSchema()
-    const session = await getServerSession()
-    if (!session) {
+    const user = await getAuthenticatedServerUser()
+    if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
 
-    const data = await request.json()
+    const data = (await request.json()) as Record<string, unknown>
     const id = uuidv4()
+    const nome = normalizeNullableText(data.nome)
 
-    await query(
+    if (!nome || nome.length < 2) {
+      return NextResponse.json(
+        { error: 'Informe um nome valido para o cliente.' },
+        { status: 400 }
+      )
+    }
+
+    const payload = {
+      nome,
+      email: normalizeNullableText(data.email),
+      telefone: normalizeNullableText(data.telefone),
+      empresa: normalizeNullableText(data.empresa),
+      cargo: normalizeNullableText(data.cargo),
+      endereco: normalizeNullableText(data.endereco),
+      cidade: normalizeNullableText(data.cidade),
+      estado: normalizeNullableText(data.estado),
+      cep: normalizeNullableText(data.cep),
+      origem: normalizeNullableText(data.origem),
+      statusFunil: normalizeNullableText(data.statusFunil ?? data.status) || 'lead_novo',
+      valorPotencial: parseNullableNumber(data.valorPotencial ?? data.valorEstimado, 0),
+      observacoes: normalizeNullableText(data.observacoes),
+    }
+
+    connection = await getConnection()
+    await connection.beginTransaction()
+
+    await connection.execute(
       `INSERT INTO clientes (
         id, nome, email, telefone, empresa, cargo, endereco, cidade, estado, cep,
         origem, status_funil, valor_potencial, observacoes
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
-        data.nome,
-        data.email || null,
-        data.telefone || null,
-        data.empresa || null,
-        data.cargo || null,
-        data.endereco || null,
-        data.cidade || null,
-        data.estado || null,
-        data.cep || null,
-        data.origem || null,
-        data.statusFunil || 'lead_novo',
-        data.valorPotencial || 0,
-        data.observacoes || null,
+        payload.nome,
+        payload.email,
+        payload.telefone,
+        payload.empresa,
+        payload.cargo,
+        payload.endereco,
+        payload.cidade,
+        payload.estado,
+        payload.cep,
+        payload.origem,
+        payload.statusFunil,
+        payload.valorPotencial,
+        payload.observacoes,
       ]
     )
 
-    // Criar interação de registro
-    await query(
-      `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, created_at) 
+    await connection.execute(
+      `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, created_at)
        VALUES (?, ?, ?, 'nota', 'Cliente cadastrado no sistema', ?)`,
-      [uuidv4(), id, session.userId, formatDateTime(new Date())]
+      [uuidv4(), id, user.id, formatDateTime(new Date())]
     )
 
-    await createInitialProposalForClient({
+    await createInitialProposalForClient(connection, {
       clienteId: id,
-      clienteNome: data.nome,
-      usuarioId: session.userId,
+      clienteNome: payload.nome,
+      usuarioId: user.id,
     })
 
+    await connection.commit()
+
     await publishRealtimeEvent({
-      actorUserId: session.userId,
+      actorUserId: user.id,
       resource: 'cliente',
       resourceId: id,
     })
@@ -225,7 +282,20 @@ export async function POST(request: NextRequest) {
     const [cliente] = await query<any[]>('SELECT * FROM clientes WHERE id = ?', [id])
     return NextResponse.json(cliente, { status: 201 })
   } catch (error) {
+    if (connection) {
+      try {
+        await connection.rollback()
+      } catch {
+        // Ignora falhas ao reverter a transacao.
+      }
+    }
+
     console.error('Erro ao criar cliente:', error)
-    return NextResponse.json({ error: 'Erro ao criar cliente' }, { status: 500 })
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Erro ao criar cliente' },
+      { status: 500 }
+    )
+  } finally {
+    connection?.release()
   }
 }

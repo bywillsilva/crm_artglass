@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from '@/lib/auth/session'
+import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { query } from '@/lib/db/mysql'
 
 const NOTIFICATION_SCHEMA_CACHE_MS = 60 * 60 * 1000
@@ -41,15 +41,15 @@ async function ensureReadNotificationsTable() {
 export async function GET() {
   try {
     await ensureReadNotificationsTable()
-    const session = await getServerSession()
+    const user = await getAuthenticatedServerUser()
 
-    if (!session) {
+    if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
 
     const rows = await query<any[]>(
       'SELECT notification_id FROM notification_reads WHERE user_id = ?',
-      [session.userId]
+      [user.id]
     )
 
     return NextResponse.json(rows.map((row) => row.notification_id))
@@ -62,9 +62,9 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     await ensureReadNotificationsTable()
-    const session = await getServerSession()
+    const user = await getAuthenticatedServerUser()
 
-    if (!session) {
+    if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
 
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     for (const notificationId of notificationIds) {
       await query(
         'INSERT IGNORE INTO notification_reads (id, user_id, notification_id) VALUES (UUID(), ?, ?)',
-        [session.userId, String(notificationId)]
+        [user.id, String(notificationId)]
       )
     }
 

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { getServerSession } from '@/lib/auth/session'
+import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { query } from '@/lib/db/mysql'
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession()
+    const sessionUser = await getAuthenticatedServerUser()
 
-    if (!session) {
+    if (!sessionUser) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
 
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
 
     const [user] = await query<any[]>(
       'SELECT id, senha FROM usuarios WHERE id = ? LIMIT 1',
-      [session.userId]
+      [sessionUser.id]
     )
 
     if (!user) {
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     }
 
     const senhaHash = await bcrypt.hash(newPassword, 10)
-    await query('UPDATE usuarios SET senha = ? WHERE id = ?', [senhaHash, session.userId])
+    await query('UPDATE usuarios SET senha = ? WHERE id = ?', [senhaHash, sessionUser.id])
 
     return NextResponse.json({ success: true })
   } catch (error) {

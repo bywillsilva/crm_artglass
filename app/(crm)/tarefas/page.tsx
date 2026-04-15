@@ -1,6 +1,6 @@
 'use client'
 
-import { startTransition, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { useTarefas, useClientes, useUsuarios, createTarefa, updateTarefa, updateTarefaStatus, deleteTarefa, useSession } from '@/lib/hooks/use-api'
 import { useAppSettings } from '@/lib/context/app-settings-context'
@@ -55,6 +55,8 @@ export default function TarefasPage() {
   const [editClienteId, setEditClienteId] = useState('')
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
+  const [isCreatingTask, setIsCreatingTask] = useState(false)
+  const [isSavingTask, setIsSavingTask] = useState(false)
 
   const tarefasHoje = tarefas.filter((tarefa: Tarefa) => {
     const hoje = new Date()
@@ -82,26 +84,31 @@ export default function TarefasPage() {
     return <ModuleAccessState module="tarefas" />
   }
 
-  const handleAddTarefa = () => {
-    if (!descricao.trim() || !dataHora || !responsavelId || !clienteId) return
+  const handleAddTarefa = async () => {
+    if (isCreatingTask || !descricao.trim() || !dataHora || !responsavelId || !clienteId) return
 
-    startTransition(() => {
+    setIsCreatingTask(true)
+
+    try {
+      await createTarefa({
+        clienteId,
+        descricao,
+        dataHora: new Date(dataHora),
+        status: 'pendente',
+        responsavelId,
+      })
+
       setShowAddForm(false)
       setDescricao('')
       setDataHora('')
       setResponsavelId('')
       setClienteId('')
-    })
-
-    void createTarefa({
-      clienteId,
-      descricao,
-      dataHora: new Date(dataHora),
-      status: 'pendente',
-      responsavelId,
-    }).catch((error: any) => {
+      toast.success('Tarefa criada com sucesso.')
+    } catch (error: any) {
       toast.error(error?.message || 'Nao foi possivel criar a tarefa.')
-    })
+    } finally {
+      setIsCreatingTask(false)
+    }
   }
 
   const openEditDialog = (tarefa: Tarefa) => {
@@ -113,24 +120,29 @@ export default function TarefasPage() {
     setShowEditForm(true)
   }
 
-  const handleSaveEdit = () => {
-    if (!editingTarefaId || !editDescricao.trim() || !editDataHora || !editResponsavelId || !editClienteId) return
+  const handleSaveEdit = async () => {
+    if (isSavingTask || !editingTarefaId || !editDescricao.trim() || !editDataHora || !editResponsavelId || !editClienteId) return
 
-    startTransition(() => {
+    setIsSavingTask(true)
+
+    try {
+      await updateTarefa(editingTarefaId, {
+        clienteId: editClienteId,
+        descricao: editDescricao,
+        titulo: editDescricao,
+        dataHora: new Date(editDataHora),
+        status: tarefas.find((tarefa: Tarefa) => tarefa.id === editingTarefaId)?.status || 'pendente',
+        responsavelId: editResponsavelId,
+      })
+
       setShowEditForm(false)
       setEditingTarefaId(null)
-    })
-
-    void updateTarefa(editingTarefaId, {
-      clienteId: editClienteId,
-      descricao: editDescricao,
-      titulo: editDescricao,
-      dataHora: new Date(editDataHora),
-      status: tarefas.find((tarefa: Tarefa) => tarefa.id === editingTarefaId)?.status || 'pendente',
-      responsavelId: editResponsavelId,
-    }).catch((error: any) => {
+      toast.success('Tarefa atualizada com sucesso.')
+    } catch (error: any) {
       toast.error(error?.message || 'Nao foi possivel salvar a tarefa.')
-    })
+    } finally {
+      setIsSavingTask(false)
+    }
   }
 
   const getStatusColor = (tarefa: Tarefa) => {
@@ -150,6 +162,12 @@ export default function TarefasPage() {
   const handleDelete = (id: string) => {
     if (!general.confirmDeletes || confirm('Tem certeza que deseja excluir esta tarefa?')) {
       void deleteTarefa(id)
+        .then(() => {
+          toast.success('Tarefa excluida com sucesso.')
+        })
+        .catch((error: any) => {
+          toast.error(error?.message || 'Nao foi possivel excluir a tarefa.')
+        })
     }
   }
 
@@ -391,8 +409,8 @@ export default function TarefasPage() {
             </div>
 
             <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setShowAddForm(false)}>Cancelar</Button>
-              <Button onClick={() => void handleAddTarefa()} disabled={!descricao.trim() || !dataHora || !responsavelId || !clienteId}>
+              <Button variant="outline" onClick={() => setShowAddForm(false)} disabled={isCreatingTask}>Cancelar</Button>
+              <Button onClick={() => void handleAddTarefa()} pending={isCreatingTask} disabled={isCreatingTask || !descricao.trim() || !dataHora || !responsavelId || !clienteId}>
                 Criar Tarefa
               </Button>
             </div>
@@ -443,8 +461,8 @@ export default function TarefasPage() {
             </div>
 
             <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setShowEditForm(false)}>Cancelar</Button>
-              <Button onClick={() => void handleSaveEdit()} disabled={!editDescricao.trim() || !editDataHora || !editResponsavelId || !editClienteId}>
+              <Button variant="outline" onClick={() => setShowEditForm(false)} disabled={isSavingTask}>Cancelar</Button>
+              <Button onClick={() => void handleSaveEdit()} pending={isSavingTask} disabled={isSavingTask || !editDescricao.trim() || !editDataHora || !editResponsavelId || !editClienteId}>
                 Salvar alteracoes
               </Button>
             </div>

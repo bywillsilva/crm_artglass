@@ -24,6 +24,7 @@ export default function PerfilPage() {
   const { company, formatCurrency } = useAppSettings()
 
   const [isEditing, setIsEditing] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const [formData, setFormData] = useState({
     nome: '',
     email: '',
@@ -53,55 +54,63 @@ export default function PerfilPage() {
   }, [currentUser, isEditing])
 
   const handleSave = async () => {
-    if (!currentUser) return
+    if (!currentUser || isSaving) return
 
-    await updateUsuario(currentUser.id, {
-      ...currentUser,
-      nome: formData.nome,
-      email: formData.email,
-      avatar: formData.avatar,
-    })
+    setIsSaving(true)
 
-    if (formData.currentPassword || formData.newPassword || formData.confirmNewPassword) {
-      if (!formData.currentPassword) {
-        toast.error("Informe a senha atual para alterar a senha.")
-        return
-      }
-
-      if (formData.newPassword.length < 8) {
-        toast.error("A nova senha deve ter no minimo 8 caracteres.")
-        return
-      }
-
-      if (formData.newPassword !== formData.confirmNewPassword) {
-        toast.error("A confirmacao da nova senha nao confere.")
-        return
-      }
-
-      const response = await fetch('/api/auth/change-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          currentPassword: formData.currentPassword,
-          newPassword: formData.newPassword,
-        }),
+    try {
+      await updateUsuario(currentUser.id, {
+        ...currentUser,
+        nome: formData.nome,
+        email: formData.email,
+        avatar: formData.avatar,
       })
 
-      const result = await response.json()
-      if (!response.ok) {
-        toast.error(result?.error || 'Nao foi possivel alterar a senha.')
-        return
-      }
-    }
+      if (formData.currentPassword || formData.newPassword || formData.confirmNewPassword) {
+        if (!formData.currentPassword) {
+          toast.error("Informe a senha atual para alterar a senha.")
+          return
+        }
 
-    setIsEditing(false)
-    setFormData((prev) => ({
-      ...prev,
-      currentPassword: '',
-      newPassword: '',
-      confirmNewPassword: '',
-    }))
-    toast.success("Perfil atualizado com sucesso!")
+        if (formData.newPassword.length < 8) {
+          toast.error("A nova senha deve ter no minimo 8 caracteres.")
+          return
+        }
+
+        if (formData.newPassword !== formData.confirmNewPassword) {
+          toast.error("A confirmacao da nova senha nao confere.")
+          return
+        }
+
+        const response = await fetch('/api/auth/change-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            currentPassword: formData.currentPassword,
+            newPassword: formData.newPassword,
+          }),
+        })
+
+        const result = await response.json()
+        if (!response.ok) {
+          toast.error(result?.error || 'Nao foi possivel alterar a senha.')
+          return
+        }
+      }
+
+      setIsEditing(false)
+      setFormData((prev) => ({
+        ...prev,
+        currentPassword: '',
+        newPassword: '',
+        confirmNewPassword: '',
+      }))
+      toast.success("Perfil atualizado com sucesso!")
+    } catch (error: any) {
+      toast.error(error?.message || 'Nao foi possivel atualizar o perfil.')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleCancel = () => {
@@ -225,10 +234,10 @@ export default function PerfilPage() {
                 </div>
 
                 <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={handleCancel}>
+                  <Button variant="outline" onClick={handleCancel} disabled={isSaving}>
                     Cancelar
                   </Button>
-                  <Button onClick={() => void handleSave()}>Salvar Alteracoes</Button>
+                  <Button onClick={() => void handleSave()} pending={isSaving} disabled={isSaving}>Salvar Alteracoes</Button>
                 </div>
               </CardContent>
             </Card>

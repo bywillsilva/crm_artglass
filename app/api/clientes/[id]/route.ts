@@ -1,9 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
-import { getServerSession } from '@/lib/auth/session'
+import { getAuthenticatedServerUser } from '@/lib/auth/session'
+import { query } from '@/lib/db/mysql'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { ensureCrmRuntimeSchema, formatDateTime } from '@/lib/server/proposal-workflow'
+
+function hasOwn(data: Record<string, unknown>, key: string) {
+  return Object.prototype.hasOwnProperty.call(data, key)
+}
+
+function normalizeNullableText(value: unknown) {
+  if (typeof value !== 'string') {
+    return value == null ? null : String(value)
+  }
+
+  const trimmed = value.trim()
+  return trimmed ? trimmed : null
+}
+
+function parseNullableNumber(value: unknown, fallback = 0) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : fallback
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return fallback
+    const parsed = Number(trimmed.replace(',', '.'))
+    return Number.isFinite(parsed) ? parsed : fallback
+  }
+
+  return fallback
+}
 
 export async function GET(
   request: NextRequest,
@@ -20,7 +48,7 @@ export async function GET(
     )
 
     if (!cliente) {
-      return NextResponse.json({ error: 'Cliente não encontrado' }, { status: 404 })
+      return NextResponse.json({ error: 'Cliente nao encontrado' }, { status: 404 })
     }
 
     return NextResponse.json(cliente)
@@ -36,68 +64,101 @@ export async function PUT(
 ) {
   try {
     await ensureCrmRuntimeSchema()
-    const session = await getServerSession()
-    if (!session) {
+    const user = await getAuthenticatedServerUser()
+    if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
 
     const { id } = await params
-    const data = await request.json()
+    const data = (await request.json()) as Record<string, unknown>
 
-    // Buscar status atual para verificar mudança
     const [clienteAtual] = await query<any[]>(
-      'SELECT status_funil, observacoes FROM clientes WHERE id = ?',
+      `SELECT
+        id, nome, email, telefone, empresa, cargo, endereco, cidade, estado, cep,
+        origem, status_funil, valor_potencial, observacoes
+       FROM clientes
+       WHERE id = ?`,
       [id]
     )
+
+    if (!clienteAtual) {
+      return NextResponse.json({ error: 'Cliente nao encontrado' }, { status: 404 })
+    }
+
+    const statusFunil =
+      (data.statusFunil as string | undefined) ??
+      (data.status as string | undefined) ??
+      clienteAtual.status_funil ??
+      'lead_novo'
+
+    const valorPotencial = parseNullableNumber(
+      data.valorPotencial ?? data.valorEstimado,
+      clienteAtual.valor_potencial ?? 0
+    )
+
+    const mergedCliente = {
+      nome: hasOwn(data, 'nome') ? normalizeNullableText(data.nome) : clienteAtual.nome,
+      email: hasOwn(data, 'email') ? normalizeNullableText(data.email) : clienteAtual.email,
+      telefone: hasOwn(data, 'telefone') ? normalizeNullableText(data.telefone) : clienteAtual.telefone,
+      empresa: hasOwn(data, 'empresa') ? normalizeNullableText(data.empresa) : clienteAtual.empresa,
+      cargo: hasOwn(data, 'cargo') ? normalizeNullableText(data.cargo) : clienteAtual.cargo,
+      endereco: hasOwn(data, 'endereco') ? normalizeNullableText(data.endereco) : clienteAtual.endereco,
+      cidade: hasOwn(data, 'cidade') ? normalizeNullableText(data.cidade) : clienteAtual.cidade,
+      estado: hasOwn(data, 'estado') ? normalizeNullableText(data.estado) : clienteAtual.estado,
+      cep: hasOwn(data, 'cep') ? normalizeNullableText(data.cep) : clienteAtual.cep,
+      origem: hasOwn(data, 'origem') ? normalizeNullableText(data.origem) : clienteAtual.origem,
+      observacoes: hasOwn(data, 'observacoes')
+        ? normalizeNullableText(data.observacoes)
+        : clienteAtual.observacoes,
+    }
 
     await query(
       `UPDATE clientes SET
         nome = ?, email = ?, telefone = ?, empresa = ?, cargo = ?,
         endereco = ?, cidade = ?, estado = ?, cep = ?, origem = ?,
         status_funil = ?, valor_potencial = ?, observacoes = ?
-      WHERE id = ?`,
+       WHERE id = ?`,
       [
-        data.nome,
-        data.email || null,
-        data.telefone || null,
-        data.empresa || null,
-        data.cargo || null,
-        data.endereco || null,
-        data.cidade || null,
-        data.estado || null,
-        data.cep || null,
-        data.origem || null,
-        data.statusFunil || 'lead_novo',
-        data.valorPotencial || 0,
-        data.observacoes || null,
+        mergedCliente.nome,
+        mergedCliente.email,
+        mergedCliente.telefone,
+        mergedCliente.empresa,
+        mergedCliente.cargo,
+        mergedCliente.endereco,
+        mergedCliente.cidade,
+        mergedCliente.estado,
+        mergedCliente.cep,
+        mergedCliente.origem,
+        statusFunil,
+        valorPotencial,
+        mergedCliente.observacoes,
         id,
       ]
     )
 
-    // Registrar mudança de status se houver
-    if (clienteAtual && clienteAtual.status_funil !== data.statusFunil) {
+    if (clienteAtual.status_funil !== statusFunil) {
       await query(
         `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
          VALUES (?, ?, ?, 'mudanca_status', ?, ?, ?)`,
         [
           uuidv4(),
           id,
-          session.userId,
-          `Status alterado de ${clienteAtual.status_funil} para ${data.statusFunil}`,
-          JSON.stringify({ de: clienteAtual.status_funil, para: data.statusFunil }),
+          user.id,
+          `Status alterado de ${clienteAtual.status_funil} para ${statusFunil}`,
+          JSON.stringify({ de: clienteAtual.status_funil, para: statusFunil }),
           formatDateTime(new Date()),
         ]
       )
     }
 
-    if ((clienteAtual?.observacoes || '') !== (data.observacoes || '')) {
+    if ((clienteAtual.observacoes || '') !== (mergedCliente.observacoes || '')) {
       await query(
         `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
          VALUES (?, ?, ?, 'nota', ?, ?, ?)`,
         [
           uuidv4(),
           id,
-          session.userId,
+          user.id,
           'Observacoes do cliente atualizadas',
           JSON.stringify({ campo: 'observacoes', origem: 'cliente' }),
           formatDateTime(new Date()),
@@ -106,7 +167,7 @@ export async function PUT(
     }
 
     await publishRealtimeEvent({
-      actorUserId: session.userId,
+      actorUserId: user.id,
       resource: 'cliente',
       resourceId: id,
     })
@@ -115,7 +176,10 @@ export async function PUT(
     return NextResponse.json(cliente)
   } catch (error) {
     console.error('Erro ao atualizar cliente:', error)
-    return NextResponse.json({ error: 'Erro ao atualizar cliente' }, { status: 500 })
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Erro ao atualizar cliente' },
+      { status: 500 }
+    )
   }
 }
 
@@ -124,12 +188,16 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const session = await getServerSession()
+    const user = await getAuthenticatedServerUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+    }
+
     const { id } = await params
     await query('DELETE FROM clientes WHERE id = ?', [id])
 
     await publishRealtimeEvent({
-      actorUserId: session?.userId || null,
+      actorUserId: user.id,
       resource: 'cliente',
       resourceId: id,
     })

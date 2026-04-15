@@ -144,6 +144,7 @@ export default function UsuariosPage() {
           ativo: formData.ativo,
           modulePermissions,
         })
+        toast.success("Usuario atualizado com sucesso.")
       } else {
         await addUsuario({
           nome: formData.nome,
@@ -154,10 +155,13 @@ export default function UsuariosPage() {
           senha: formData.senha,
           modulePermissions,
         })
+        toast.success("Usuario criado com sucesso.")
       }
 
       setIsDialogOpen(false)
       setFormData((prev) => ({ ...prev, senha: "", confirmarSenha: "" }))
+    } catch (error: any) {
+      toast.error(error?.message || "Nao foi possivel salvar o usuario.")
     } finally {
       setIsSubmitting(false)
     }
@@ -165,7 +169,13 @@ export default function UsuariosPage() {
 
   const handleDelete = (id: string) => {
     if (!general.confirmDeletes || confirm("Tem certeza que deseja excluir este usuario?")) {
-      deleteUsuario(id)
+      void deleteUsuario(id)
+        .then(() => {
+          toast.success("Usuario excluido com sucesso.")
+        })
+        .catch((error: any) => {
+          toast.error(error?.message || "Nao foi possivel excluir o usuario.")
+        })
     }
   }
 

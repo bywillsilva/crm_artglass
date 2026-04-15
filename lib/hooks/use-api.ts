@@ -314,6 +314,43 @@ function mutateByPrefix(prefix: string) {
   mutate((key) => typeof key === 'string' && key.startsWith(prefix))
 }
 
+type BootstrapCollectionKey = 'clientes' | 'usuarios' | 'tarefas' | 'propostas'
+
+function mutateBootstrapCollection(
+  collection: BootstrapCollectionKey,
+  updater: (items: JsonRecord[]) => JsonRecord[]
+) {
+  return mutate(
+    '/api/crm/bootstrap',
+    (current?: JsonRecord | null) => {
+      if (!current || typeof current !== 'object') {
+        return current
+      }
+
+      const items = Array.isArray(current[collection]) ? (current[collection] as JsonRecord[]) : []
+      return {
+        ...current,
+        [collection]: updater(items),
+      }
+    },
+    { revalidate: false }
+  )
+}
+
+function prependBootstrapEntity(collection: BootstrapCollectionKey, entity: JsonRecord) {
+  return mutateBootstrapCollection(collection, (items) => [entity, ...items])
+}
+
+function patchBootstrapEntity(collection: BootstrapCollectionKey, id: string, patch: JsonRecord) {
+  return mutateBootstrapCollection(collection, (items) =>
+    items.map((item) => (item?.id === id ? { ...item, ...patch } : item))
+  )
+}
+
+function removeBootstrapEntity(collection: BootstrapCollectionKey, id: string) {
+  return mutateBootstrapCollection(collection, (items) => items.filter((item) => item?.id !== id))
+}
+
 export function revalidateRealtimeData() {
   REALTIME_REVALIDATE_PREFIXES.forEach((prefix) => {
     mutate((key) => typeof key === 'string' && key.startsWith(prefix))
@@ -656,8 +693,10 @@ export async function createCliente(data: Partial<Cliente> & JsonRecord) {
     body: JSON.stringify(payload),
   })
 
+  await prependBootstrapEntity('clientes', created as JsonRecord)
   mutateByPrefix('/api/clientes')
   mutateByPrefix('/api/propostas')
+  mutate('/api/crm/bootstrap')
   mutate('/api/dashboard')
   mutateByPrefix('/api/interacoes')
   return created
@@ -680,23 +719,51 @@ export async function updateCliente(id: string, data: Partial<Cliente> & JsonRec
     cep: data.cep || null,
   }
 
-  const updated = await requestJson(`/api/clientes/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+  const optimisticPatch = compactObject({
+    nome: payload.nome,
+    email: payload.email,
+    telefone: payload.telefone,
+    endereco: payload.endereco,
+    origem: payload.origem,
+    status: payload.statusFunil,
+    status_funil: payload.statusFunil,
+    valorEstimado: payload.valorPotencial,
+    valor_potencial: payload.valorPotencial,
+    observacoes: payload.observacoes,
+    empresa: payload.empresa,
+    cargo: payload.cargo,
+    cidade: payload.cidade,
+    estado: payload.estado,
+    cep: payload.cep,
   })
 
-  mutateByPrefix('/api/clientes')
-  mutate('/api/dashboard')
-  mutateByPrefix('/api/interacoes')
-  return updated
+  await patchBootstrapEntity('clientes', id, optimisticPatch)
+
+  try {
+    const updated = await requestJson(`/api/clientes/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+
+    mutateByPrefix('/api/clientes')
+    mutate('/api/crm/bootstrap')
+    mutate('/api/dashboard')
+    mutateByPrefix('/api/interacoes')
+    return updated
+  } catch (error) {
+    mutate('/api/crm/bootstrap')
+    throw error
+  }
 }
 
 export async function deleteCliente(id: string) {
+  await removeBootstrapEntity('clientes', id)
   const deleted = await requestJson(`/api/clientes/${id}`, { method: 'DELETE' })
   mutateByPrefix('/api/clientes')
   mutateByPrefix('/api/tarefas')
   mutateByPrefix('/api/propostas')
+  mutate('/api/crm/bootstrap')
   mutateByPrefix('/api/interacoes')
   mutate('/api/dashboard')
   return deleted
@@ -719,7 +786,9 @@ export async function createTarefa(data: Partial<Tarefa> & JsonRecord) {
     body: JSON.stringify(payload),
   })
 
+  await prependBootstrapEntity('tarefas', created as JsonRecord)
   mutateByPrefix('/api/tarefas')
+  mutate('/api/crm/bootstrap')
   mutate('/api/dashboard')
   mutateByPrefix('/api/interacoes')
   return created
@@ -749,6 +818,7 @@ export async function updateTarefa(id: string, data: Partial<Tarefa> & JsonRecor
   })
 
   await mutateEntityByPrefix('/api/tarefas', id, optimisticPatch)
+  await patchBootstrapEntity('tarefas', id, optimisticPatch)
 
   try {
     const updated = await requestJson(`/api/tarefas/${id}`, {
@@ -758,11 +828,13 @@ export async function updateTarefa(id: string, data: Partial<Tarefa> & JsonRecor
     })
 
     mutateByPrefix('/api/tarefas')
+    mutate('/api/crm/bootstrap')
     mutate('/api/dashboard')
     mutateByPrefix('/api/interacoes')
     return updated
   } catch (error) {
     mutateByPrefix('/api/tarefas')
+    mutate('/api/crm/bootstrap')
     mutate('/api/dashboard')
     throw error
   }
@@ -770,6 +842,7 @@ export async function updateTarefa(id: string, data: Partial<Tarefa> & JsonRecor
 
 export async function updateTarefaStatus(id: string, status: StatusTarefa) {
   await mutateEntityByPrefix('/api/tarefas', id, { status })
+  await patchBootstrapEntity('tarefas', id, { status })
 
   try {
     const updated = await requestJson(`/api/tarefas/${id}`, {
@@ -779,19 +852,23 @@ export async function updateTarefaStatus(id: string, status: StatusTarefa) {
     })
 
     mutateByPrefix('/api/tarefas')
+    mutate('/api/crm/bootstrap')
     mutate('/api/dashboard')
     mutateByPrefix('/api/interacoes')
     return updated
   } catch (error) {
     mutateByPrefix('/api/tarefas')
+    mutate('/api/crm/bootstrap')
     mutate('/api/dashboard')
     throw error
   }
 }
 
 export async function deleteTarefa(id: string) {
+  await removeBootstrapEntity('tarefas', id)
   const deleted = await requestJson(`/api/tarefas/${id}`, { method: 'DELETE' })
   mutateByPrefix('/api/tarefas')
+  mutate('/api/crm/bootstrap')
   mutate('/api/dashboard')
   return deleted
 }
@@ -825,8 +902,10 @@ export async function createProposta(data: Partial<Proposta> & JsonRecord) {
     body,
   })
 
+  await prependBootstrapEntity('propostas', created as JsonRecord)
   mutateByPrefix('/api/propostas')
   mutateByPrefix('/api/clientes')
+  mutate('/api/crm/bootstrap')
   mutate('/api/dashboard')
   mutateByPrefix('/api/interacoes')
   return created
@@ -872,6 +951,7 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
   })
 
   await mutateEntityByPrefix('/api/propostas', id, optimisticPatch)
+  await patchBootstrapEntity('propostas', id, optimisticPatch)
 
   try {
     const updated = await requestJson(`/api/propostas/${id}`, {
@@ -882,12 +962,14 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
 
     mutateByPrefix('/api/propostas')
     mutateByPrefix('/api/clientes')
+    mutate('/api/crm/bootstrap')
     mutate('/api/dashboard')
     mutateByPrefix('/api/interacoes')
     return updated
   } catch (error) {
     mutateByPrefix('/api/propostas')
     mutateByPrefix('/api/clientes')
+    mutate('/api/crm/bootstrap')
     mutate('/api/dashboard')
     throw error
   }
@@ -898,9 +980,11 @@ export async function updatePropostaStatus(id: string, status: StatusProposta) {
 }
 
 export async function deleteProposta(id: string) {
+  await removeBootstrapEntity('propostas', id)
   const deleted = await requestJson(`/api/propostas/${id}`, { method: 'DELETE' })
   mutateByPrefix('/api/propostas')
   mutateByPrefix('/api/clientes')
+  mutate('/api/crm/bootstrap')
   mutate('/api/dashboard')
   return deleted
 }
@@ -912,24 +996,36 @@ export async function createUsuario(data: Partial<Usuario> & JsonRecord) {
     body: JSON.stringify(data),
   })
 
+  await prependBootstrapEntity('usuarios', created as JsonRecord)
   mutateByPrefix('/api/usuarios')
+  mutate('/api/crm/bootstrap')
   return created
 }
 
 export async function updateUsuario(id: string, data: Partial<Usuario> & JsonRecord) {
-  const updated = await requestJson(`/api/usuarios/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  })
+  await patchBootstrapEntity('usuarios', id, data)
 
-  mutateByPrefix('/api/usuarios')
-  return updated
+  try {
+    const updated = await requestJson(`/api/usuarios/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    })
+
+    mutateByPrefix('/api/usuarios')
+    mutate('/api/crm/bootstrap')
+    return updated
+  } catch (error) {
+    mutate('/api/crm/bootstrap')
+    throw error
+  }
 }
 
 export async function deleteUsuario(id: string) {
+  await removeBootstrapEntity('usuarios', id)
   const deleted = await requestJson(`/api/usuarios/${id}`, { method: 'DELETE' })
   mutateByPrefix('/api/usuarios')
+  mutate('/api/crm/bootstrap')
   return deleted
 }
 
