@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ArrowRightLeft, CheckCircle2, Clock3, MessageSquare, Paperclip, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 import { useCRM } from '@/lib/context/crm-context'
@@ -59,6 +59,46 @@ type PendingMove = {
   targetStatus: StatusProposta
 }
 
+type DragPointerType = 'mouse' | 'touch' | 'pen'
+
+type PendingDrag = {
+  pointerId: number
+  pointerType: DragPointerType
+  propostaId: string
+  sourceStatus: StatusProposta
+  startX: number
+  startY: number
+  currentX: number
+  currentY: number
+  offsetX: number
+  offsetY: number
+  width: number
+  height: number
+  element: HTMLDivElement
+  ready: boolean
+}
+
+type DragState = Omit<PendingDrag, 'element' | 'ready'> & {
+  overStatus: StatusProposta | null
+  hasMoved: boolean
+}
+
+const TOUCH_DRAG_HOLD_MS = 220
+const TOUCH_DRAG_CANCEL_DISTANCE = 14
+const TOUCH_DRAG_START_DISTANCE = 14
+const MOUSE_DRAG_START_DISTANCE = 6
+const TOUCH_AUTO_SCROLL_EDGE_PX = 84
+const TOUCH_AUTO_SCROLL_MAX_STEP = 26
+const INTERACTIVE_DRAG_SELECTOR = 'button, a, input, textarea, select, [role="button"], [data-no-touch-drag]'
+
+function isTouchLikePointer(event: React.PointerEvent) {
+  return event.pointerType === 'touch' || event.pointerType === 'pen'
+}
+
+function isInteractiveTarget(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest(INTERACTIVE_DRAG_SELECTOR))
+}
+
 interface KanbanBoardProps {
   propostas?: Proposta[]
 }
@@ -67,7 +107,6 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const { state, lookups, updateProposta } = useCRM()
   const { formatCurrency, formatDateTime } = useAppSettings()
   const { user } = useSession()
-  const [draggedPropostaId, setDraggedPropostaId] = useState<string | null>(null)
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
   const [moveComment, setMoveComment] = useState('')
   const [followUpTime, setFollowUpTime] = useState('')
@@ -80,6 +119,12 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const [touchMoveStatus, setTouchMoveStatus] = useState<StatusProposta | ''>('')
   const [isTouchDevice, setIsTouchDevice] = useState(false)
   const [isSubmittingMove, setIsSubmittingMove] = useState(false)
+  const [dragState, setDragState] = useState<DragState | null>(null)
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const touchDragTimerRef = useRef<number | null>(null)
+  const touchPendingDragRef = useRef<PendingDrag | null>(null)
+  const autoScrollFrameRef = useRef<number | null>(null)
+  const dragPointRef = useRef<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -104,6 +149,34 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       }
     }
   }, [])
+
+  useEffect(() => {
+    return () => {
+      if (touchDragTimerRef.current !== null) {
+        window.clearTimeout(touchDragTimerRef.current)
+      }
+      if (autoScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(autoScrollFrameRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+
+    const previousUserSelect = document.body.style.userSelect
+    const previousWebkitUserSelect = document.body.style.webkitUserSelect
+
+    if (dragState) {
+      document.body.style.userSelect = 'none'
+      document.body.style.webkitUserSelect = 'none'
+    }
+
+    return () => {
+      document.body.style.userSelect = previousUserSelect
+      document.body.style.webkitUserSelect = previousWebkitUserSelect
+    }
+  }, [dragState])
 
   const propostasBase = useMemo(
     () =>
@@ -177,6 +250,58 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     return getProposalCardVisualState(proposta.status, task, formatDateTime)
   }
 
+  const clearTouchPendingDrag = (releasePointer = false) => {
+    if (touchDragTimerRef.current !== null) {
+      window.clearTimeout(touchDragTimerRef.current)
+      touchDragTimerRef.current = null
+    }
+
+    const pending = touchPendingDragRef.current
+    if (releasePointer && pending?.element.hasPointerCapture?.(pending.pointerId)) {
+      pending.element.releasePointerCapture(pending.pointerId)
+    }
+
+    touchPendingDragRef.current = null
+  }
+
+  const getTouchDropStatus = (clientX: number, clientY: number) => {
+    if (typeof document === 'undefined') return null
+
+    const dropTarget = document
+      .elementFromPoint(clientX, clientY)
+      ?.closest('[data-kanban-column-status]')
+
+    if (!(dropTarget instanceof HTMLElement)) {
+      return null
+    }
+
+    const status = dropTarget.dataset.kanbanColumnStatus
+    return columns.includes(status as StatusProposta) ? (status as StatusProposta) : null
+  }
+
+  const beginPointerDrag = (pending: PendingDrag, clientX: number, clientY: number) => {
+    try {
+      pending.element.setPointerCapture?.(pending.pointerId)
+    } catch {
+      // Ignora falhas de capture em navegadores mais limitados.
+    }
+
+    if (touchDragTimerRef.current !== null) {
+      window.clearTimeout(touchDragTimerRef.current)
+      touchDragTimerRef.current = null
+    }
+
+    touchPendingDragRef.current = pending
+    dragPointRef.current = { x: clientX, y: clientY }
+    setDragState({
+      ...pending,
+      currentX: clientX,
+      currentY: clientY,
+      overStatus: pending.pointerType === 'mouse' ? getTouchDropStatus(clientX, clientY) : null,
+      hasMoved: false,
+    })
+  }
+
   const requestMove = (propostaId: string, targetStatus: StatusProposta) => {
     const proposta = propostasById.get(propostaId)
     if (!proposta || proposta.status === targetStatus) {
@@ -206,10 +331,137 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     setTouchMoveStatus('')
   }
 
-  const handleDrop = (targetStatus: StatusProposta) => {
-    if (!draggedPropostaId) return
-    requestMove(draggedPropostaId, targetStatus)
-    setDraggedPropostaId(null)
+  const handleTouchPointerDown = (event: React.PointerEvent<HTMLDivElement>, proposta: Proposta) => {
+    if ((event.pointerType === 'mouse' && event.button !== 0) || isInteractiveTarget(event.target)) {
+      return
+    }
+
+    if (isTouchLikePointer(event)) {
+      event.preventDefault()
+    }
+
+    const card = event.currentTarget
+    const rect = card.getBoundingClientRect()
+    const isTouchPointer = isTouchLikePointer(event)
+    const pending: PendingDrag = {
+      pointerId: event.pointerId,
+      pointerType: (event.pointerType || 'mouse') as DragPointerType,
+      propostaId: proposta.id,
+      sourceStatus: proposta.status,
+      startX: event.clientX,
+      startY: event.clientY,
+      currentX: event.clientX,
+      currentY: event.clientY,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      width: rect.width,
+      height: rect.height,
+      element: card,
+      ready: !isTouchPointer,
+    }
+
+    clearTouchPendingDrag()
+    touchPendingDragRef.current = pending
+
+    if (isTouchPointer) {
+      touchDragTimerRef.current = window.setTimeout(() => {
+        if (touchPendingDragRef.current?.pointerId !== pending.pointerId) {
+          return
+        }
+
+        const readyPending = {
+          ...pending,
+          ready: true,
+        }
+        touchPendingDragRef.current = readyPending
+        touchDragTimerRef.current = null
+        beginPointerDrag(readyPending, readyPending.currentX, readyPending.currentY)
+      }, TOUCH_DRAG_HOLD_MS)
+    }
+  }
+
+  const handleTouchPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const pending = touchPendingDragRef.current
+    if (pending?.pointerId === event.pointerId && !dragState) {
+      const deltaX = event.clientX - pending.startX
+      const deltaY = event.clientY - pending.startY
+      const distance = Math.hypot(deltaX, deltaY)
+
+      if (pending.pointerType !== 'mouse' && !pending.ready && distance > TOUCH_DRAG_CANCEL_DISTANCE) {
+        clearTouchPendingDrag()
+        return
+      }
+
+      const startDistance =
+        pending.pointerType === 'mouse' ? MOUSE_DRAG_START_DISTANCE : TOUCH_DRAG_START_DISTANCE
+
+      if (pending.pointerType === 'mouse' && pending.ready && distance >= startDistance) {
+        event.preventDefault()
+        beginPointerDrag(pending, event.clientX, event.clientY)
+        return
+      }
+
+      pending.currentX = event.clientX
+      pending.currentY = event.clientY
+      dragPointRef.current = { x: event.clientX, y: event.clientY }
+      return
+    }
+
+    if (!dragState || dragState.pointerId !== event.pointerId) {
+      return
+    }
+
+    event.preventDefault()
+    dragPointRef.current = { x: event.clientX, y: event.clientY }
+    const overStatus = getTouchDropStatus(event.clientX, event.clientY)
+    const dragDistance = Math.hypot(event.clientX - dragState.startX, event.clientY - dragState.startY)
+    setDragState((current) =>
+      current && current.pointerId === event.pointerId
+        ? {
+            ...current,
+            currentX: event.clientX,
+            currentY: event.clientY,
+            overStatus,
+            hasMoved:
+              current.hasMoved ||
+              dragDistance >=
+                (current.pointerType === 'mouse' ? MOUSE_DRAG_START_DISTANCE : TOUCH_DRAG_START_DISTANCE),
+          }
+        : current
+    )
+  }
+
+  const finishTouchDrag = (pointerId: number) => {
+    const activeTouchDrag = dragState
+    const pending = touchPendingDragRef.current
+    const captureElement = pending?.element
+
+    if (pending?.pointerId === pointerId) {
+      clearTouchPendingDrag(true)
+    }
+
+    if (!activeTouchDrag || activeTouchDrag.pointerId !== pointerId) {
+      return
+    }
+
+    if (
+      activeTouchDrag.hasMoved &&
+      activeTouchDrag.overStatus &&
+      activeTouchDrag.overStatus !== activeTouchDrag.sourceStatus
+    ) {
+      requestMove(activeTouchDrag.propostaId, activeTouchDrag.overStatus)
+    }
+
+    if (captureElement?.hasPointerCapture?.(pointerId)) {
+      captureElement.releasePointerCapture(pointerId)
+    }
+
+    dragPointRef.current = null
+    setDragState(null)
+  }
+
+  const handleTouchPointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+    finishTouchDrag(event.pointerId)
   }
 
   const confirmMove = async () => {
@@ -280,20 +532,93 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const availableTouchStatuses = touchMoveProposal
     ? columns.filter((status) => status !== touchMoveProposal.status)
     : []
+  const draggedTouchProposal = dragState ? propostasById.get(dragState.propostaId) || null : null
+  const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 0
+  const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 0
+
+  useEffect(() => {
+    if (!dragState || dragState.pointerType === 'mouse' || typeof window === 'undefined') {
+      if (autoScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(autoScrollFrameRef.current)
+        autoScrollFrameRef.current = null
+      }
+      return
+    }
+
+    const tick = () => {
+      const container = scrollContainerRef.current
+      const dragPoint = dragPointRef.current
+
+      if (!container || !dragPoint) {
+        autoScrollFrameRef.current = window.requestAnimationFrame(tick)
+        return
+      }
+
+      const rect = container.getBoundingClientRect()
+      let deltaX = 0
+
+      if (dragPoint.x >= rect.right - TOUCH_AUTO_SCROLL_EDGE_PX) {
+        const intensity = Math.min(
+          1,
+          (dragPoint.x - (rect.right - TOUCH_AUTO_SCROLL_EDGE_PX)) / TOUCH_AUTO_SCROLL_EDGE_PX
+        )
+        deltaX = Math.ceil(TOUCH_AUTO_SCROLL_MAX_STEP * Math.max(0.2, intensity))
+      } else if (dragPoint.x <= rect.left + TOUCH_AUTO_SCROLL_EDGE_PX) {
+        const intensity = Math.min(
+          1,
+          ((rect.left + TOUCH_AUTO_SCROLL_EDGE_PX) - dragPoint.x) / TOUCH_AUTO_SCROLL_EDGE_PX
+        )
+        deltaX = -Math.ceil(TOUCH_AUTO_SCROLL_MAX_STEP * Math.max(0.2, intensity))
+      }
+
+      if (deltaX !== 0) {
+        const previousScrollLeft = container.scrollLeft
+        container.scrollLeft += deltaX
+
+        if (container.scrollLeft !== previousScrollLeft) {
+          const overStatus = getTouchDropStatus(dragPoint.x, dragPoint.y)
+          setDragState((current) =>
+            current
+              ? {
+                  ...current,
+                  overStatus,
+                }
+              : current
+          )
+        }
+      }
+
+      autoScrollFrameRef.current = window.requestAnimationFrame(tick)
+    }
+
+    autoScrollFrameRef.current = window.requestAnimationFrame(tick)
+
+    return () => {
+      if (autoScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(autoScrollFrameRef.current)
+        autoScrollFrameRef.current = null
+      }
+    }
+  }, [dragState])
 
   return (
     <>
-      <div className="flex min-h-[calc(100vh-12rem)] gap-4 overflow-x-auto pb-4">
+      <div
+        ref={scrollContainerRef}
+        className={`flex min-h-[calc(100vh-12rem)] gap-4 overflow-x-auto pb-4 ${dragState ? 'touch-none' : ''}`}
+      >
         {columns.map((status) => {
           const propostasDaColuna = propostasByStatus[status]
           const valorTotal = propostasDaColuna.reduce((acc, proposta) => acc + proposta.valor, 0)
+          const isTouchDropTarget = dragState?.overStatus === status
 
           return (
             <div
               key={status}
-              className={`flex w-80 min-w-80 flex-col rounded-lg border-t-4 bg-card ${columnBorderColors[status]}`}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={() => handleDrop(status)}
+              data-kanban-column-status={status}
+              className={`flex w-80 min-w-80 flex-col rounded-lg border-t-4 bg-card transition-colors ${
+                columnBorderColors[status]
+              } ${isTouchDropTarget ? 'ring-2 ring-primary/60 ring-offset-2 ring-offset-background' : ''}`}
             >
               <div className="border-b border-border p-4">
                 <div className="mb-1 flex items-center justify-between gap-3">
@@ -316,14 +641,20 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                     return (
                       <div
                         key={proposta.id}
-                        draggable={!isTouchDevice}
                         aria-busy={Boolean(updatingProposalIds[proposta.id])}
-                        onDragStart={() => setDraggedPropostaId(proposta.id)}
-                        onDragEnd={() => setDraggedPropostaId(null)}
+                        onPointerDown={(event) => handleTouchPointerDown(event, proposta)}
+                        onPointerMove={handleTouchPointerMove}
+                        onPointerUp={handleTouchPointerEnd}
+                        onPointerCancel={handleTouchPointerEnd}
                         onContextMenu={(event) => event.preventDefault()}
                         className={`rounded-xl border p-4 shadow-sm transition ${cardState.classes} ${
                           updatingProposalIds[proposta.id] ? 'opacity-70' : ''
+                        } ${
+                          dragState?.propostaId === proposta.id
+                            ? 'opacity-35 scale-[0.98]'
+                            : ''
                         } select-none [-webkit-touch-callout:none]`}
+                        style={{ touchAction: isTouchDevice ? 'none' : undefined }}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
@@ -406,6 +737,39 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
           )
         })}
       </div>
+
+      {dragState && draggedTouchProposal ? (
+        <div
+          className="pointer-events-none fixed z-[70] w-80 max-w-[calc(100vw-2rem)]"
+          style={{
+            left: Math.max(
+              16,
+              Math.min(dragState.currentX - dragState.offsetX, viewportWidth - dragState.width - 16)
+            ),
+            top: Math.max(
+              16,
+              Math.min(dragState.currentY - dragState.offsetY, viewportHeight - dragState.height - 16)
+            ),
+          }}
+        >
+          <div className="rounded-xl border border-primary/40 bg-card/95 p-4 shadow-2xl backdrop-blur-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-foreground">
+                  {lookups.clientesById.get(draggedTouchProposal.clienteId)?.nome || 'Cliente'}
+                </p>
+                <p className="mt-1 text-lg font-bold text-foreground">
+                  {formatCurrency(draggedTouchProposal.valor)}
+                </p>
+              </div>
+              <ArrowRightLeft className="h-4 w-4 text-primary" />
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Solte o card na coluna desejada para mover a proposta.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       <Dialog
         open={Boolean(touchMovePropostaId)}
