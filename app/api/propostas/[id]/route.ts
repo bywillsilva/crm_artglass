@@ -12,6 +12,7 @@ import {
   ensureUserRoleSchema,
   formatDateTime,
   normalizeProposalStatus,
+  parseDatabaseDateTime,
   requiresOrcamentistaAssignment,
   requiresPositiveProposalValue,
   syncDueFollowUpStatuses,
@@ -363,9 +364,7 @@ export async function PUT(
           : propostaAtual.servicos || []
 
     const changedAt = new Date()
-    const currentFollowUpBaseAt = propostaAtual.follow_up_base_at
-      ? new Date(propostaAtual.follow_up_base_at)
-      : null
+    const currentFollowUpBaseAt = parseDatabaseDateTime(propostaAtual.follow_up_base_at)
     const shouldResetFollowUpBase =
       previousStatus !== storedStatus && storedStatus === 'enviado_ao_cliente'
     const followUpBaseAt =

@@ -51,10 +51,36 @@ const FOLLOW_UP_SYNC_STEPS = [
   { from: 'aguardando_follow_up_7_dias', to: 'follow_up_7_dias', stage: 'follow_up_7_dias' },
 ] as const
 
+const MYSQL_TIMEZONE = process.env.MYSQL_TIMEZONE || '-03:00'
 const cacheTimes = new Map<string, number>()
 const cachePromises = new Map<string, Promise<void>>()
 const SCHEMA_CACHE_MS = 5 * 60 * 1000
 const RUNTIME_CACHE_MS = 10 * 1000
+
+function parseTimeZoneOffsetInMinutes(timeZone: string) {
+  const normalized = String(timeZone || '').trim()
+
+  if (!normalized || normalized.toUpperCase() === 'UTC' || normalized === 'Z') {
+    return 0
+  }
+
+  const match = normalized.match(/^([+-])(\d{2}):?(\d{2})$/)
+  if (!match) {
+    return -180
+  }
+
+  const sign = match[1] === '-' ? -1 : 1
+  const hours = Number(match[2])
+  const minutes = Number(match[3])
+
+  return sign * (hours * 60 + minutes)
+}
+
+const MYSQL_OFFSET_MINUTES = parseTimeZoneOffsetInMinutes(MYSQL_TIMEZONE)
+
+function toDatabaseTimeZoneDate(date: Date) {
+  return new Date(date.getTime() + MYSQL_OFFSET_MINUTES * 60 * 1000)
+}
 
 type TableIndexDefinition = {
   name: string
@@ -146,13 +172,43 @@ export function normalizeProposalStatus(status?: string | null): ProposalWorkflo
 }
 
 export function formatDateTime(date: Date) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  const seconds = String(date.getSeconds()).padStart(2, '0')
+  const zoned = toDatabaseTimeZoneDate(date)
+  const year = zoned.getUTCFullYear()
+  const month = String(zoned.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(zoned.getUTCDate()).padStart(2, '0')
+  const hours = String(zoned.getUTCHours()).padStart(2, '0')
+  const minutes = String(zoned.getUTCMinutes()).padStart(2, '0')
+  const seconds = String(zoned.getUTCSeconds()).padStart(2, '0')
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+}
+
+export function parseDatabaseDateTime(value?: string | Date | null) {
+  if (!value) return null
+  if (value instanceof Date) return value
+
+  const normalized = String(value).trim()
+  const localMatch = normalized.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?$/
+  )
+
+  if (localMatch) {
+    const [, year, month, day, hours = '0', minutes = '0', seconds = '0'] = localMatch
+    const timestamp =
+      Date.UTC(
+        Number(year),
+        Number(month) - 1,
+        Number(day),
+        Number(hours),
+        Number(minutes),
+        Number(seconds)
+      ) -
+      MYSQL_OFFSET_MINUTES * 60 * 1000
+
+    return new Date(timestamp)
+  }
+
+  const parsed = new Date(normalized)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
 function addDays(date: Date, days: number) {
@@ -255,7 +311,9 @@ export async function ensureProposalSequenceSchema() {
   })
 }
 
-export async function getNextProposalNumber(year = new Date().getFullYear()) {
+export async function getNextProposalNumber(
+  year = toDatabaseTimeZoneDate(new Date()).getUTCFullYear()
+) {
   await ensureProposalSequenceSchema()
   const connection = await getConnection()
 

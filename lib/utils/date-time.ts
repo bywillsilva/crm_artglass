@@ -3,43 +3,38 @@ export function parseDateTimeValue(value?: string | Date | null) {
   if (value instanceof Date) return value
 
   const normalized = String(value).trim()
+  const localDateTimeMatch = normalized.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?)?$/
+  )
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
-    const [year, month, day] = normalized.split('-').map(Number)
-    return new Date(year, month - 1, day)
+  if (localDateTimeMatch) {
+    const [, year, month, day, hours = '0', minutes = '0', seconds = '0', milliseconds = '0'] =
+      localDateTimeMatch
+    return new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hours),
+      Number(minutes),
+      Number(seconds),
+      Number(milliseconds.padEnd(3, '0'))
+    )
   }
 
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(normalized)) {
-    const [datePart, timePart] = normalized.split(' ')
-    const [year, month, day] = datePart.split('-').map(Number)
-    const [hours, minutes, seconds] = timePart.split(':').map(Number)
-    return new Date(year, month - 1, day, hours, minutes, seconds)
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(normalized)) {
+    const isoDate = new Date(normalized)
+    if (!Number.isNaN(isoDate.getTime())) {
+      return isoDate
+    }
   }
 
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(normalized)) {
-    const [datePart, timePart] = normalized.split('T')
-    const [year, month, day] = datePart.split('-').map(Number)
-    const [hours, minutes] = timePart.split(':').map(Number)
-    return new Date(year, month - 1, day, hours, minutes, 0)
+  const parsedDate = new Date(normalized)
+  if (!Number.isNaN(parsedDate.getTime())) {
+    return parsedDate
   }
 
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(normalized)) {
-    const [datePart, timePart] = normalized.split('T')
-    const [year, month, day] = datePart.split('-').map(Number)
-    const [hours, minutes, seconds] = timePart.split(':').map(Number)
-    return new Date(year, month - 1, day, hours, minutes, seconds)
-  }
-
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(normalized)) {
-    const cleaned = normalized.replace('Z', '')
-    const [datePart, timePart] = cleaned.split('T')
-    const [year, month, day] = datePart.split('-').map(Number)
-    const [hours, minutes, secondsWithMs] = timePart.split(':')
-    const [seconds] = secondsWithMs.split('.')
-    return new Date(year, month - 1, day, Number(hours), Number(minutes), Number(seconds || 0))
-  }
-
-  return new Date(normalized.replace(' ', 'T'))
+  const fallbackDate = new Date(normalized.replace(' ', 'T'))
+  return Number.isNaN(fallbackDate.getTime()) ? new Date() : fallbackDate
 }
 
 function pad(value: number) {
