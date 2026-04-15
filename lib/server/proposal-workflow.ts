@@ -56,7 +56,7 @@ const cacheTimes = new Map<string, number>()
 const cachePromises = new Map<string, Promise<void>>()
 const SCHEMA_CACHE_MS = 5 * 60 * 1000
 const RUNTIME_BOOTSTRAP_CACHE_MS = 60 * 60 * 1000
-const RUNTIME_CACHE_MS = 10 * 1000
+const RUNTIME_CACHE_MS = 60 * 1000
 
 function parseTimeZoneOffsetInMinutes(timeZone: string) {
   const normalized = String(timeZone || '').trim()

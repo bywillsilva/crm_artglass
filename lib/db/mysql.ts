@@ -1,8 +1,11 @@
 import mysql from 'mysql2/promise'
 
 const MYSQL_TIMEZONE = process.env.MYSQL_TIMEZONE || '-03:00'
+const MYSQL_PORT = Math.max(Number(process.env.MYSQL_PORT || 3306), 1)
+const MYSQL_IP_FAMILY = Number(process.env.MYSQL_IP_FAMILY || 4)
+const MYSQL_SSL_ENABLED = /^(1|true|required)$/i.test(process.env.MYSQL_SSL || '')
 const MYSQL_CONNECTION_LIMIT = Math.max(Number(process.env.MYSQL_CONNECTION_LIMIT || 12), 1)
-const MYSQL_CONNECT_TIMEOUT = Math.max(Number(process.env.MYSQL_CONNECT_TIMEOUT_MS || 15000), 1000)
+const MYSQL_CONNECT_TIMEOUT = Math.max(Number(process.env.MYSQL_CONNECT_TIMEOUT_MS || 8000), 1000)
 const MYSQL_ACQUIRE_RETRIES = Math.max(Number(process.env.MYSQL_ACQUIRE_RETRIES || 2), 0)
 const MYSQL_ACQUIRE_RETRY_DELAY_MS = Math.max(
   Number(process.env.MYSQL_ACQUIRE_RETRY_DELAY_MS || 250),
@@ -25,6 +28,7 @@ type PoolConnectionWithSessionFlag = mysql.PoolConnection & {
 // Pool de conexoes para melhor performance
 const pool = mysql.createPool({
   host: process.env.MYSQL_HOST,
+  port: MYSQL_PORT,
   database: process.env.MYSQL_DATABASE,
   user: process.env.MYSQL_USER,
   password: process.env.MYSQL_PASSWORD,
@@ -38,6 +42,8 @@ const pool = mysql.createPool({
   connectTimeout: MYSQL_CONNECT_TIMEOUT,
   enableKeepAlive: true,
   keepAliveInitialDelay: 0,
+  ...(MYSQL_IP_FAMILY === 4 || MYSQL_IP_FAMILY === 6 ? { family: MYSQL_IP_FAMILY } : {}),
+  ...(MYSQL_SSL_ENABLED ? { ssl: { rejectUnauthorized: false } } : {}),
 })
 
 function isRetryableConnectionError(error: unknown) {

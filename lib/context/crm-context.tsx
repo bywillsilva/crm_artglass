@@ -17,12 +17,8 @@ import {
   updateTarefa as updateTarefaRequest,
   updateTarefaStatus as updateTarefaStatusRequest,
   updateUsuario as updateUsuarioRequest,
-  useClientes,
-  useInteracoes,
-  usePropostas,
+  useCrmBootstrap,
   useRealtimeSync,
-  useTarefas,
-  useUsuarios,
 } from '@/lib/hooks/use-api'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import type {
@@ -85,11 +81,8 @@ const CRMContext = createContext<CRMContextType | null>(null)
 export function CRMProvider({ children }: { children: ReactNode }) {
   const { general } = useAppSettings()
   useRealtimeSync(true)
-  const { clientes } = useClientes()
-  const { usuarios } = useUsuarios()
-  const { interacoes } = useInteracoes()
-  const { tarefas } = useTarefas()
-  const { propostas } = usePropostas()
+  const { clientes, usuarios, tarefas, propostas } = useCrmBootstrap()
+  const interacoes: Interacao[] = []
 
   const state = useMemo<CRMState>(
     () => ({

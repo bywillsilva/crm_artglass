@@ -37,7 +37,7 @@ import {
 } from '@/components/ui/command'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
-import { useSession } from '@/lib/hooks/use-api'
+import { useInteracoes, useSession } from '@/lib/hooks/use-api'
 import type { Interacao, Tarefa } from '@/lib/data/types'
 
 interface CRMHeaderProps {
@@ -79,6 +79,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
   const { state } = useCRM()
   const { notifications } = useAppSettings()
   const { user } = useSession()
+  const { interacoes } = useInteracoes({ tipo: 'proposta', limit: 200 })
   const [commandOpen, setCommandOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>([])
@@ -158,7 +159,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
     if (!loadedReadNotifications) return []
     if (!notifications.propostas) return []
 
-    return state.interacoes
+    return interacoes
       .filter((interacao: Interacao) => interacao.tipo === 'proposta')
       .filter((interacao: Interacao) => {
         if (interacao.dados?.silent_notification || interacao.tipo !== 'proposta') {
@@ -191,7 +192,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
     loadedReadNotifications,
     notifications.propostas,
     readNotificationIds,
-    state.interacoes,
+    interacoes,
     user?.role,
   ])
 

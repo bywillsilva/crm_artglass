@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import useSWR, { mutate } from 'swr'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
 import {
@@ -34,6 +34,7 @@ type JsonRecord = Record<string, any>
 
 const toDate = parseDateTimeValue
 const REALTIME_REVALIDATE_PREFIXES = [
+  '/api/crm/bootstrap',
   '/api/clientes',
   '/api/propostas',
   '/api/tarefas',
@@ -360,13 +361,34 @@ export function useDashboard(filter?: DateFilterValue) {
   const queryString = filter ? getDateFilterQueryParams(filter) : ''
   const url = `/api/dashboard${queryString ? `?${queryString}` : ''}`
   const { data, error, isLoading } = useSWR(url, fetcher, {
-    refreshInterval: 30000,
+    refreshInterval: 60000,
   })
 
   return {
     data,
     isLoading,
     error,
+  }
+}
+
+export function useCrmBootstrap() {
+  const { data, error, isLoading, mutate: localMutate } = useSWR('/api/crm/bootstrap', fetcher, {
+    revalidateIfStale: false,
+  })
+
+  const clientes = useMemo(() => (data?.clientes || []).map(normalizeCliente), [data?.clientes])
+  const usuarios = useMemo(() => (data?.usuarios || []).map(normalizeUsuario), [data?.usuarios])
+  const tarefas = useMemo(() => (data?.tarefas || []).map(normalizeTarefa), [data?.tarefas])
+  const propostas = useMemo(() => (data?.propostas || []).map(normalizeProposta), [data?.propostas])
+
+  return {
+    clientes,
+    usuarios,
+    tarefas,
+    propostas,
+    isLoading,
+    error,
+    mutate: localMutate,
   }
 }
 
@@ -542,14 +564,50 @@ export function useSession() {
 
 export function useRealtimeSync(enabled = true) {
   const lastVersionRef = useRef<number | null>(null)
+  const [isVisible, setIsVisible] = useState(
+    typeof document === 'undefined' ? true : document.visibilityState === 'visible'
+  )
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator === 'undefined' ? true : navigator.onLine
+  )
+  const shouldPoll = enabled && isVisible && isOnline
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const handleVisibilityChange = () => {
+      setIsVisible(document.visibilityState === 'visible')
+    }
+
+    const handleOnline = () => {
+      setIsOnline(true)
+    }
+
+    const handleOffline = () => {
+      setIsOnline(false)
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('online', handleOnline)
+    window.addEventListener('offline', handleOffline)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('online', handleOnline)
+      window.removeEventListener('offline', handleOffline)
+    }
+  }, [])
+
   const { data } = useSWR(
-    enabled ? '/api/realtime/version' : null,
+    shouldPoll ? '/api/realtime/version' : null,
     fetcher,
     {
-      refreshInterval: 2000,
+      refreshInterval: 10000,
       revalidateOnFocus: false,
       revalidateOnReconnect: true,
-      dedupingInterval: 1000,
+      dedupingInterval: 5000,
     }
   )
 
