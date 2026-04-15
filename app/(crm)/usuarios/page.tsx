@@ -54,6 +54,7 @@ export default function UsuariosPage() {
   const [roleFilter, setRoleFilter] = useState<string>("all")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<Usuario | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     nome: "",
     email: "",
@@ -111,6 +112,8 @@ export default function UsuariosPage() {
   }
 
   const handleSubmit = async () => {
+    if (isSubmitting) return
+
     if (!editingUser) {
       if (formData.senha.length < 8) {
         toast.error("A senha deve ter no minimo 8 caracteres.")
@@ -128,30 +131,36 @@ export default function UsuariosPage() {
         ? getDefaultModulePermissions(formData.role)
         : normalizeModulePermissions(formData.modulePermissions, formData.role)
 
-    if (editingUser) {
-      await updateUsuario({
-        ...editingUser,
-        nome: formData.nome,
-        email: formData.email,
-        role: formData.role,
-        avatar: formData.avatar,
-        ativo: formData.ativo,
-        modulePermissions,
-      })
-    } else {
-      await addUsuario({
-        nome: formData.nome,
-        email: formData.email,
-        role: formData.role,
-        avatar: formData.avatar,
-        ativo: formData.ativo,
-        senha: formData.senha,
-        modulePermissions,
-      })
-    }
+    setIsSubmitting(true)
 
-    setIsDialogOpen(false)
-    setFormData((prev) => ({ ...prev, senha: "", confirmarSenha: "" }))
+    try {
+      if (editingUser) {
+        await updateUsuario({
+          ...editingUser,
+          nome: formData.nome,
+          email: formData.email,
+          role: formData.role,
+          avatar: formData.avatar,
+          ativo: formData.ativo,
+          modulePermissions,
+        })
+      } else {
+        await addUsuario({
+          nome: formData.nome,
+          email: formData.email,
+          role: formData.role,
+          avatar: formData.avatar,
+          ativo: formData.ativo,
+          senha: formData.senha,
+          modulePermissions,
+        })
+      }
+
+      setIsDialogOpen(false)
+      setFormData((prev) => ({ ...prev, senha: "", confirmarSenha: "" }))
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const handleDelete = (id: string) => {
@@ -480,10 +489,12 @@ export default function UsuariosPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)} disabled={isSubmitting}>Cancelar</Button>
             <Button
-              onClick={() => void handleSubmit()}
+              onClick={handleSubmit}
+              pending={isSubmitting}
               disabled={
+                isSubmitting ||
                 !formData.nome ||
                 !formData.email ||
                 (!editingUser && (!formData.senha || !formData.confirmarSenha))
