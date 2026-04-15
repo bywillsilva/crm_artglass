@@ -21,6 +21,19 @@ export type AuthenticatedServerUser = {
   modulePermissions?: unknown
 }
 
+const AUTH_USER_CACHE_MS = Math.max(Number(process.env.AUTH_USER_CACHE_MS || 30_000), 0)
+const AUTH_USER_STALE_GRACE_MS = Math.max(
+  Number(process.env.AUTH_USER_STALE_GRACE_MS || 120_000),
+  AUTH_USER_CACHE_MS
+)
+
+type AuthenticatedUserCacheEntry = {
+  value: AuthenticatedServerUser | null
+  cachedAt: number
+}
+
+const authenticatedUserCache = new Map<string, AuthenticatedUserCacheEntry>()
+
 function getSecret() {
   return process.env.AUTH_SECRET || 'solarcrm-dev-secret'
 }
@@ -69,33 +82,84 @@ export async function getServerSession() {
   return verifySessionToken(cookieStore.get(SESSION_COOKIE)?.value)
 }
 
+function readCachedAuthenticatedUser(userId: string, maxAgeMs: number) {
+  if (maxAgeMs <= 0) {
+    return undefined
+  }
+
+  const entry = authenticatedUserCache.get(userId)
+  if (!entry) {
+    return undefined
+  }
+
+  if (Date.now() - entry.cachedAt > maxAgeMs) {
+    return undefined
+  }
+
+  return entry.value
+}
+
+function cacheAuthenticatedUser(userId: string, value: AuthenticatedServerUser | null) {
+  authenticatedUserCache.set(userId, {
+    value,
+    cachedAt: Date.now(),
+  })
+}
+
+export function clearAuthenticatedUserCache(userId?: string | null) {
+  if (!userId) {
+    authenticatedUserCache.clear()
+    return
+  }
+
+  authenticatedUserCache.delete(userId)
+}
+
 export async function getAuthenticatedServerUser() {
   const session = await getServerSession()
   if (!session) {
     return null
   }
 
-  const [user] = await query<any[]>(
-    `SELECT id, nome, email, avatar, role, ativo, module_permissions
-     FROM usuarios
-     WHERE id = ?
-     LIMIT 1`,
-    [session.userId]
-  )
-
-  if (!user || !user.ativo) {
-    return null
+  const freshCachedUser = readCachedAuthenticatedUser(session.userId, AUTH_USER_CACHE_MS)
+  if (freshCachedUser !== undefined) {
+    return freshCachedUser
   }
 
-  return {
-    id: user.id,
-    nome: user.nome ?? undefined,
-    email: user.email ?? undefined,
-    avatar: user.avatar ?? undefined,
-    role: user.role,
-    ativo: Boolean(user.ativo),
-    modulePermissions: user.module_permissions ?? null,
-  } as AuthenticatedServerUser
+  try {
+    const [user] = await query<any[]>(
+      `SELECT id, nome, email, avatar, role, ativo, module_permissions
+       FROM usuarios
+       WHERE id = ?
+       LIMIT 1`,
+      [session.userId]
+    )
+
+    if (!user || !user.ativo) {
+      cacheAuthenticatedUser(session.userId, null)
+      return null
+    }
+
+    const authenticatedUser = {
+      id: user.id,
+      nome: user.nome ?? undefined,
+      email: user.email ?? undefined,
+      avatar: user.avatar ?? undefined,
+      role: user.role,
+      ativo: Boolean(user.ativo),
+      modulePermissions: user.module_permissions ?? null,
+    } as AuthenticatedServerUser
+
+    cacheAuthenticatedUser(session.userId, authenticatedUser)
+    return authenticatedUser
+  } catch (error) {
+    const staleCachedUser = readCachedAuthenticatedUser(session.userId, AUTH_USER_STALE_GRACE_MS)
+    if (staleCachedUser !== undefined) {
+      return staleCachedUser
+    }
+
+    throw error
+  }
 }
 
 export function clearSessionCookie(response: NextResponse) {

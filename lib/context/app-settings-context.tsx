@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import useSWR, { mutate } from 'swr'
 import { useTheme } from 'next-themes'
 import { saveConfiguracao, useSession } from '@/lib/hooks/use-api'
@@ -172,7 +172,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
     return permission
   }
 
-  const saveAll = async () => {
+  const saveAll = useCallback(async () => {
     const requests = [
       saveConfiguracao('geral', general),
       saveConfiguracao('notificacoes', notifications),
@@ -186,7 +186,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
     await Promise.all(requests)
 
     mutate('/api/configuracoes')
-  }
+  }, [appearance, company, general, notifications, user?.role])
 
   const formatCurrency = useMemo(
     () => (value: number) =>

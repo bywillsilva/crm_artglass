@@ -20,11 +20,12 @@ export default async function CRMLayout({
       <SWRConfig
         value={{
           revalidateOnFocus: false,
-          revalidateOnReconnect: true,
+          revalidateOnReconnect: false,
           keepPreviousData: true,
           dedupingInterval: 5000,
           focusThrottleInterval: 15000,
-          errorRetryCount: 1,
+          errorRetryCount: 0,
+          shouldRetryOnError: false,
         }}
       >
         <CRMProvider>

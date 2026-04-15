@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { query } from '@/lib/db/mysql'
+import { deleteRuntimeCache, getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 
 const NOTIFICATION_SCHEMA_CACHE_MS = 60 * 60 * 1000
+const NOTIFICATION_READS_CACHE_TTL_MS = Math.max(
+  Number(process.env.NOTIFICATION_READS_CACHE_TTL_MS || 15_000),
+  1000
+)
 let notificationSchemaCheckedAt = 0
 let notificationSchemaPromise: Promise<void> | null = null
 
@@ -40,11 +45,16 @@ async function ensureReadNotificationsTable() {
 
 export async function GET() {
   try {
-    await ensureReadNotificationsTable()
     const user = await getAuthenticatedServerUser()
 
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+    }
+
+    const cacheKey = `notification-reads:${user.id}`
+    const cachedNotifications = getRuntimeCache<string[]>(cacheKey)
+    if (cachedNotifications !== undefined) {
+      return NextResponse.json(cachedNotifications)
     }
 
     const rows = await query<any[]>(
@@ -52,10 +62,12 @@ export async function GET() {
       [user.id]
     )
 
-    return NextResponse.json(rows.map((row) => row.notification_id))
+    const payload = rows.map((row) => row.notification_id)
+    setRuntimeCache(cacheKey, payload, NOTIFICATION_READS_CACHE_TTL_MS)
+    return NextResponse.json(payload)
   } catch (error) {
     console.error('Erro ao buscar notificacoes lidas:', error)
-    return NextResponse.json({ error: 'Erro ao buscar notificacoes lidas' }, { status: 500 })
+    return NextResponse.json([])
   }
 }
 
@@ -80,6 +92,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    deleteRuntimeCache(`notification-reads:${user.id}`)
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Erro ao marcar notificacoes como lidas:', error)

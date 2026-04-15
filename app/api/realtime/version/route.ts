@@ -13,6 +13,6 @@ export async function GET() {
     return NextResponse.json({ version })
   } catch (error) {
     console.error('Erro ao buscar versao de sincronizacao:', error)
-    return NextResponse.json({ error: 'Erro ao buscar versao de sincronizacao' }, { status: 500 })
+    return NextResponse.json({ version: 0, degraded: true })
   }
 }

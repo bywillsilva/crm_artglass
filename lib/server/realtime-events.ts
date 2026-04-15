@@ -1,4 +1,5 @@
 import { query } from '@/lib/db/mysql'
+import { invalidateRuntimeCache } from '@/lib/server/runtime-cache'
 
 const REALTIME_SCHEMA_CACHE_MS = 60 * 60 * 1000
 const REALTIME_VERSION_CACHE_MS = Math.max(
@@ -69,6 +70,7 @@ export async function publishRealtimeEvent({
     if (insertedId > 0) {
       realtimeVersion = insertedId
       realtimeVersionCachedAt = Date.now()
+      invalidateRuntimeCache()
     }
   } catch (error) {
     console.error('Erro ao publicar evento de sincronizacao em tempo real:', error)

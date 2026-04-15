@@ -4,6 +4,8 @@ import { ThemeProvider } from '@/components/theme-provider'
 import { Toaster } from '@/components/ui/sonner'
 import './globals.css'
 
+const isVercelDeployment = process.env.VERCEL === '1'
+
 export const metadata: Metadata = {
   title: 'CRM - Sistema de Gestao de Vendas',
   description: 'Sistema CRM para gestao comercial',
@@ -38,7 +40,7 @@ export default function RootLayout({
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
           {children}
           <Toaster />
-          <Analytics />
+          {isVercelDeployment ? <Analytics /> : null}
         </ThemeProvider>
       </body>
     </html>

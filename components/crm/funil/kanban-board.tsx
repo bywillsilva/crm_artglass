@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ArrowRightLeft, CheckCircle2, Clock3, MessageSquare, Paperclip, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 import { useCRM } from '@/lib/context/crm-context'
@@ -125,6 +125,8 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const touchPendingDragRef = useRef<PendingDrag | null>(null)
   const autoScrollFrameRef = useRef<number | null>(null)
   const dragPointRef = useRef<{ x: number; y: number } | null>(null)
+  const dragStateFrameRef = useRef<number | null>(null)
+  const dragStateUpdaterRef = useRef<((current: DragState | null) => DragState | null) | null>(null)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -158,7 +160,29 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       if (autoScrollFrameRef.current !== null) {
         window.cancelAnimationFrame(autoScrollFrameRef.current)
       }
+      if (dragStateFrameRef.current !== null) {
+        window.cancelAnimationFrame(dragStateFrameRef.current)
+      }
     }
+  }, [])
+
+  const scheduleDragStateUpdate = useCallback((updater: (current: DragState | null) => DragState | null) => {
+    dragStateUpdaterRef.current = updater
+    if (dragStateFrameRef.current !== null) {
+      return
+    }
+
+    dragStateFrameRef.current = window.requestAnimationFrame(() => {
+      const nextUpdater = dragStateUpdaterRef.current
+      dragStateFrameRef.current = null
+      dragStateUpdaterRef.current = null
+
+      if (!nextUpdater) {
+        return
+      }
+
+      setDragState((current) => nextUpdater(current))
+    })
   }, [])
 
   useEffect(() => {
@@ -220,6 +244,20 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
 
     return grouped
   }, [propostasVisiveis])
+
+  const columnSummaries = useMemo(
+    () =>
+      Object.fromEntries(
+        columns.map((status) => [
+          status,
+          {
+            propostas: propostasByStatus[status],
+            valorTotal: propostasByStatus[status].reduce((acc, proposta) => acc + proposta.valor, 0),
+          },
+        ])
+      ) as Record<StatusProposta, { propostas: Proposta[]; valorTotal: number }>,
+    [propostasByStatus]
+  )
 
   const automatedTasksByProposalStage = useMemo(() => {
     const taskMap = new Map<string, (typeof state.tarefas)[number]>()
@@ -415,7 +453,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     dragPointRef.current = { x: event.clientX, y: event.clientY }
     const overStatus = getTouchDropStatus(event.clientX, event.clientY)
     const dragDistance = Math.hypot(event.clientX - dragState.startX, event.clientY - dragState.startY)
-    setDragState((current) =>
+    scheduleDragStateUpdate((current) =>
       current && current.pointerId === event.pointerId
         ? {
             ...current,
@@ -457,6 +495,11 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     }
 
     dragPointRef.current = null
+    if (dragStateFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragStateFrameRef.current)
+      dragStateFrameRef.current = null
+      dragStateUpdaterRef.current = null
+    }
     setDragState(null)
   }
 
@@ -577,7 +620,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
 
         if (container.scrollLeft !== previousScrollLeft) {
           const overStatus = getTouchDropStatus(dragPoint.x, dragPoint.y)
-          setDragState((current) =>
+          scheduleDragStateUpdate((current) =>
             current
               ? {
                   ...current,
@@ -599,7 +642,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         autoScrollFrameRef.current = null
       }
     }
-  }, [dragState])
+  }, [dragState, scheduleDragStateUpdate])
 
   return (
     <>
@@ -608,8 +651,8 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         className={`flex min-h-[calc(100vh-12rem)] gap-4 overflow-x-auto pb-4 ${dragState ? 'touch-none' : ''}`}
       >
         {columns.map((status) => {
-          const propostasDaColuna = propostasByStatus[status]
-          const valorTotal = propostasDaColuna.reduce((acc, proposta) => acc + proposta.valor, 0)
+          const propostasDaColuna = columnSummaries[status].propostas
+          const valorTotal = columnSummaries[status].valorTotal
           const isTouchDropTarget = dragState?.overStatus === status
 
           return (

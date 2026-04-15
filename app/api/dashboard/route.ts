@@ -1,24 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
-import { getServerSession } from '@/lib/auth/session'
-import { ensureCrmRuntimeSchema, syncDueFollowUpStatuses } from '@/lib/server/proposal-workflow'
+import { getAuthenticatedServerUser, getServerSession } from '@/lib/auth/session'
+import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
+
+const DASHBOARD_CACHE_TTL_MS = Math.max(Number(process.env.DASHBOARD_CACHE_TTL_MS || 20_000), 1000)
 
 async function getAuthenticatedUser() {
-  const session = await getServerSession()
-  if (!session) {
-    return null
-  }
-
-  const [user] = await query<any[]>(
-    'SELECT id, role, ativo FROM usuarios WHERE id = ? LIMIT 1',
-    [session.userId]
-  )
-
-  if (!user || !user.ativo) {
-    return null
-  }
-
-  return user
+  return getAuthenticatedServerUser()
 }
 
 function getDefaultDateRange() {
@@ -49,18 +37,22 @@ function getDateRange(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  try {
-    await ensureCrmRuntimeSchema()
+  const session = await getServerSession()
 
+  try {
     const user = await getAuthenticatedUser()
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
 
-    await syncDueFollowUpStatuses()
-
     const isAdmin = user.role === 'admin' || user.role === 'gerente'
     const { startDate, endDate } = getDateRange(request)
+    const cacheKey = `dashboard:${user.role}:${user.id}:${startDate}:${endDate}`
+    const cachedResponse = getRuntimeCache<any>(cacheKey)
+    if (cachedResponse) {
+      return NextResponse.json(cachedResponse)
+    }
+
     const startDateTime = `${startDate} 00:00:00`
     const endDateTime = `${endDate} 23:59:59`
     const proposalFilter = `${isAdmin ? '' : ' AND responsavel_id = ?'} AND created_at BETWEEN ? AND ?`
@@ -210,7 +202,7 @@ export async function GET(request: NextRequest) {
       proposalParams
     )
 
-    return NextResponse.json({
+    const payload = {
       stats: {
         totalLeads: leadsResult.total,
         taxaConversao: parseFloat(taxaConversao),
@@ -226,9 +218,34 @@ export async function GET(request: NextRequest) {
         clientesSemTarefa,
         propostasEmAberto,
       },
-    })
+    }
+
+    setRuntimeCache(cacheKey, payload, DASHBOARD_CACHE_TTL_MS)
+    return NextResponse.json(payload)
   } catch (error) {
     console.error('Erro ao buscar dados do dashboard:', error)
+
+    if (session) {
+      return NextResponse.json({
+        stats: {
+          totalLeads: 0,
+          taxaConversao: 0,
+          valorPipeline: 0,
+          vendasMes: 0,
+        },
+        funilData: [],
+        vendasPorMes: [],
+        rankingVendedores: [],
+        tarefasPeriodo: [],
+        alertas: {
+          tarefasAtrasadas: [],
+          clientesSemTarefa: [],
+          propostasEmAberto: [],
+        },
+        degraded: true,
+      })
+    }
+
     return NextResponse.json({ error: 'Erro ao buscar dados do dashboard' }, { status: 500 })
   }
 }

@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bell,
   CheckSquare,
@@ -79,9 +79,12 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
   const { state } = useCRM()
   const { notifications } = useAppSettings()
   const { user } = useSession()
-  const { interacoes } = useInteracoes({ tipo: 'proposta', limit: 200 })
+  const { interacoes } = useInteracoes(
+    notifications.propostas && user ? { tipo: 'proposta', limit: 60 } : null
+  )
   const [commandOpen, setCommandOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const deferredQuery = useDeferredValue(query)
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>([])
   const [loadedReadNotifications, setLoadedReadNotifications] = useState(false)
   const shownBrowserNotificationIds = useRef<Set<string>>(new Set())
@@ -262,7 +265,9 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
   }, [actionNotifications, notifications.browser, taskNotifications])
 
   const results = useMemo(() => {
-    const term = query.trim().toLowerCase()
+    if (!commandOpen) return { clientes: [], tarefas: [], propostas: [] }
+
+    const term = deferredQuery.trim().toLowerCase()
     if (!term) return { clientes: [], tarefas: [], propostas: [] }
 
     return {
@@ -282,7 +287,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
         )
       ),
     }
-  }, [query, state.clientes, state.propostas, state.tarefas])
+  }, [commandOpen, deferredQuery, state.clientes, state.propostas, state.tarefas])
 
   const markNotificationAsRead = async (item: HeaderNotification) => {
     if (item.persistent) return
@@ -448,7 +453,13 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
         title="Busca global"
         description="Busque clientes, tarefas e propostas"
       >
-        <CommandInput placeholder="Digite para buscar..." value={query} onValueChange={setQuery} />
+        <CommandInput
+          placeholder="Digite para buscar..."
+          value={query}
+          onValueChange={(value) => {
+            startTransition(() => setQuery(value))
+          }}
+        />
         <CommandList>
           <CommandEmpty>Nenhum resultado encontrado.</CommandEmpty>
 

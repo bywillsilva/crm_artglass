@@ -4,6 +4,9 @@ import { v4 as uuidv4 } from 'uuid'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { formatDateTime } from '@/lib/server/proposal-workflow'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
+import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
+
+const INTERACOES_CACHE_TTL_MS = Math.max(Number(process.env.INTERACOES_CACHE_TTL_MS || 10_000), 1000)
 
 export async function GET(request: NextRequest) {
   try {
@@ -38,11 +41,18 @@ export async function GET(request: NextRequest) {
       params.push(limit)
     }
 
+    const cacheKey = `interacoes:${clienteId || 'all'}:${tipo || 'all'}:${limit || 'all'}`
+    const cachedInteracoes = getRuntimeCache<any[]>(cacheKey)
+    if (cachedInteracoes !== undefined) {
+      return NextResponse.json(cachedInteracoes)
+    }
+
     const interacoes = await query(sql, params)
+    setRuntimeCache(cacheKey, interacoes, INTERACOES_CACHE_TTL_MS)
     return NextResponse.json(interacoes)
   } catch (error) {
     console.error('Erro ao buscar interacoes:', error)
-    return NextResponse.json({ error: 'Erro ao buscar interacoes' }, { status: 500 })
+    return NextResponse.json([])
   }
 }
 
@@ -75,6 +85,9 @@ export async function POST(request: NextRequest) {
       resource: 'interacao',
       resourceId: id,
     })
+
+    invalidateRuntimeCache(`interacoes:${data.clienteId || 'all'}:`)
+    invalidateRuntimeCache('interacoes:all:')
 
     const [interacao] = await query<any[]>('SELECT * FROM interacoes WHERE id = ?', [id])
     return NextResponse.json(interacao, { status: 201 })

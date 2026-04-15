@@ -1,10 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getConnection } from '@/lib/db/mysql'
-import { getServerSession } from '@/lib/auth/session'
-import {
-  ensureCrmRuntimeSchema,
-  syncDueFollowUpStatuses,
-} from '@/lib/server/proposal-workflow'
+import { getAuthenticatedServerUser, getServerSession } from '@/lib/auth/session'
+import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 
 type AuthenticatedUser = {
   id: string
@@ -12,16 +9,36 @@ type AuthenticatedUser = {
   ativo: boolean
 }
 
+const CRM_BOOTSTRAP_CACHE_TTL_MS = Math.max(
+  Number(process.env.CRM_BOOTSTRAP_CACHE_TTL_MS || 15_000),
+  1000
+)
+
 export async function GET() {
   let connection: Awaited<ReturnType<typeof getConnection>> | null = null
+  const session = await getServerSession()
 
   try {
-    await ensureCrmRuntimeSchema()
-    await syncDueFollowUpStatuses()
-
-    const session = await getServerSession()
     if (!session) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+    }
+
+    const authenticatedUser = await getAuthenticatedServerUser()
+    if (!authenticatedUser?.ativo) {
+      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+    }
+
+    const isAdmin = authenticatedUser.role === 'admin' || authenticatedUser.role === 'gerente'
+    const cacheKey = `crm-bootstrap:${authenticatedUser.role}:${authenticatedUser.id}`
+    const cachedResponse = getRuntimeCache<{
+      clientes: any[]
+      usuarios: any[]
+      tarefas: any[]
+      propostas: any[]
+    }>(cacheKey)
+
+    if (cachedResponse) {
+      return NextResponse.json(cachedResponse)
     }
 
     connection = await getConnection()
@@ -31,20 +48,24 @@ export async function GET() {
       return results as T
     }
 
-    const [user] = await execute<any[]>(
-      'SELECT id, role, ativo FROM usuarios WHERE id = ? LIMIT 1',
-      [session.userId]
-    )
-
-    if (!user || !user.ativo) {
-      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
-    }
-
-    const authenticatedUser = user as AuthenticatedUser
-    const isAdmin = authenticatedUser.role === 'admin' || authenticatedUser.role === 'gerente'
-
     const clientes = await execute<any[]>(
-      `SELECT c.*
+      `SELECT
+         c.id,
+         c.nome,
+         c.telefone,
+         c.email,
+         c.empresa,
+         c.cargo,
+         c.endereco,
+         c.cidade,
+         c.estado,
+         c.cep,
+         c.origem,
+         c.observacoes,
+         c.status_funil,
+         c.valor_potencial,
+         c.created_at,
+         c.updated_at
        FROM clientes c
        ORDER BY c.created_at DESC`
     )
@@ -101,14 +122,28 @@ export async function GET() {
         : []
     )
 
-    return NextResponse.json({
+    const payload = {
       clientes,
       usuarios,
       tarefas,
       propostas,
-    })
+    }
+
+    setRuntimeCache(cacheKey, payload, CRM_BOOTSTRAP_CACHE_TTL_MS)
+    return NextResponse.json(payload)
   } catch (error) {
     console.error('Erro ao carregar bootstrap do CRM:', error)
+
+    if (session) {
+      return NextResponse.json({
+        clientes: [],
+        usuarios: [],
+        tarefas: [],
+        propostas: [],
+        degraded: true,
+      })
+    }
+
     return NextResponse.json({ error: 'Erro ao carregar bootstrap do CRM' }, { status: 500 })
   } finally {
     if (connection) {

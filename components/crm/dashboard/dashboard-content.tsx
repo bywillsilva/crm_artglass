@@ -100,6 +100,8 @@ export function DashboardContent() {
       })),
     [appearance.idioma, vendasPorMes]
   )
+  const visibleRanking = useMemo(() => (rankingVendedores || []).slice(0, 5), [rankingVendedores])
+  const visibleTasks = useMemo(() => (tarefasPeriodo || []).slice(0, 5), [tarefasPeriodo])
   const vendedorAtual = user?.role === 'admin' || user?.role === 'gerente' ? null : rankingVendedores?.[0]
   const metaAtual = Number(vendedorAtual?.meta_vendas || 0)
   const valorAtual = Number(vendedorAtual?.valor_total || 0)
@@ -174,7 +176,7 @@ export function DashboardContent() {
                     contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333' }}
                     formatter={(value: number) => [`${value} propostas`, 'Quantidade']}
                   />
-                  <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                  <Bar dataKey="value" radius={[0, 4, 4, 0]} isAnimationActive={false}>
                     {funnelChartData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
@@ -197,7 +199,14 @@ export function DashboardContent() {
                     contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333' }}
                     formatter={(value: number) => [formatCurrency(value), 'Valor']}
                   />
-                  <Area type="monotone" dataKey="valor" stroke="#10b981" fill="#10b98133" strokeWidth={2} />
+                  <Area
+                    type="monotone"
+                    dataKey="valor"
+                    stroke="#10b981"
+                    fill="#10b98133"
+                    strokeWidth={2}
+                    isAnimationActive={false}
+                  />
                 </AreaChart>
               </ResponsiveContainer>
             </CardContent>
@@ -245,7 +254,7 @@ export function DashboardContent() {
                   )}
                 </div>
               ) : (
-                (rankingVendedores || []).slice(0, 5).map((vendedor: any, index: number) => {
+                visibleRanking.map((vendedor: any, index: number) => {
                   const percent = (Number(vendedor.valor_total) / maxRankingValue) * 100
 
                   return (
@@ -286,7 +295,7 @@ export function DashboardContent() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {(tarefasPeriodo || []).slice(0, 5).map((tarefa: any) => (
+                {visibleTasks.map((tarefa: any) => (
                   <div key={tarefa.id} className="flex items-start gap-3 rounded-lg bg-secondary/50 p-3">
                     <Checkbox
                       className="mt-0.5 border-slate-500 data-[state=checked]:border-slate-700 data-[state=checked]:bg-slate-700"

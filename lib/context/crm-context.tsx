@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useMemo, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react'
 import {
   createCliente,
   createInteracao,
@@ -144,56 +144,60 @@ export function CRMProvider({ children }: { children: ReactNode }) {
     }
   }, [clientes, interacoes, propostas, tarefas, usuarios])
 
-  const getCliente = (id: string) => lookups.clientesById.get(id)
-  const getUsuario = (id: string) => lookups.usuariosById.get(id)
+  const getCliente = useCallback((id: string) => lookups.clientesById.get(id), [lookups.clientesById])
+  const getUsuario = useCallback((id: string) => lookups.usuariosById.get(id), [lookups.usuariosById])
 
-  const addCliente = async (cliente: Omit<Cliente, 'id' | 'criadoEm'>) => {
+  const addCliente = useCallback(async (cliente: Omit<Cliente, 'id' | 'criadoEm'>) => {
     await createCliente(cliente)
-  }
+  }, [])
 
-  const updateCliente = async (cliente: Cliente) => {
+  const updateCliente = useCallback(async (cliente: Cliente) => {
     await updateClienteRequest(cliente.id, cliente)
-  }
+  }, [])
 
-  const deleteCliente = async (id: string) => {
+  const deleteCliente = useCallback(async (id: string) => {
     if (general.confirmDeletes && typeof window !== 'undefined') {
       const confirmed = window.confirm('Tem certeza que deseja excluir este cliente?')
       if (!confirmed) return
     }
     await deleteClienteRequest(id)
-  }
+  }, [general.confirmDeletes])
 
-  const addInteracao = async (interacao: Omit<Interacao, 'id' | 'criadoEm'>) => {
+  const addInteracao = useCallback(async (interacao: Omit<Interacao, 'id' | 'criadoEm'>) => {
     await createInteracao(interacao)
-  }
+  }, [])
 
-  const getInteracoesByCliente = (clienteId: string) =>
-    lookups.interacoesByClienteId.get(clienteId) || []
+  const getInteracoesByCliente = useCallback(
+    (clienteId: string) => lookups.interacoesByClienteId.get(clienteId) || [],
+    [lookups.interacoesByClienteId]
+  )
 
-  const addTarefa = async (tarefa: Omit<Tarefa, 'id' | 'criadoEm'>) => {
+  const addTarefa = useCallback(async (tarefa: Omit<Tarefa, 'id' | 'criadoEm'>) => {
     await createTarefa(tarefa)
-  }
+  }, [])
 
-  const updateTarefa = async (tarefa: Tarefa) => {
+  const updateTarefa = useCallback(async (tarefa: Tarefa) => {
     await updateTarefaRequest(tarefa.id, tarefa)
-  }
+  }, [])
 
-  const deleteTarefa = async (id: string) => {
+  const deleteTarefa = useCallback(async (id: string) => {
     if (general.confirmDeletes && typeof window !== 'undefined') {
       const confirmed = window.confirm('Tem certeza que deseja excluir esta tarefa?')
       if (!confirmed) return
     }
     await deleteTarefaRequest(id)
-  }
+  }, [general.confirmDeletes])
 
-  const updateTarefaStatus = async (id: string, status: StatusTarefa) => {
+  const updateTarefaStatus = useCallback(async (id: string, status: StatusTarefa) => {
     await updateTarefaStatusRequest(id, status)
-  }
+  }, [])
 
-  const getTarefasByCliente = (clienteId: string) =>
-    lookups.tarefasByClienteId.get(clienteId) || []
+  const getTarefasByCliente = useCallback(
+    (clienteId: string) => lookups.tarefasByClienteId.get(clienteId) || [],
+    [lookups.tarefasByClienteId]
+  )
 
-  const getTarefasHoje = () => {
+  const getTarefasHoje = useCallback(() => {
     const hoje = new Date()
     return state.tarefas.filter((tarefa) => {
       const dataHora = new Date(tarefa.dataHora)
@@ -204,57 +208,62 @@ export function CRMProvider({ children }: { children: ReactNode }) {
         tarefa.status !== 'concluida'
       )
     })
-  }
+  }, [state.tarefas])
 
-  const getTarefasAtrasadas = () =>
-    state.tarefas.filter((tarefa) => {
+  const getTarefasAtrasadas = useCallback(
+    () =>
+      state.tarefas.filter((tarefa) => {
       const dataHora = new Date(tarefa.dataHora)
       return dataHora < new Date() && tarefa.status === 'pendente'
-    })
+      }),
+    [state.tarefas]
+  )
 
-  const addProposta = async (proposta: Omit<Proposta, 'id' | 'criadoEm'>) => {
+  const addProposta = useCallback(async (proposta: Omit<Proposta, 'id' | 'criadoEm'>) => {
     await createProposta({
       ...proposta,
       titulo: proposta.titulo || 'Proposta Comercial',
     })
-  }
+  }, [])
 
-  const updateProposta = async (proposta: Proposta) => {
+  const updateProposta = useCallback(async (proposta: Proposta) => {
     await updatePropostaRequest(proposta.id, proposta)
-  }
+  }, [])
 
-  const deleteProposta = async (id: string) => {
+  const deleteProposta = useCallback(async (id: string) => {
     if (general.confirmDeletes && typeof window !== 'undefined') {
       const confirmed = window.confirm('Tem certeza que deseja excluir esta proposta?')
       if (!confirmed) return
     }
     await deletePropostaRequest(id)
-  }
+  }, [general.confirmDeletes])
 
-  const updatePropostaStatus = async (id: string, status: StatusProposta) => {
+  const updatePropostaStatus = useCallback(async (id: string, status: StatusProposta) => {
     await updatePropostaStatusRequest(id, status)
-  }
+  }, [])
 
-  const getPropostasByCliente = (clienteId: string) =>
-    lookups.propostasByClienteId.get(clienteId) || []
+  const getPropostasByCliente = useCallback(
+    (clienteId: string) => lookups.propostasByClienteId.get(clienteId) || [],
+    [lookups.propostasByClienteId]
+  )
 
-  const addUsuario = async (usuario: Omit<Usuario, 'id'> & { senha: string }) => {
+  const addUsuario = useCallback(async (usuario: Omit<Usuario, 'id'> & { senha: string }) => {
     await createUsuario(usuario)
-  }
+  }, [])
 
-  const updateUsuario = async (usuario: Usuario) => {
+  const updateUsuario = useCallback(async (usuario: Usuario) => {
     await updateUsuarioRequest(usuario.id, usuario)
-  }
+  }, [])
 
-  const deleteUsuario = async (id: string) => {
+  const deleteUsuario = useCallback(async (id: string) => {
     if (general.confirmDeletes && typeof window !== 'undefined') {
       const confirmed = window.confirm('Tem certeza que deseja excluir este usuario?')
       if (!confirmed) return
     }
     await deleteUsuarioRequest(id)
-  }
+  }, [general.confirmDeletes])
 
-  const getClientesSemTarefa = () => {
+  const getClientesSemTarefa = useCallback(() => {
     const clientesComTarefa = new Set(
       state.tarefas
         .filter((tarefa) => tarefa.status !== 'concluida')
@@ -262,25 +271,28 @@ export function CRMProvider({ children }: { children: ReactNode }) {
     )
 
     return state.clientes.filter((cliente) => !clientesComTarefa.has(cliente.id))
-  }
+  }, [state.clientes, state.tarefas])
 
-  const getPropostasEmAberto = () =>
-    state.propostas.filter((proposta) =>
-      [
-        'novo_cliente',
-        'em_orcamento',
-        'aguardando_aprovacao',
-        'enviar_ao_cliente',
-        'enviado_ao_cliente',
-        'follow_up_1_dia',
-        'aguardando_follow_up_3_dias',
-        'follow_up_3_dias',
-        'aguardando_follow_up_7_dias',
-        'follow_up_7_dias',
-        'stand_by',
-        'em_retificacao',
-      ].includes(proposta.status)
-    )
+  const getPropostasEmAberto = useCallback(
+    () =>
+      state.propostas.filter((proposta) =>
+        [
+          'novo_cliente',
+          'em_orcamento',
+          'aguardando_aprovacao',
+          'enviar_ao_cliente',
+          'enviado_ao_cliente',
+          'follow_up_1_dia',
+          'aguardando_follow_up_3_dias',
+          'follow_up_3_dias',
+          'aguardando_follow_up_7_dias',
+          'follow_up_7_dias',
+          'stand_by',
+          'em_retificacao',
+        ].includes(proposta.status)
+      ),
+    [state.propostas]
+  )
 
   const value = useMemo<CRMContextType>(
     () => ({

@@ -3,10 +3,17 @@ import { query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
+import {
+  deleteRuntimeCache,
+  getRuntimeCache,
+  invalidateRuntimeCache,
+  setRuntimeCache,
+} from '@/lib/server/runtime-cache'
 
 const USER_KEYS = ['geral', 'notificacoes', 'aparencia']
 const GLOBAL_KEYS = ['empresa', 'funil']
 const CONFIG_SCHEMA_CACHE_MS = 60 * 60 * 1000
+const CONFIG_CACHE_TTL_MS = Math.max(Number(process.env.CONFIG_CACHE_TTL_MS || 30_000), 1000)
 
 let configuracoesSchemaCheckedAt = 0
 let configuracoesSchemaPromise: Promise<void> | null = null
@@ -69,8 +76,6 @@ async function ensureConfiguracoesSchema() {
 
 export async function GET(request: NextRequest) {
   try {
-    await ensureConfiguracoesSchema()
-
     const user = await getAuthenticatedServerUser()
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
@@ -80,11 +85,18 @@ export async function GET(request: NextRequest) {
     const chave = searchParams.get('chave')
 
     if (chave) {
+      const scopedCacheKey = `config:${chave}:${GLOBAL_KEYS.includes(chave) ? 'global' : user.id}`
+      const cachedConfig = getRuntimeCache<any>(scopedCacheKey)
+      if (cachedConfig !== undefined) {
+        return NextResponse.json(cachedConfig)
+      }
+
       if (GLOBAL_KEYS.includes(chave)) {
         const [config] = await query<any[]>(
           `SELECT * FROM configuracoes WHERE chave = ? AND scope = 'global' AND user_id = '' LIMIT 1`,
           [chave]
         )
+        setRuntimeCache(scopedCacheKey, config || null, CONFIG_CACHE_TTL_MS)
         return NextResponse.json(config || null)
       }
 
@@ -97,10 +109,17 @@ export async function GET(request: NextRequest) {
              OR (scope = 'global' AND user_id = '')
            )
          ORDER BY CASE WHEN scope = 'user' THEN 0 ELSE 1 END
-         LIMIT 1`,
+          LIMIT 1`,
         [chave, user.id]
       )
+      setRuntimeCache(scopedCacheKey, config || null, CONFIG_CACHE_TTL_MS)
       return NextResponse.json(config || null)
+    }
+
+    const listCacheKey = `config:list:${user.id}`
+    const cachedConfigs = getRuntimeCache<any[]>(listCacheKey)
+    if (cachedConfigs !== undefined) {
+      return NextResponse.json(cachedConfigs)
     }
 
     const configs = await query<any[]>(
@@ -122,10 +141,12 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    return NextResponse.json(Array.from(byKey.values()))
+    const payload = Array.from(byKey.values())
+    setRuntimeCache(listCacheKey, payload, CONFIG_CACHE_TTL_MS)
+    return NextResponse.json(payload)
   } catch (error) {
     console.error('Erro ao buscar configuracoes:', error)
-    return NextResponse.json({ error: 'Erro ao buscar configuracoes' }, { status: 500 })
+    return NextResponse.json([])
   }
 }
 
@@ -172,6 +193,13 @@ export async function POST(request: NextRequest) {
       'SELECT * FROM configuracoes WHERE chave = ? AND scope = ? AND user_id = ? LIMIT 1',
       [data.chave, scope, userId]
     )
+
+    deleteRuntimeCache(`config:list:${user.id}`)
+    deleteRuntimeCache(`config:${data.chave}:${scope === 'global' ? 'global' : user.id}`)
+    if (scope === 'global') {
+      invalidateRuntimeCache('config:list:')
+      invalidateRuntimeCache(`config:${data.chave}:`)
+    }
 
     await publishRealtimeEvent({
       actorUserId: user.id,

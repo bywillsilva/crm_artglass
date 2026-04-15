@@ -33,6 +33,12 @@ type SessionUser = {
 type JsonRecord = Record<string, any>
 
 const toDate = parseDateTimeValue
+const READ_ONLY_SWR_OPTIONS = {
+  shouldRetryOnError: false,
+  errorRetryCount: 0,
+  revalidateOnReconnect: false,
+} as const
+
 const REALTIME_REVALIDATE_PREFIXES = [
   '/api/crm/bootstrap',
   '/api/clientes',
@@ -269,12 +275,30 @@ function normalizeInteracao(row: JsonRecord): Interacao {
   }
 }
 
+async function parseResponseBody(res: Response) {
+  const text = await res.text()
+
+  if (!text) {
+    return null
+  }
+
+  try {
+    return JSON.parse(text)
+  } catch {
+    return { error: text }
+  }
+}
+
 const fetcher = async (url: string) => {
   const res = await fetch(url)
-  const data = await res.json()
+  const data = await parseResponseBody(res)
 
   if (!res.ok) {
-    throw new Error(data?.error || 'Erro na requisicao')
+    throw new Error(
+      (typeof data === 'object' && data && 'error' in data && typeof data.error === 'string'
+        ? data.error
+        : null) || `Erro na requisicao (${res.status})`
+    )
   }
 
   return data
@@ -282,10 +306,14 @@ const fetcher = async (url: string) => {
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init)
-  const data = await res.json()
+  const data = await parseResponseBody(res)
 
   if (!res.ok) {
-    throw new Error(data?.error || 'Erro na requisicao')
+    throw new Error(
+      (typeof data === 'object' && data && 'error' in data && typeof data.error === 'string'
+        ? data.error
+        : null) || `Erro na requisicao (${res.status})`
+    )
   }
 
   return data as T
@@ -398,7 +426,8 @@ export function useDashboard(filter?: DateFilterValue) {
   const queryString = filter ? getDateFilterQueryParams(filter) : ''
   const url = `/api/dashboard${queryString ? `?${queryString}` : ''}`
   const { data, error, isLoading } = useSWR(url, fetcher, {
-    refreshInterval: 60000,
+    ...READ_ONLY_SWR_OPTIONS,
+    refreshInterval: 120000,
   })
 
   return {
@@ -410,6 +439,7 @@ export function useDashboard(filter?: DateFilterValue) {
 
 export function useCrmBootstrap() {
   const { data, error, isLoading, mutate: localMutate } = useSWR('/api/crm/bootstrap', fetcher, {
+    ...READ_ONLY_SWR_OPTIONS,
     revalidateIfStale: false,
   })
 
@@ -437,7 +467,7 @@ export function useClientes(params?: { status?: string; responsavel?: string; se
   if (params?.search) searchParams.set('search', params.search)
 
   const url = `/api/clientes${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
-  const { data, error, isLoading } = useSWR(url, fetcher)
+  const { data, error, isLoading } = useSWR(url, fetcher, READ_ONLY_SWR_OPTIONS)
   const clientes = useMemo(() => (data || []).map(normalizeCliente), [data])
 
   return {
@@ -450,7 +480,7 @@ export function useClientes(params?: { status?: string; responsavel?: string; se
 
 export function useCliente(id: string | null) {
   const key = id ? `/api/clientes/${id}` : null
-  const { data, error, isLoading } = useSWR(key, fetcher)
+  const { data, error, isLoading } = useSWR(key, fetcher, READ_ONLY_SWR_OPTIONS)
   const cliente = useMemo(() => (data ? normalizeCliente(data) : undefined), [data])
 
   return {
@@ -470,7 +500,7 @@ export function useTarefas(params?: { status?: string; tipo?: string; responsave
   if (params?.clienteId) searchParams.set('cliente_id', params.clienteId)
 
   const url = `/api/tarefas${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
-  const { data, error, isLoading } = useSWR(url, fetcher)
+  const { data, error, isLoading } = useSWR(url, fetcher, READ_ONLY_SWR_OPTIONS)
   const tarefas = useMemo(() => (data || []).map(normalizeTarefa), [data])
 
   return {
@@ -488,7 +518,7 @@ export function usePropostas(params?: { status?: string; clienteId?: string }) {
   if (params?.clienteId) searchParams.set('cliente_id', params.clienteId)
 
   const url = `/api/propostas${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
-  const { data, error, isLoading } = useSWR(url, fetcher)
+  const { data, error, isLoading } = useSWR(url, fetcher, READ_ONLY_SWR_OPTIONS)
   const propostas = useMemo(() => (data || []).map(normalizeProposta), [data])
 
   return {
@@ -501,7 +531,7 @@ export function usePropostas(params?: { status?: string; clienteId?: string }) {
 
 export function useProposta(id: string | null) {
   const key = id ? `/api/propostas/${id}` : null
-  const { data, error, isLoading } = useSWR(key, fetcher)
+  const { data, error, isLoading } = useSWR(key, fetcher, READ_ONLY_SWR_OPTIONS)
   const proposta = useMemo(() => (data ? normalizeProposta(data) : undefined), [data])
 
   return {
@@ -519,7 +549,7 @@ export function useUsuarios(params?: { role?: string; ativo?: string }) {
   if (params?.ativo) searchParams.set('ativo', params.ativo)
 
   const url = `/api/usuarios${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
-  const { data, error, isLoading } = useSWR(url, fetcher)
+  const { data, error, isLoading } = useSWR(url, fetcher, READ_ONLY_SWR_OPTIONS)
   const usuarios = useMemo(() => (data || []).map(normalizeUsuario), [data])
 
   return {
@@ -532,7 +562,7 @@ export function useUsuarios(params?: { role?: string; ativo?: string }) {
 
 export function useUsuario(id: string | null) {
   const key = id ? `/api/usuarios/${id}` : null
-  const { data, error, isLoading } = useSWR(key, fetcher)
+  const { data, error, isLoading } = useSWR(key, fetcher, READ_ONLY_SWR_OPTIONS)
   const usuario = useMemo(() => (data ? normalizeUsuario(data) : undefined), [data])
 
   return {
@@ -548,8 +578,12 @@ export function useInteracoes(
   params?: string | null | { clienteId?: string | null; tipo?: TipoInteracao; limit?: number }
 ) {
   const resolvedParams =
-    typeof params === 'string' || params === null || params === undefined
-      ? { clienteId: params ?? undefined }
+    typeof params === 'string'
+      ? { clienteId: params }
+      : params === null
+        ? { clienteId: null }
+        : params === undefined
+          ? { clienteId: undefined }
       : params
 
   const url = useMemo(() => {
@@ -565,7 +599,7 @@ export function useInteracoes(
     return `/api/interacoes${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
   }, [resolvedParams.clienteId, resolvedParams.limit, resolvedParams.tipo])
 
-  const { data, error, isLoading } = useSWR(url, fetcher)
+  const { data, error, isLoading } = useSWR(url, fetcher, READ_ONLY_SWR_OPTIONS)
   const interacoes = useMemo(() => (data || []).map(normalizeInteracao), [data])
 
   return {
@@ -577,7 +611,11 @@ export function useInteracoes(
 }
 
 export function useSession() {
-  const { data, error, isLoading, mutate: localMutate } = useSWR('/api/auth/session', fetcher)
+  const { data, error, isLoading, mutate: localMutate } = useSWR(
+    '/api/auth/session',
+    fetcher,
+    READ_ONLY_SWR_OPTIONS
+  )
   const user = useMemo(() => {
     if (!data?.user) return null
     const role = (data.user.role ?? 'vendedor') as Usuario['role']
@@ -641,10 +679,10 @@ export function useRealtimeSync(enabled = true) {
     shouldPoll ? '/api/realtime/version' : null,
     fetcher,
     {
-      refreshInterval: 10000,
+      ...READ_ONLY_SWR_OPTIONS,
+      refreshInterval: 15000,
       revalidateOnFocus: false,
-      revalidateOnReconnect: true,
-      dedupingInterval: 5000,
+      dedupingInterval: 10000,
     }
   )
 
