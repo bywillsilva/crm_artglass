@@ -72,33 +72,55 @@ async function createInitialProposalForClient(params: {
   const propostaId = uuidv4()
   const responsavelId = await getDefaultProposalResponsavel(params.usuarioId)
   const orcamentistaId = await getDefaultProposalOrcamentista(params.usuarioId)
-  const numero = await getNextProposalNumber()
+  const maxAttempts = 5
+  let numero: string | null = null
 
-  await query(
-    `INSERT INTO propostas (
-      id, numero, cliente_id, responsavel_id, orcamentista_id, retificacoes_count, titulo, descricao,
-      valor, desconto, valor_final, status, validade, servicos, condicoes, follow_up_base_at, follow_up_time
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      propostaId,
-      numero,
-      params.clienteId,
-      responsavelId,
-      orcamentistaId,
-      0,
-      `Novo cliente - ${params.clienteNome}`,
-      null,
-      0,
-      0,
-      0,
-      'novo_cliente',
-      null,
-      JSON.stringify([]),
-      null,
-      null,
-      null,
-    ]
-  )
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const nextNumero = await getNextProposalNumber()
+
+    try {
+      await query(
+        `INSERT INTO propostas (
+          id, numero, cliente_id, responsavel_id, orcamentista_id, retificacoes_count, titulo, descricao,
+          valor, desconto, valor_final, status, validade, servicos, condicoes, follow_up_base_at, follow_up_time
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          propostaId,
+          nextNumero,
+          params.clienteId,
+          responsavelId,
+          orcamentistaId,
+          0,
+          `Novo cliente - ${params.clienteNome}`,
+          null,
+          0,
+          0,
+          0,
+          'novo_cliente',
+          null,
+          JSON.stringify([]),
+          null,
+          null,
+          null,
+        ]
+      )
+      numero = nextNumero
+      break
+    } catch (error: any) {
+      const isNumeroDuplicate =
+        error?.code === 'ER_DUP_ENTRY' &&
+        String(error?.sqlMessage || '').toLowerCase().includes('for key') &&
+        String(error?.sqlMessage || '').toLowerCase().includes('numero')
+
+      if (!isNumeroDuplicate || attempt === maxAttempts - 1) {
+        throw error
+      }
+    }
+  }
+
+  if (!numero) {
+    throw new Error('Nao foi possivel gerar um numero unico para a proposta inicial do cliente.')
+  }
 
   await query(
     `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)

@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid'
-import { query } from '@/lib/db/mysql'
+import { getConnection, query } from '@/lib/db/mysql'
 
 export type ProposalWorkflowStatus =
   | 'novo_cliente'
@@ -257,34 +257,37 @@ export async function ensureProposalSequenceSchema() {
 
 export async function getNextProposalNumber(year = new Date().getFullYear()) {
   await ensureProposalSequenceSchema()
+  const connection = await getConnection()
 
-  const [maxRow] = await query<any[]>(
-    `SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(numero, '-', -1) AS UNSIGNED)), 0) as maxNumero
-     FROM propostas
-     WHERE numero LIKE ?`,
-    [`PROP-${year}-%`]
-  )
+  try {
+    const [maxRows] = await connection.execute(
+      `SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(numero, '-', -1) AS UNSIGNED)), 0) as maxNumero
+       FROM propostas
+       WHERE numero LIKE ?`,
+      [`PROP-${year}-%`]
+    )
+    const currentMax = Number((maxRows as any[])[0]?.maxNumero || 0)
 
-  const currentMax = Number(maxRow?.maxNumero || 0)
+    await connection.execute(
+      `INSERT INTO proposal_sequences (ano, ultimo_numero)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE ultimo_numero = GREATEST(ultimo_numero, VALUES(ultimo_numero))`,
+      [year, currentMax]
+    )
 
-  await query(
-    `INSERT INTO proposal_sequences (ano, ultimo_numero)
-     VALUES (?, ?)
-     ON DUPLICATE KEY UPDATE ultimo_numero = GREATEST(ultimo_numero, VALUES(ultimo_numero))`,
-    [year, currentMax]
-  )
+    const [updateResult] = await connection.execute(
+      `UPDATE proposal_sequences
+       SET ultimo_numero = LAST_INSERT_ID(ultimo_numero + 1),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE ano = ?`,
+      [year]
+    )
 
-  await query(
-    `UPDATE proposal_sequences
-     SET ultimo_numero = LAST_INSERT_ID(ultimo_numero + 1),
-         updated_at = CURRENT_TIMESTAMP
-     WHERE ano = ?`,
-    [year]
-  )
-
-  const [sequenceRow] = await query<any[]>(`SELECT LAST_INSERT_ID() as nextNumber`)
-  const nextNumber = Number(sequenceRow?.nextNumber || 1)
-  return `PROP-${year}-${String(nextNumber).padStart(3, '0')}`
+    const nextNumber = Number((updateResult as { insertId?: number }).insertId || 1)
+    return `PROP-${year}-${String(nextNumber).padStart(3, '0')}`
+  } finally {
+    connection.release()
+  }
 }
 
 export async function ensureProposalStatusSchema() {

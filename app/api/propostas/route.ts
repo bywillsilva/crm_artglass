@@ -36,6 +36,71 @@ type ProposalPayload = {
   anexos: File[]
 }
 
+async function insertProposalWithUniqueNumber(params: {
+  id: string
+  clienteId: string
+  responsavelId: string
+  orcamentistaId: string | null
+  titulo: string
+  descricao: string | null
+  valor: number
+  desconto: number
+  valorFinal: number
+  status: ProposalWorkflowStatus
+  validade: string | null
+  servicos: unknown[]
+  condicoes: string | null
+  now: Date
+  followUpTime: string | null
+}) {
+  const maxAttempts = 5
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const numero = await getNextProposalNumber()
+
+    try {
+      await query(
+        `INSERT INTO propostas (
+          id, numero, cliente_id, responsavel_id, orcamentista_id, retificacoes_count, titulo, descricao,
+          valor, desconto, valor_final, status, validade, servicos, condicoes, follow_up_base_at, follow_up_time
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          params.id,
+          numero,
+          params.clienteId,
+          params.responsavelId,
+          params.orcamentistaId,
+          0,
+          params.titulo,
+          params.descricao,
+          params.valor,
+          params.desconto,
+          params.valorFinal,
+          params.status,
+          params.validade,
+          JSON.stringify(params.servicos),
+          params.condicoes,
+          params.status === 'enviado_ao_cliente' ? formatDateTime(params.now) : null,
+          params.followUpTime,
+        ]
+      )
+
+      return numero
+    } catch (error: any) {
+      const isNumeroDuplicate =
+        error?.code === 'ER_DUP_ENTRY' &&
+        String(error?.sqlMessage || '').toLowerCase().includes('for key') &&
+        String(error?.sqlMessage || '').toLowerCase().includes('numero')
+
+      if (!isNumeroDuplicate || attempt === maxAttempts - 1) {
+        throw error
+      }
+    }
+  }
+
+  throw new Error('Nao foi possivel gerar um numero unico para a proposta.')
+}
+
 async function parseProposalPayload(request: NextRequest): Promise<ProposalPayload> {
   const contentType = request.headers.get('content-type') || ''
 
@@ -266,7 +331,6 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const numero = await getNextProposalNumber()
     const valor = Number(data.valor || 0)
     const desconto = Number(data.desconto || 0)
     const valorFinal = valor - (valor * desconto) / 100
@@ -278,31 +342,23 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    await query(
-      `INSERT INTO propostas (
-        id, numero, cliente_id, responsavel_id, orcamentista_id, retificacoes_count, titulo, descricao,
-        valor, desconto, valor_final, status, validade, servicos, condicoes, follow_up_base_at, follow_up_time
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id,
-        numero,
-        data.clienteId,
-        responsavelId,
-        orcamentistaId,
-        0,
-        data.titulo || 'Proposta Comercial',
-        data.descricao || null,
-        valor,
-        desconto,
-        valorFinal,
-        status,
-        data.validade || null,
-        JSON.stringify(data.servicos || []),
-        data.condicoes || null,
-        status === 'enviado_ao_cliente' ? formatDateTime(now) : null,
-        data.followUpTime || null,
-      ]
-    )
+    const numero = await insertProposalWithUniqueNumber({
+      id,
+      clienteId: data.clienteId,
+      responsavelId,
+      orcamentistaId,
+      titulo: data.titulo || 'Proposta Comercial',
+      descricao: data.descricao || null,
+      valor,
+      desconto,
+      valorFinal,
+      status,
+      validade: data.validade || null,
+      servicos: data.servicos || [],
+      condicoes: data.condicoes || null,
+      now,
+      followUpTime: data.followUpTime || null,
+    })
 
     if (data.comentario?.trim()) {
       await persistProposalComment(id, user.id, data.comentario)
