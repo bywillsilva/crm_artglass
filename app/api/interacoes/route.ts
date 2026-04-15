@@ -3,6 +3,7 @@ import { query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
 import { getServerSession } from '@/lib/auth/session'
 import { formatDateTime } from '@/lib/server/proposal-workflow'
+import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 
 export async function GET(request: NextRequest) {
   try {
@@ -68,6 +69,12 @@ export async function POST(request: NextRequest) {
         formatDateTime(new Date()),
       ]
     )
+
+    await publishRealtimeEvent({
+      actorUserId: session.userId,
+      resource: 'interacao',
+      resourceId: id,
+    })
 
     const [interacao] = await query<any[]>('SELECT * FROM interacoes WHERE id = ?', [id])
     return NextResponse.json(interacao, { status: 201 })

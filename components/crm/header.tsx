@@ -37,7 +37,7 @@ import {
 } from '@/components/ui/command'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
-import { useInteracoes, useSession } from '@/lib/hooks/use-api'
+import { useSession } from '@/lib/hooks/use-api'
 import type { Interacao, Tarefa } from '@/lib/data/types'
 
 interface CRMHeaderProps {
@@ -79,7 +79,6 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
   const { state } = useCRM()
   const { notifications } = useAppSettings()
   const { user } = useSession()
-  const { interacoes } = useInteracoes({ tipo: 'proposta', limit: 80 })
   const [commandOpen, setCommandOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>([])
@@ -159,7 +158,8 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
     if (!loadedReadNotifications) return []
     if (!notifications.propostas) return []
 
-    return interacoes
+    return state.interacoes
+      .filter((interacao: Interacao) => interacao.tipo === 'proposta')
       .filter((interacao: Interacao) => {
         if (interacao.dados?.silent_notification || interacao.tipo !== 'proposta') {
           return false
@@ -175,7 +175,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
       .map((interacao: Interacao) => {
         return {
           id: `interaction-${interacao.id}`,
-          group: 'propostas',
+          group: 'propostas' as const,
           title: 'Atualizacao de status da proposta',
           description: interacao.descricao,
           href: '/propostas',
@@ -188,10 +188,10 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
       .slice(0, 20)
   }, [
     allowedPropostaIds,
-    interacoes,
     loadedReadNotifications,
     notifications.propostas,
     readNotificationIds,
+    state.interacoes,
     user?.role,
   ])
 

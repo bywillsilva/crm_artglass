@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
-import { ensureUserRoleSchema } from '@/lib/server/proposal-workflow'
+import { ensureUserManagementSchema } from '@/lib/server/proposal-workflow'
 
 export async function GET() {
   try {
-    await ensureUserRoleSchema()
+    await ensureUserManagementSchema()
     const session = await getServerSession()
     if (!session) {
       return NextResponse.json({ user: null }, { status: 401 })

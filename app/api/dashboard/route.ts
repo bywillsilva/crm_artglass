@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
-import { ensureProposalStatusSchema, ensureResponsibilityIntegrity, syncDueFollowUpStatuses } from '@/lib/server/proposal-workflow'
+import { ensureCrmRuntimeSchema, syncDueFollowUpStatuses } from '@/lib/server/proposal-workflow'
 
 async function getAuthenticatedUser() {
   const session = await getServerSession()
@@ -50,8 +50,7 @@ function getDateRange(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    await ensureProposalStatusSchema()
-    await ensureResponsibilityIntegrity()
+    await ensureCrmRuntimeSchema()
 
     const user = await getAuthenticatedUser()
     if (!user) {

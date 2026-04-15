@@ -55,6 +55,7 @@ const MYSQL_TIMEZONE = process.env.MYSQL_TIMEZONE || '-03:00'
 const cacheTimes = new Map<string, number>()
 const cachePromises = new Map<string, Promise<void>>()
 const SCHEMA_CACHE_MS = 5 * 60 * 1000
+const RUNTIME_BOOTSTRAP_CACHE_MS = 60 * 60 * 1000
 const RUNTIME_CACHE_MS = 10 * 1000
 
 function parseTimeZoneOffsetInMinutes(timeZone: string) {
@@ -483,8 +484,51 @@ export async function ensureUserRoleSchema() {
   })
 }
 
+export async function ensureUserManagementSchema() {
+  await runCached('ensureUserManagementSchema', SCHEMA_CACHE_MS, async () => {
+    await ensureUserRoleSchema()
+
+    const metaVendasColumns = await query<any[]>(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'usuarios'
+         AND COLUMN_NAME = 'meta_vendas'`
+    )
+
+    if (!metaVendasColumns.length) {
+      await query(`
+        ALTER TABLE usuarios
+        ADD COLUMN meta_vendas DECIMAL(15, 2) NOT NULL DEFAULT 0
+      `)
+    }
+  })
+}
+
 export async function ensureClientSchema() {
   await runCached('ensureClientSchema', SCHEMA_CACHE_MS, async () => {
+    const columns = await query<any[]>(
+      `SELECT COLUMN_NAME, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_TYPE
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'clientes'
+         AND COLUMN_NAME IN ('email', 'origem')`
+    )
+
+    const emailColumn = columns.find((column) => column.COLUMN_NAME === 'email')
+    const origemColumn = columns.find((column) => column.COLUMN_NAME === 'origem')
+
+    const emailNeedsUpdate = emailColumn && emailColumn.IS_NULLABLE !== 'YES'
+    const origemNeedsUpdate =
+      origemColumn &&
+      (origemColumn.IS_NULLABLE !== 'YES' ||
+        origemColumn.COLUMN_DEFAULT !== null ||
+        !String(origemColumn.COLUMN_TYPE || '').includes(`'outro'`))
+
+    if (!emailNeedsUpdate && !origemNeedsUpdate) {
+      return
+    }
+
     await query(`
       ALTER TABLE clientes
       MODIFY COLUMN email VARCHAR(255) NULL,
@@ -521,6 +565,16 @@ export async function ensureResponsibilityIntegrity() {
         [fallbackSeller.id]
       )
     }
+  })
+}
+
+export async function ensureCrmRuntimeSchema() {
+  await runCached('ensureCrmRuntimeSchema', RUNTIME_BOOTSTRAP_CACHE_MS, async () => {
+    await ensureUserManagementSchema()
+    await ensureClientSchema()
+    await ensureProposalStatusSchema()
+    await ensureTaskSchema()
+    await ensureResponsibilityIntegrity()
   })
 }
 

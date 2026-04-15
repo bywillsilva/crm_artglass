@@ -189,6 +189,17 @@ export async function POST() {
       )
     `)
 
+    await query(`
+      CREATE TABLE IF NOT EXISTS realtime_updates (
+        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        actor_user_id VARCHAR(36) NULL,
+        resource VARCHAR(50) NOT NULL,
+        resource_id VARCHAR(64) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        KEY idx_realtime_updates_created_id (created_at, id)
+      )
+    `)
+
     const usuarios = await query<any[]>('SELECT COUNT(*) as total FROM usuarios')
 
     if (usuarios[0].total === 0) {

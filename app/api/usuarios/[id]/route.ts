@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
-import { ensureUserRoleSchema } from '@/lib/server/proposal-workflow'
+import { ensureUserManagementSchema } from '@/lib/server/proposal-workflow'
+import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
 
 export async function GET(
@@ -10,11 +11,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureUserRoleSchema()
-    await query(`
-      ALTER TABLE usuarios
-      ADD COLUMN IF NOT EXISTS meta_vendas DECIMAL(15, 2) NOT NULL DEFAULT 0
-    `)
+    await ensureUserManagementSchema()
 
     const { id } = await params
     const [usuario] = await query<any[]>(
@@ -38,11 +35,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureUserRoleSchema()
-    await query(`
-      ALTER TABLE usuarios
-      ADD COLUMN IF NOT EXISTS meta_vendas DECIMAL(15, 2) NOT NULL DEFAULT 0
-    `)
+    await ensureUserManagementSchema()
 
     const { id } = await params
     const data = await request.json()
@@ -113,6 +106,12 @@ export async function PUT(
       [id]
     )
 
+    await publishRealtimeEvent({
+      actorUserId: session?.userId || null,
+      resource: 'usuario',
+      resourceId: id,
+    })
+
     return NextResponse.json(usuario)
   } catch (error: any) {
     console.error('Erro ao atualizar usuario:', error)
@@ -173,6 +172,12 @@ export async function DELETE(
     }
 
     await query('DELETE FROM usuarios WHERE id = ?', [id])
+
+    await publishRealtimeEvent({
+      resource: 'usuario',
+      resourceId: id,
+    })
+
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Erro ao deletar usuario:', error)

@@ -2,20 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
 import bcrypt from 'bcryptjs'
-import { ensureUserRoleSchema } from '@/lib/server/proposal-workflow'
+import { ensureUserManagementSchema } from '@/lib/server/proposal-workflow'
+import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
 
 export async function GET(request: NextRequest) {
   try {
-    await ensureUserRoleSchema()
+    await ensureUserManagementSchema()
     const searchParams = request.nextUrl.searchParams
     const role = searchParams.get('role')
     const ativo = searchParams.get('ativo')
-
-    await query(`
-      ALTER TABLE usuarios
-      ADD COLUMN IF NOT EXISTS meta_vendas DECIMAL(15, 2) NOT NULL DEFAULT 0
-    `)
 
     let sql = 'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, created_at FROM usuarios WHERE 1=1'
     const params: unknown[] = []
@@ -42,11 +38,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    await ensureUserRoleSchema()
-    await query(`
-      ALTER TABLE usuarios
-      ADD COLUMN IF NOT EXISTS meta_vendas DECIMAL(15, 2) NOT NULL DEFAULT 0
-    `)
+    await ensureUserManagementSchema()
 
     const data = await request.json()
     const id = uuidv4()
@@ -89,6 +81,13 @@ export async function POST(request: NextRequest) {
       'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, created_at FROM usuarios WHERE id = ?',
       [id]
     )
+
+    await publishRealtimeEvent({
+      actorUserId: null,
+      resource: 'usuario',
+      resourceId: id,
+    })
+
     return NextResponse.json(usuario, { status: 201 })
   } catch (error: any) {
     console.error('Erro ao criar usuário:', error)

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
 import { query } from '@/lib/db/mysql'
 import { createSessionToken, SESSION_COOKIE } from '@/lib/auth/session'
+import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 
 async function ensureEmailVerificationTable() {
   await query(`
@@ -86,6 +87,12 @@ export async function POST(request: NextRequest) {
     await query('UPDATE email_verification_tokens SET used_at = NOW() WHERE id = ?', [
       pendingRegistration.id,
     ])
+
+    await publishRealtimeEvent({
+      actorUserId: id,
+      resource: 'usuario',
+      resourceId: id,
+    })
 
     const authToken = createSessionToken(id, role)
     const response = NextResponse.json({

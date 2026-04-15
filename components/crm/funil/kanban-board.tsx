@@ -1,7 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Clock3, MessageSquare, Paperclip, Pencil } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { AlertTriangle, ArrowRightLeft, CheckCircle2, Clock3, MessageSquare, Paperclip, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
@@ -18,6 +18,7 @@ import { ProposalDetailsSheet } from '@/components/crm/propostas/proposal-detail
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { statusPropostaLabels, type Proposta, type StatusProposta } from '@/lib/data/types'
 
@@ -75,6 +76,33 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const [updatingProposalIds, setUpdatingProposalIds] = useState<Record<string, true>>({})
   const [editingPropostaId, setEditingPropostaId] = useState<string | null>(null)
   const [detailsPropostaId, setDetailsPropostaId] = useState<string | null>(null)
+  const [touchMovePropostaId, setTouchMovePropostaId] = useState<string | null>(null)
+  const [touchMoveStatus, setTouchMoveStatus] = useState<StatusProposta | ''>('')
+  const [isTouchDevice, setIsTouchDevice] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const mediaQuery = window.matchMedia('(pointer: coarse), (hover: none)')
+    const updateTouchState = () => {
+      setIsTouchDevice(mediaQuery.matches || navigator.maxTouchPoints > 0)
+    }
+
+    updateTouchState()
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', updateTouchState)
+    } else {
+      mediaQuery.addListener(updateTouchState)
+    }
+
+    return () => {
+      if (typeof mediaQuery.removeEventListener === 'function') {
+        mediaQuery.removeEventListener('change', updateTouchState)
+      } else {
+        mediaQuery.removeListener(updateTouchState)
+      }
+    }
+  }, [])
 
   const propostasBase = useMemo(
     () =>
@@ -165,6 +193,18 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     )
   }
 
+  const openTouchMovePicker = (propostaId: string) => {
+    setTouchMovePropostaId(propostaId)
+    setTouchMoveStatus('')
+  }
+
+  const confirmTouchMoveSelection = () => {
+    if (!touchMovePropostaId || !touchMoveStatus) return
+    requestMove(touchMovePropostaId, touchMoveStatus)
+    setTouchMovePropostaId(null)
+    setTouchMoveStatus('')
+  }
+
   const handleDrop = (targetStatus: StatusProposta) => {
     if (!draggedPropostaId) return
     requestMove(draggedPropostaId, targetStatus)
@@ -231,6 +271,10 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const requiresBudgetValue = pendingMove?.targetStatus === 'aguardando_aprovacao'
   const isSchedulingFollowUp = requiresFollowUpTime
   const pendingMoveTargetLabel = pendingMove ? statusPropostaLabels[pendingMove.targetStatus] : ''
+  const touchMoveProposal = touchMovePropostaId ? propostasById.get(touchMovePropostaId) || null : null
+  const availableTouchStatuses = touchMoveProposal
+    ? columns.filter((status) => status !== touchMoveProposal.status)
+    : []
 
   return (
     <>
@@ -267,12 +311,14 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                     return (
                       <div
                         key={proposta.id}
-                        draggable
+                        draggable={!isTouchDevice}
                         aria-busy={Boolean(updatingProposalIds[proposta.id])}
                         onDragStart={() => setDraggedPropostaId(proposta.id)}
+                        onDragEnd={() => setDraggedPropostaId(null)}
+                        onContextMenu={(event) => event.preventDefault()}
                         className={`rounded-xl border p-4 shadow-sm transition ${cardState.classes} ${
                           updatingProposalIds[proposta.id] ? 'opacity-70' : ''
-                        }`}
+                        } select-none [-webkit-touch-callout:none]`}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
@@ -284,6 +330,16 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                             </p>
                           </div>
                           <div className="flex items-center gap-1">
+                            {isTouchDevice ? (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => openTouchMovePicker(proposta.id)}
+                              >
+                                <ArrowRightLeft className="h-4 w-4" />
+                              </Button>
+                            ) : null}
                             <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => setDetailsPropostaId(proposta.id)}>
                               Ver detalhes
                             </Button>
@@ -345,6 +401,56 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
           )
         })}
       </div>
+
+      <Dialog
+        open={Boolean(touchMovePropostaId)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setTouchMovePropostaId(null)
+            setTouchMoveStatus('')
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Escolher nova etapa</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Selecione a coluna para onde esta proposta deve ser movida.
+            </p>
+            <Select
+              value={touchMoveStatus}
+              onValueChange={(value) => setTouchMoveStatus(value as StatusProposta)}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Selecione a etapa" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableTouchStatuses.map((status) => (
+                  <SelectItem key={status} value={status}>
+                    {statusPropostaLabels[status]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setTouchMovePropostaId(null)
+                  setTouchMoveStatus('')
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button onClick={confirmTouchMoveSelection} disabled={!touchMoveStatus}>
+                Continuar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(pendingMove)} onOpenChange={(open) => !open && setPendingMove(null)}>
         <DialogContent>

@@ -3,13 +3,10 @@ import { v4 as uuidv4 } from 'uuid'
 import { query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
 import { saveProposalFiles } from '@/lib/server/proposal-files'
+import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import {
-  ensureClientSchema,
+  ensureCrmRuntimeSchema,
   getNextProposalNumber,
-  ensureProposalStatusSchema,
-  ensureResponsibilityIntegrity,
-  ensureTaskSchema,
-  ensureUserRoleSchema,
   formatDateTime,
   handleProposalAutomationOnCreate,
   normalizeProposalStatus,
@@ -155,11 +152,7 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
 }
 
 async function ensureBaseSchema() {
-  await ensureUserRoleSchema()
-  await ensureClientSchema()
-  await ensureProposalStatusSchema()
-  await ensureTaskSchema()
-  await ensureResponsibilityIntegrity()
+  await ensureCrmRuntimeSchema()
   await syncDueFollowUpStatuses()
 }
 
@@ -397,6 +390,12 @@ export async function POST(request: NextRequest) {
       createdAt: now,
       followUpBaseAt: status === 'enviado_ao_cliente' ? now : null,
       followUpTime: data.followUpTime || null,
+    })
+
+    await publishRealtimeEvent({
+      actorUserId: user.id,
+      resource: 'proposta',
+      resourceId: id,
     })
 
     const [proposta] = await query<any[]>('SELECT * FROM propostas WHERE id = ?', [id])

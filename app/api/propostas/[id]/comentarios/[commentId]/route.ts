@@ -2,21 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
 import { query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
+import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import {
   canOrcamentistaAccessProposal,
-  ensureClientSchema,
-  ensureProposalStatusSchema,
-  ensureResponsibilityIntegrity,
-  ensureTaskSchema,
-  ensureUserRoleSchema,
+  ensureCrmRuntimeSchema,
 } from '@/lib/server/proposal-workflow'
 
 async function ensureBaseSchema() {
-  await ensureUserRoleSchema()
-  await ensureClientSchema()
-  await ensureProposalStatusSchema()
-  await ensureTaskSchema()
-  await ensureResponsibilityIntegrity()
+  await ensureCrmRuntimeSchema()
 }
 
 async function getAuthenticatedUser() {
@@ -118,6 +111,12 @@ export async function PUT(
       [commentId]
     )
 
+    await publishRealtimeEvent({
+      actorUserId: user.id,
+      resource: 'proposta_comentario',
+      resourceId: commentId,
+    })
+
     return NextResponse.json(updatedComment)
   } catch (error) {
     console.error('Erro ao atualizar comentario da proposta:', error)
@@ -165,6 +164,12 @@ export async function DELETE(
         }),
       ]
     )
+
+    await publishRealtimeEvent({
+      actorUserId: user.id,
+      resource: 'proposta_comentario',
+      resourceId: commentId,
+    })
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Erro ao excluir comentario da proposta:', error)

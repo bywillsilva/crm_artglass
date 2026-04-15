@@ -35,6 +35,10 @@ export function verifySessionToken(token?: string | null): SessionPayload | null
   if (!encodedPayload || !signature) return null
 
   const expected = sign(encodedPayload)
+  if (signature.length !== expected.length) {
+    return null
+  }
+
   if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
     return null
   }

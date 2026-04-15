@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { query } from '@/lib/db/mysql'
 import { createSessionToken, SESSION_COOKIE } from '@/lib/auth/session'
-import { ensureUserRoleSchema } from '@/lib/server/proposal-workflow'
+import { ensureUserManagementSchema } from '@/lib/server/proposal-workflow'
 
 export async function POST(request: NextRequest) {
   try {
-    await ensureUserRoleSchema()
+    await ensureUserManagementSchema()
     const { email, senha } = await request.json()
 
     if (!email || !senha) {

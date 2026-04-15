@@ -3,13 +3,10 @@ import { v4 as uuidv4 } from 'uuid'
 import { query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
 import { deleteStoredFiles, saveProposalFiles } from '@/lib/server/proposal-files'
+import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import {
   canOrcamentistaAccessProposal,
-  ensureClientSchema,
-  ensureProposalStatusSchema,
-  ensureResponsibilityIntegrity,
-  ensureTaskSchema,
-  ensureUserRoleSchema,
+  ensureCrmRuntimeSchema,
   formatDateTime,
   normalizeProposalStatus,
   parseDatabaseDateTime,
@@ -53,11 +50,7 @@ const ORCAMENTISTA_ALLOWED_TRANSITIONS: Partial<Record<ProposalWorkflowStatus, P
 }
 
 async function ensureBaseSchema() {
-  await ensureUserRoleSchema()
-  await ensureClientSchema()
-  await ensureProposalStatusSchema()
-  await ensureTaskSchema()
-  await ensureResponsibilityIntegrity()
+  await ensureCrmRuntimeSchema()
   await syncDueFollowUpStatuses()
 }
 
@@ -482,6 +475,12 @@ export async function PUT(
       )
     }
 
+    await publishRealtimeEvent({
+      actorUserId: user.id,
+      resource: 'proposta',
+      resourceId: id,
+    })
+
     const proposta = await getProposal(id)
     return NextResponse.json(proposta)
   } catch (error) {
@@ -527,6 +526,12 @@ export async function DELETE(
     await query('DELETE FROM propostas WHERE id = ?', [id])
 
     await deleteStoredFiles(anexos.map((item) => item.caminho))
+
+    await publishRealtimeEvent({
+      actorUserId: user.id,
+      resource: 'proposta',
+      resourceId: id,
+    })
 
     return NextResponse.json({ success: true })
   } catch (error) {

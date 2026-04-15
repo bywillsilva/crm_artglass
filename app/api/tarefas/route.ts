@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
 import { getServerSession } from '@/lib/auth/session'
+import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import {
-  ensureResponsibilityIntegrity,
-  ensureTaskSchema,
+  ensureCrmRuntimeSchema,
   formatDateTime,
 } from '@/lib/server/proposal-workflow'
 
@@ -28,8 +28,7 @@ async function getAuthenticatedUser() {
 
 export async function GET(request: NextRequest) {
   try {
-    await ensureTaskSchema()
-    await ensureResponsibilityIntegrity()
+    await ensureCrmRuntimeSchema()
 
     const user = await getAuthenticatedUser()
     if (!user) {
@@ -86,8 +85,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    await ensureTaskSchema()
-    await ensureResponsibilityIntegrity()
+    await ensureCrmRuntimeSchema()
 
     const user = await getAuthenticatedUser()
     if (!user) {
@@ -128,6 +126,12 @@ export async function POST(request: NextRequest) {
         formatDateTime(now),
       ]
     )
+
+    await publishRealtimeEvent({
+      actorUserId: user.id,
+      resource: 'tarefa',
+      resourceId: id,
+    })
 
     const [tarefa] = await query<any[]>('SELECT * FROM tarefas WHERE id = ?', [id])
     return NextResponse.json(tarefa, { status: 201 })

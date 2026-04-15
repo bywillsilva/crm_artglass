@@ -2,22 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
 import { getServerSession } from '@/lib/auth/session'
+import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import {
-  ensureClientSchema,
+  ensureCrmRuntimeSchema,
   getNextProposalNumber,
-  ensureProposalStatusSchema,
-  ensureResponsibilityIntegrity,
-  ensureTaskSchema,
-  ensureUserRoleSchema,
   formatDateTime,
 } from '@/lib/server/proposal-workflow'
 
 async function ensureBaseSchema() {
-  await ensureUserRoleSchema()
-  await ensureClientSchema()
-  await ensureProposalStatusSchema()
-  await ensureTaskSchema()
-  await ensureResponsibilityIntegrity()
+  await ensureCrmRuntimeSchema()
 }
 
 async function getDefaultProposalResponsavel(userId: string) {
@@ -221,6 +214,12 @@ export async function POST(request: NextRequest) {
       clienteId: id,
       clienteNome: data.nome,
       usuarioId: session.userId,
+    })
+
+    await publishRealtimeEvent({
+      actorUserId: session.userId,
+      resource: 'cliente',
+      resourceId: id,
     })
 
     const [cliente] = await query<any[]>('SELECT * FROM clientes WHERE id = ?', [id])

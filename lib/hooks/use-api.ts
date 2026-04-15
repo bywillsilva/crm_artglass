@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import useSWR, { mutate } from 'swr'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
 import {
@@ -33,6 +33,15 @@ type SessionUser = {
 type JsonRecord = Record<string, any>
 
 const toDate = parseDateTimeValue
+const REALTIME_REVALIDATE_PREFIXES = [
+  '/api/clientes',
+  '/api/propostas',
+  '/api/tarefas',
+  '/api/interacoes',
+  '/api/usuarios',
+  '/api/dashboard',
+  '/api/configuracoes',
+] as const
 
 function toNumber(value: unknown) {
   const parsed = Number(value)
@@ -304,6 +313,12 @@ function mutateByPrefix(prefix: string) {
   mutate((key) => typeof key === 'string' && key.startsWith(prefix))
 }
 
+export function revalidateRealtimeData() {
+  REALTIME_REVALIDATE_PREFIXES.forEach((prefix) => {
+    mutate((key) => typeof key === 'string' && key.startsWith(prefix))
+  })
+}
+
 function updateCachedEntity(current: any, id: string, patch: JsonRecord) {
   if (!current) {
     return current
@@ -523,6 +538,40 @@ export function useSession() {
     isLoading,
     mutate: localMutate,
   }
+}
+
+export function useRealtimeSync(enabled = true) {
+  const lastVersionRef = useRef<number | null>(null)
+  const { data } = useSWR(
+    enabled ? '/api/realtime/version' : null,
+    fetcher,
+    {
+      refreshInterval: 2000,
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 1000,
+    }
+  )
+
+  useEffect(() => {
+    const version = Number(data?.version || 0)
+    if (!Number.isFinite(version)) {
+      return
+    }
+
+    if (lastVersionRef.current === null) {
+      lastVersionRef.current = version
+      return
+    }
+
+    if (version > lastVersionRef.current) {
+      lastVersionRef.current = version
+      revalidateRealtimeData()
+      return
+    }
+
+    lastVersionRef.current = version
+  }, [data?.version])
 }
 
 // Funcoes de mutacao (CRUD)

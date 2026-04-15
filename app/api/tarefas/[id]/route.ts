@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
 import { query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
+import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import {
-  ensureResponsibilityIntegrity,
-  ensureTaskSchema,
+  ensureCrmRuntimeSchema,
   formatDateTime,
 } from '@/lib/server/proposal-workflow'
 
@@ -31,8 +31,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureTaskSchema()
-    await ensureResponsibilityIntegrity()
+    await ensureCrmRuntimeSchema()
 
     const user = await getAuthenticatedUser()
     if (!user) {
@@ -69,8 +68,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureTaskSchema()
-    await ensureResponsibilityIntegrity()
+    await ensureCrmRuntimeSchema()
 
     const user = await getAuthenticatedUser()
     if (!user) {
@@ -122,6 +120,12 @@ export async function PUT(
       ]
     )
 
+    await publishRealtimeEvent({
+      actorUserId: user.id,
+      resource: 'tarefa',
+      resourceId: id,
+    })
+
     const [tarefa] = await query<any[]>('SELECT * FROM tarefas WHERE id = ?', [id])
     return NextResponse.json(tarefa)
   } catch (error) {
@@ -135,8 +139,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureTaskSchema()
-    await ensureResponsibilityIntegrity()
+    await ensureCrmRuntimeSchema()
 
     const user = await getAuthenticatedUser()
     if (!user) {
@@ -175,6 +178,12 @@ export async function PATCH(
           ]
         )
       }
+
+      await publishRealtimeEvent({
+        actorUserId: user.id,
+        resource: 'tarefa',
+        resourceId: id,
+      })
     }
 
     const [tarefa] = await query<any[]>('SELECT * FROM tarefas WHERE id = ?', [id])
@@ -190,8 +199,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureTaskSchema()
-    await ensureResponsibilityIntegrity()
+    await ensureCrmRuntimeSchema()
 
     const user = await getAuthenticatedUser()
     if (!user) {
@@ -216,6 +224,13 @@ export async function DELETE(
     }
 
     await query('DELETE FROM tarefas WHERE id = ?', [id])
+
+    await publishRealtimeEvent({
+      actorUserId: user.id,
+      resource: 'tarefa',
+      resourceId: id,
+    })
+
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Erro ao deletar tarefa:', error)

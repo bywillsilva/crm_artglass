@@ -2,14 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
 import { getServerSession } from '@/lib/auth/session'
-import { ensureClientSchema, formatDateTime } from '@/lib/server/proposal-workflow'
+import { publishRealtimeEvent } from '@/lib/server/realtime-events'
+import { ensureCrmRuntimeSchema, formatDateTime } from '@/lib/server/proposal-workflow'
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureClientSchema()
+    await ensureCrmRuntimeSchema()
     const { id } = await params
     const [cliente] = await query<any[]>(
       `SELECT c.*
@@ -34,7 +35,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureClientSchema()
+    await ensureCrmRuntimeSchema()
     const session = await getServerSession()
     if (!session) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
@@ -104,6 +105,12 @@ export async function PUT(
       )
     }
 
+    await publishRealtimeEvent({
+      actorUserId: session.userId,
+      resource: 'cliente',
+      resourceId: id,
+    })
+
     const [cliente] = await query<any[]>('SELECT * FROM clientes WHERE id = ?', [id])
     return NextResponse.json(cliente)
   } catch (error) {
@@ -117,8 +124,16 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await getServerSession()
     const { id } = await params
     await query('DELETE FROM clientes WHERE id = ?', [id])
+
+    await publishRealtimeEvent({
+      actorUserId: session?.userId || null,
+      resource: 'cliente',
+      resourceId: id,
+    })
+
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('Erro ao deletar cliente:', error)

@@ -2,43 +2,68 @@ import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
 import { getServerSession } from '@/lib/auth/session'
+import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 
 const USER_KEYS = ['geral', 'notificacoes', 'aparencia']
 const GLOBAL_KEYS = ['empresa', 'funil']
+const CONFIG_SCHEMA_CACHE_MS = 60 * 60 * 1000
+
+let configuracoesSchemaCheckedAt = 0
+let configuracoesSchemaPromise: Promise<void> | null = null
 
 async function ensureConfiguracoesSchema() {
-  const columns = await query<any[]>(`
-    SELECT COLUMN_NAME
-    FROM INFORMATION_SCHEMA.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'configuracoes'
-  `)
-
-  const columnNames = new Set(columns.map((column) => column.COLUMN_NAME))
-
-  if (!columnNames.has('scope')) {
-    await query(`ALTER TABLE configuracoes ADD COLUMN scope VARCHAR(20) NOT NULL DEFAULT 'global' AFTER chave`)
+  const now = Date.now()
+  if (now - configuracoesSchemaCheckedAt < CONFIG_SCHEMA_CACHE_MS) {
+    return
   }
 
-  if (!columnNames.has('user_id')) {
-    await query(`ALTER TABLE configuracoes ADD COLUMN user_id VARCHAR(36) NOT NULL DEFAULT '' AFTER scope`)
+  if (configuracoesSchemaPromise) {
+    await configuracoesSchemaPromise
+    return
   }
 
-  await query(`UPDATE configuracoes SET scope = 'global' WHERE scope IS NULL OR scope = ''`)
-  await query(`UPDATE configuracoes SET user_id = '' WHERE user_id IS NULL`)
+  configuracoesSchemaPromise = (async () => {
+    const columns = await query<any[]>(`
+      SELECT COLUMN_NAME
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'configuracoes'
+    `)
 
-  const indexes = await query<any[]>('SHOW INDEX FROM configuracoes')
-  const hasScopedUnique = indexes.some((index) => index.Key_name === 'unique_config_scope')
-  const oldUniqueIndexes = indexes.filter(
-    (index) => index.Non_unique === 0 && index.Key_name !== 'PRIMARY' && index.Key_name !== 'unique_config_scope'
-  )
+    const columnNames = new Set(columns.map((column) => column.COLUMN_NAME))
 
-  for (const index of oldUniqueIndexes) {
-    await query(`ALTER TABLE configuracoes DROP INDEX ${index.Key_name}`)
-  }
+    if (!columnNames.has('scope')) {
+      await query(`ALTER TABLE configuracoes ADD COLUMN scope VARCHAR(20) NOT NULL DEFAULT 'global' AFTER chave`)
+    }
 
-  if (!hasScopedUnique) {
-    await query(`ALTER TABLE configuracoes ADD UNIQUE KEY unique_config_scope (chave, scope, user_id)`)
+    if (!columnNames.has('user_id')) {
+      await query(`ALTER TABLE configuracoes ADD COLUMN user_id VARCHAR(36) NOT NULL DEFAULT '' AFTER scope`)
+    }
+
+    await query(`UPDATE configuracoes SET scope = 'global' WHERE scope IS NULL OR scope = ''`)
+    await query(`UPDATE configuracoes SET user_id = '' WHERE user_id IS NULL`)
+
+    const indexes = await query<any[]>('SHOW INDEX FROM configuracoes')
+    const hasScopedUnique = indexes.some((index) => index.Key_name === 'unique_config_scope')
+    const oldUniqueIndexes = indexes.filter(
+      (index) => index.Non_unique === 0 && index.Key_name !== 'PRIMARY' && index.Key_name !== 'unique_config_scope'
+    )
+
+    for (const index of oldUniqueIndexes) {
+      await query(`ALTER TABLE configuracoes DROP INDEX ${index.Key_name}`)
+    }
+
+    if (!hasScopedUnique) {
+      await query(`ALTER TABLE configuracoes ADD UNIQUE KEY unique_config_scope (chave, scope, user_id)`)
+    }
+
+    configuracoesSchemaCheckedAt = Date.now()
+  })()
+
+  try {
+    await configuracoesSchemaPromise
+  } finally {
+    configuracoesSchemaPromise = null
   }
 }
 
@@ -147,6 +172,12 @@ export async function POST(request: NextRequest) {
       'SELECT * FROM configuracoes WHERE chave = ? AND scope = ? AND user_id = ? LIMIT 1',
       [data.chave, scope, userId]
     )
+
+    await publishRealtimeEvent({
+      actorUserId: session.userId,
+      resource: data.chave === 'empresa' ? 'config_global' : 'config_usuario',
+      resourceId: data.chave,
+    })
 
     return NextResponse.json(config)
   } catch (error) {
