@@ -85,12 +85,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Nenhuma notificacao informada' }, { status: 400 })
     }
 
-    for (const notificationId of notificationIds) {
-      await query(
-        'INSERT IGNORE INTO notification_reads (id, user_id, notification_id) VALUES (UUID(), ?, ?)',
-        [user.id, String(notificationId)]
-      )
-    }
+    const normalizedNotificationIds = [...new Set(notificationIds.map((notificationId) => String(notificationId)))]
+    const placeholders = normalizedNotificationIds.map(() => '(UUID(), ?, ?)').join(', ')
+    const params = normalizedNotificationIds.flatMap((notificationId) => [user.id, notificationId])
+
+    await query(
+      `INSERT IGNORE INTO notification_reads (id, user_id, notification_id) VALUES ${placeholders}`,
+      params
+    )
 
     deleteRuntimeCache(`notification-reads:${user.id}`)
     return NextResponse.json({ success: true })

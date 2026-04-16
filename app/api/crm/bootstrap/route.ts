@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { getConnection } from '@/lib/db/mysql'
-import { getAuthenticatedServerUser, getServerSession } from '@/lib/auth/session'
+import { query } from '@/lib/db/mysql'
+import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 
 type AuthenticatedUser = {
@@ -15,18 +15,14 @@ const CRM_BOOTSTRAP_CACHE_TTL_MS = Math.max(
 )
 
 export async function GET() {
-  let connection: Awaited<ReturnType<typeof getConnection>> | null = null
-  const session = await getServerSession()
+  let isAuthenticated = false
 
   try {
-    if (!session) {
-      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
-    }
-
     const authenticatedUser = await getAuthenticatedServerUser()
     if (!authenticatedUser?.ativo) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
+    isAuthenticated = true
 
     const isAdmin = authenticatedUser.role === 'admin' || authenticatedUser.role === 'gerente'
     const cacheKey = `crm-bootstrap:${authenticatedUser.role}:${authenticatedUser.id}`
@@ -41,86 +37,78 @@ export async function GET() {
       return NextResponse.json(cachedResponse)
     }
 
-    connection = await getConnection()
-
-    const execute = async <T>(sql: string, params: any[] = []) => {
-      const [results] = await connection!.execute(sql, params)
-      return results as T
-    }
-
-    const clientes = await execute<any[]>(
-      `SELECT
-         c.id,
-         c.nome,
-         c.telefone,
-         c.email,
-         c.empresa,
-         c.cargo,
-         c.endereco,
-         c.cidade,
-         c.estado,
-         c.cep,
-         c.origem,
-         c.observacoes,
-         c.status_funil,
-         c.valor_potencial,
-         c.created_at,
-         c.updated_at
-       FROM clientes c
-       ORDER BY c.created_at DESC`
-    )
-
-    const usuarios = await execute<any[]>(
-      `SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, created_at
-       FROM usuarios
-       ORDER BY nome ASC`
-    )
-
-    const tarefas = await execute<any[]>(
-      `SELECT t.*, c.nome as cliente_nome, u.nome as responsavel_nome
-       FROM tarefas t
-       LEFT JOIN clientes c ON t.cliente_id = c.id
-       LEFT JOIN usuarios u ON t.responsavel_id = u.id
-       WHERE ${isAdmin ? '1=1' : 't.responsavel_id = ?'}
-       ORDER BY t.data_hora ASC`,
-      isAdmin ? [] : [authenticatedUser.id]
-    )
-
-    const propostas = await execute<any[]>(
-      `SELECT
-         p.*,
-         c.nome as cliente_nome,
-         u.nome as responsavel_nome,
-         o.nome as orcamentista_nome,
-         COALESCE(pa.anexos_count, 0) as anexos_count,
-         COALESCE(pc.comentarios_count, 0) as comentarios_count
-       FROM propostas p
-       LEFT JOIN clientes c ON p.cliente_id = c.id
-       LEFT JOIN usuarios u ON p.responsavel_id = u.id
-       LEFT JOIN usuarios o ON p.orcamentista_id = o.id
-       LEFT JOIN (
-         SELECT proposta_id, COUNT(*) as anexos_count
-         FROM proposta_anexos
-         GROUP BY proposta_id
-       ) pa ON pa.proposta_id = p.id
-       LEFT JOIN (
-         SELECT proposta_id, COUNT(*) as comentarios_count
-         FROM proposta_comentarios
-         GROUP BY proposta_id
-       ) pc ON pc.proposta_id = p.id
-       WHERE ${
-         authenticatedUser.role === 'vendedor'
-           ? 'p.responsavel_id = ?'
-           : authenticatedUser.role === 'orcamentista'
-             ? `p.status IN ('novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao')
-                AND (p.orcamentista_id = ? OR p.orcamentista_id IS NULL OR p.orcamentista_id = '')`
-             : '1=1'
-       }
-       ORDER BY p.created_at DESC`,
-      authenticatedUser.role === 'vendedor' || authenticatedUser.role === 'orcamentista'
-        ? [authenticatedUser.id]
-        : []
-    )
+    const [clientes, usuarios, tarefas, propostas] = await Promise.all([
+      query<any[]>(
+        `SELECT
+           c.id,
+           c.nome,
+           c.telefone,
+           c.email,
+           c.empresa,
+           c.cargo,
+           c.endereco,
+           c.cidade,
+           c.estado,
+           c.cep,
+           c.origem,
+           c.observacoes,
+           c.status_funil,
+           c.valor_potencial,
+           c.created_at,
+           c.updated_at
+         FROM clientes c
+         ORDER BY c.created_at DESC`
+      ),
+      query<any[]>(
+        `SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, created_at
+         FROM usuarios
+         ORDER BY nome ASC`
+      ),
+      query<any[]>(
+        `SELECT t.*, c.nome as cliente_nome, u.nome as responsavel_nome
+         FROM tarefas t
+         LEFT JOIN clientes c ON t.cliente_id = c.id
+         LEFT JOIN usuarios u ON t.responsavel_id = u.id
+         WHERE ${isAdmin ? '1=1' : 't.responsavel_id = ?'}
+         ORDER BY t.data_hora ASC`,
+        isAdmin ? [] : [authenticatedUser.id]
+      ),
+      query<any[]>(
+        `SELECT
+           p.*,
+           c.nome as cliente_nome,
+           u.nome as responsavel_nome,
+           o.nome as orcamentista_nome,
+           COALESCE(pa.anexos_count, 0) as anexos_count,
+           COALESCE(pc.comentarios_count, 0) as comentarios_count
+         FROM propostas p
+         LEFT JOIN clientes c ON p.cliente_id = c.id
+         LEFT JOIN usuarios u ON p.responsavel_id = u.id
+         LEFT JOIN usuarios o ON p.orcamentista_id = o.id
+         LEFT JOIN (
+           SELECT proposta_id, COUNT(*) as anexos_count
+           FROM proposta_anexos
+           GROUP BY proposta_id
+         ) pa ON pa.proposta_id = p.id
+         LEFT JOIN (
+           SELECT proposta_id, COUNT(*) as comentarios_count
+           FROM proposta_comentarios
+           GROUP BY proposta_id
+         ) pc ON pc.proposta_id = p.id
+         WHERE ${
+           authenticatedUser.role === 'vendedor'
+             ? 'p.responsavel_id = ?'
+             : authenticatedUser.role === 'orcamentista'
+               ? `p.status IN ('novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao')
+                  AND (p.orcamentista_id = ? OR p.orcamentista_id IS NULL OR p.orcamentista_id = '')`
+               : '1=1'
+         }
+         ORDER BY p.created_at DESC`,
+        authenticatedUser.role === 'vendedor' || authenticatedUser.role === 'orcamentista'
+          ? [authenticatedUser.id]
+          : []
+      ),
+    ])
 
     const payload = {
       clientes,
@@ -134,7 +122,7 @@ export async function GET() {
   } catch (error) {
     console.error('Erro ao carregar bootstrap do CRM:', error)
 
-    if (session) {
+    if (isAuthenticated) {
       return NextResponse.json({
         clientes: [],
         usuarios: [],
@@ -145,9 +133,5 @@ export async function GET() {
     }
 
     return NextResponse.json({ error: 'Erro ao carregar bootstrap do CRM' }, { status: 500 })
-  } finally {
-    if (connection) {
-      connection.release()
-    }
   }
 }

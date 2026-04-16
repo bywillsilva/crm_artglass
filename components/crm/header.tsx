@@ -37,7 +37,7 @@ import {
 } from '@/components/ui/command'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
-import { useInteracoes, useSession } from '@/lib/hooks/use-api'
+import { useInteracoes, useReadNotifications, useSession } from '@/lib/hooks/use-api'
 import type { Interacao, Tarefa } from '@/lib/data/types'
 
 interface CRMHeaderProps {
@@ -79,49 +79,28 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
   const { state } = useCRM()
   const { notifications } = useAppSettings()
   const { user } = useSession()
+  const { readNotificationIds, isLoading: isLoadingReadNotifications, mutate: mutateReadNotifications } =
+    useReadNotifications(Boolean(user?.id))
   const { interacoes } = useInteracoes(
-    notifications.propostas && user ? { tipo: 'proposta', limit: 60 } : null
+    notifications.propostas && user ? { tipo: 'proposta', limit: 20 } : null
   )
   const [commandOpen, setCommandOpen] = useState(false)
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
-  const [readNotificationIds, setReadNotificationIds] = useState<string[]>([])
-  const [loadedReadNotifications, setLoadedReadNotifications] = useState(false)
   const shownBrowserNotificationIds = useRef<Set<string>>(new Set())
-
-  useEffect(() => {
-    let isMounted = true
-
-    const loadReadNotifications = async () => {
-      if (!user?.id) return
-
-      try {
-        const response = await fetch('/api/notificacoes/read')
-        const data = await response.json()
-        if (response.ok && isMounted) {
-          setReadNotificationIds(Array.isArray(data) ? data : [])
-          setLoadedReadNotifications(true)
-        }
-      } catch {
-        if (isMounted) {
-          setReadNotificationIds([])
-          setLoadedReadNotifications(true)
-        }
-      }
-    }
-
-    void loadReadNotifications()
-
-    return () => {
-      isMounted = false
-    }
-  }, [user?.id])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
     const saved = window.localStorage.getItem(getReadStorageKey(`${user?.id}:browser`))
-    shownBrowserNotificationIds.current = new Set(saved ? JSON.parse(saved) : [])
+
+    try {
+      shownBrowserNotificationIds.current = new Set(saved ? JSON.parse(saved) : [])
+    } catch {
+      shownBrowserNotificationIds.current = new Set()
+    }
   }, [user?.id])
+
+  const readNotificationIdsSet = useMemo(() => new Set(readNotificationIds), [readNotificationIds])
 
   const allowedPropostaIds = useMemo(() => {
     if (user?.role === 'admin') {
@@ -159,7 +138,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
   }, [notifications.tarefas, state.tarefas, user?.id, user?.role])
 
   const actionNotifications = useMemo<HeaderNotification[]>(() => {
-    if (!loadedReadNotifications) return []
+    if (isLoadingReadNotifications) return []
     if (!notifications.propostas) return []
 
     return interacoes
@@ -187,14 +166,14 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
           persistent: false,
         }
       })
-      .filter((item: HeaderNotification) => !readNotificationIds.includes(item.id))
+      .filter((item: HeaderNotification) => !readNotificationIdsSet.has(item.id))
       .sort((a: HeaderNotification, b: HeaderNotification) => b.createdAt - a.createdAt)
       .slice(0, 20)
   }, [
     allowedPropostaIds,
-    loadedReadNotifications,
+    isLoadingReadNotifications,
     notifications.propostas,
-    readNotificationIds,
+    readNotificationIdsSet,
     interacoes,
     user?.role,
   ])
@@ -291,24 +270,37 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
 
   const markNotificationAsRead = async (item: HeaderNotification) => {
     if (item.persistent) return
-    setReadNotificationIds((prev) => (prev.includes(item.id) ? prev : [...prev, item.id]))
-    void fetch('/api/notificacoes/read', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ notificationIds: [item.id] }),
-    })
+    await mutateReadNotifications(
+      async (current: string[] | undefined) => {
+        const nextIds = Array.isArray(current) ? current : []
+        const mergedIds = nextIds.includes(item.id) ? nextIds : [...nextIds, item.id]
+        void fetch('/api/notificacoes/read', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ notificationIds: [item.id] }),
+        })
+        return mergedIds
+      },
+      { revalidate: false }
+    )
   }
 
   const markAllActionNotificationsAsRead = async () => {
     if (actionNotifications.length === 0) return
-    setReadNotificationIds((prev) => [
-      ...new Set([...prev, ...actionNotifications.map((item) => item.id)]),
-    ])
-    void fetch('/api/notificacoes/read', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ notificationIds: actionNotifications.map((item) => item.id) }),
-    })
+    const ids = actionNotifications.map((item) => item.id)
+    await mutateReadNotifications(
+      async (current: string[] | undefined) => {
+        const nextIds = Array.isArray(current) ? current : []
+        const mergedIds = [...new Set([...nextIds, ...ids])]
+        void fetch('/api/notificacoes/read', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ notificationIds: ids }),
+        })
+        return mergedIds
+      },
+      { revalidate: false }
+    )
   }
 
   const handleLogout = async () => {

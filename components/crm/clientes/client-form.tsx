@@ -33,6 +33,7 @@ import {
 import type { Cliente } from '@/lib/data/types'
 
 const phoneRegex = /^\(\d{2}\) 9 \d{4}-\d{4}$/
+const cpfRegex = /^\d{3}\.\d{3}\.\d{3}-\d{2}$/
 
 function formatPhone(value: string) {
   const digits = value.replace(/\D/g, '').slice(0, 11)
@@ -43,12 +44,22 @@ function formatPhone(value: string) {
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 3)} ${digits.slice(3, 7)}-${digits.slice(7)}`
 }
 
+function formatCpf(value: string) {
+  const digits = value.replace(/\D/g, '').slice(0, 11)
+  if (!digits) return ''
+  if (digits.length <= 3) return digits
+  if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`
+  if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`
+}
+
 function getClientFormDefaults(cliente?: Cliente) {
   if (cliente) {
-    return {
-      nome: cliente.nome,
-      telefone: formatPhone(cliente.telefone || ''),
-      email: cliente.email || '',
+      return {
+        nome: cliente.nome,
+        cpf: formatCpf(cliente.cpf || ''),
+        telefone: formatPhone(cliente.telefone || ''),
+        email: cliente.email || '',
       empresa: cliente.empresa || '',
       cargo: cliente.cargo || '',
       endereco: cliente.endereco || '',
@@ -61,6 +72,7 @@ function getClientFormDefaults(cliente?: Cliente) {
 
   return {
     nome: '',
+    cpf: '',
     telefone: '',
     email: '',
     empresa: '',
@@ -95,6 +107,11 @@ const optionalPhoneSchema = z
   .trim()
   .refine((value) => !value || phoneRegex.test(value), 'Telefone deve estar no formato (xx) 9 xxxx-xxxx')
 
+const optionalCpfSchema = z
+  .string()
+  .trim()
+  .refine((value) => !value || cpfRegex.test(value), 'CPF deve estar no formato 000.000.000-00')
+
 const optionalAddressSchema = z
   .string()
   .trim()
@@ -102,6 +119,7 @@ const optionalAddressSchema = z
 
 const clienteSchema = z.object({
   nome: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
+  cpf: optionalCpfSchema,
   telefone: optionalPhoneSchema,
   email: emailSchema,
   empresa: z.string().optional(),
@@ -158,6 +176,7 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
 
     const normalizedData = {
       ...data,
+      cpf: formatCpf(data.cpf),
       empresa: data.tipo === 'comercial' ? normalizeOptionalText(data.empresa) : '',
       cargo: data.tipo === 'comercial' ? normalizeOptionalText(data.cargo) : '',
       email: data.email.trim(),
@@ -218,6 +237,28 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
                     <FormLabel><RequiredLabel>Nome</RequiredLabel></FormLabel>
                     <FormControl>
                       <Input placeholder="Nome completo" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="cpf"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>CPF</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="000.000.000-00"
+                        value={field.value}
+                        onChange={(e) => field.onChange(e.target.value)}
+                        onBlur={(e) => {
+                          field.onChange(formatCpf(e.target.value))
+                          field.onBlur()
+                        }}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

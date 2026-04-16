@@ -219,6 +219,7 @@ export async function POST(request: NextRequest) {
 
     const payload = {
       nome,
+      cpf: normalizeNullableText(data.cpf),
       email: normalizeNullableText(data.email),
       telefone: normalizeNullableText(data.telefone),
       empresa: normalizeNullableText(data.empresa),
@@ -236,27 +237,28 @@ export async function POST(request: NextRequest) {
     connection = await getConnection()
     await connection.beginTransaction()
 
-    await connection.execute(
-      `INSERT INTO clientes (
-        id, nome, email, telefone, empresa, cargo, endereco, cidade, estado, cep,
+      await connection.execute(
+        `INSERT INTO clientes (
+        id, nome, cpf, email, telefone, empresa, cargo, endereco, cidade, estado, cep,
         origem, status_funil, valor_potencial, observacoes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id,
-        payload.nome,
-        payload.email,
-        payload.telefone,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          payload.nome,
+          payload.cpf,
+          payload.email,
+          payload.telefone,
         payload.empresa,
         payload.cargo,
         payload.endereco,
         payload.cidade,
         payload.estado,
         payload.cep,
-        payload.origem,
-        payload.statusFunil,
-        payload.valorPotencial,
-        payload.observacoes,
-      ]
+          payload.origem,
+          payload.statusFunil,
+          payload.valorPotencial,
+          payload.observacoes,
+        ]
     )
 
     await connection.execute(

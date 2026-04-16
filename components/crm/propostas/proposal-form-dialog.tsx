@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Paperclip, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { useCRM } from '@/lib/context/crm-context'
@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { cn } from '@/lib/utils'
 
 const visibleStatuses: StatusProposta[] = [
   'novo_cliente',
@@ -44,6 +45,7 @@ const statusesWithoutRequiredValue: StatusProposta[] = [
   'novo_cliente',
   'em_orcamento',
   'em_retificacao',
+  'aguardando_aprovacao',
 ]
 
 const statusesRequiringOrcamentista: StatusProposta[] = [
@@ -51,6 +53,21 @@ const statusesRequiringOrcamentista: StatusProposta[] = [
   'em_retificacao',
   'aguardando_aprovacao',
 ]
+
+const workflowStatusOptionsByCurrentStatus: Partial<Record<StatusProposta, StatusProposta[]>> = {
+  novo_cliente: ['novo_cliente', 'em_orcamento'],
+  em_orcamento: ['em_orcamento', 'em_retificacao', 'aguardando_aprovacao'],
+  em_retificacao: ['em_retificacao', 'em_orcamento', 'aguardando_aprovacao'],
+  aguardando_aprovacao: ['aguardando_aprovacao', 'em_retificacao', 'enviar_ao_cliente'],
+  enviar_ao_cliente: ['enviar_ao_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao', 'enviado_ao_cliente'],
+  enviado_ao_cliente: ['enviado_ao_cliente', 'follow_up_1_dia', 'em_retificacao', 'fechado', 'perdido'],
+  follow_up_1_dia: ['follow_up_1_dia', 'follow_up_3_dias', 'em_retificacao', 'fechado', 'perdido', 'stand_by'],
+  follow_up_3_dias: ['follow_up_3_dias', 'follow_up_7_dias', 'em_retificacao', 'fechado', 'perdido', 'stand_by'],
+  follow_up_7_dias: ['follow_up_7_dias', 'em_retificacao', 'fechado', 'perdido', 'stand_by'],
+  stand_by: ['stand_by', 'enviado_ao_cliente', 'em_retificacao', 'fechado', 'perdido'],
+  fechado: ['fechado', 'enviado_ao_cliente', 'em_retificacao'],
+  perdido: ['perdido', 'enviado_ao_cliente', 'em_retificacao'],
+}
 
 function RequiredLabel({ children }: { children: string }) {
   return (
@@ -60,11 +77,41 @@ function RequiredLabel({ children }: { children: string }) {
   )
 }
 
+function isPdfFile(file: File) {
+  return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+}
+
+function isPdfAttachment(anexo: { tipoMime?: string; nome?: string }) {
+  return anexo.tipoMime === 'application/pdf' || String(anexo.nome || '').toLowerCase().endsWith('.pdf')
+}
+
+function parseProposalNumericInput(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+
+  const normalized = trimmed
+    .replace(/\s+/g, '')
+    .replace(/\.(?=\d{3}(?:\D|$))/g, '')
+    .replace(',', '.')
+
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function formatEditableProposalValue(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    return ''
+  }
+
+  return String(value).replace('.', ',')
+}
+
 interface ProposalFormDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   clienteIdInicial?: string
   propostaId?: string | null
+  propostaInicial?: Proposta | null
 }
 
 export function ProposalFormDialog({
@@ -72,12 +119,15 @@ export function ProposalFormDialog({
   onOpenChange,
   clienteIdInicial,
   propostaId,
+  propostaInicial,
 }: ProposalFormDialogProps) {
   const { state, lookups, addProposta, updateProposta } = useCRM()
   const { user } = useSession()
   const { proposta, isLoading } = useProposta(open && propostaId ? propostaId : null)
+  const propostaSource = proposta || propostaInicial || null
   const isEditing = Boolean(propostaId)
   const isAdmin = user?.role === 'admin' || user?.role === 'gerente'
+  const canEditStatusDirectly = user?.role !== 'vendedor'
 
   const [clienteId, setClienteId] = useState(clienteIdInicial || '')
   const [clienteSearch, setClienteSearch] = useState('')
@@ -89,43 +139,53 @@ export function ProposalFormDialog({
   const [files, setFiles] = useState<File[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const hydratedKeyRef = useRef<string | null>(null)
-  const propostaHydrationKey = proposta
+  const valueInputRef = useRef<HTMLInputElement | null>(null)
+  const latestValorRef = useRef('')
+  const isDirtyRef = useRef(false)
+  const propostaHydrationKey = propostaSource
     ? [
-        proposta.id,
-        proposta.clienteId,
-        proposta.responsavelId,
-        proposta.orcamentistaId,
-        proposta.valor,
-        proposta.status,
-        proposta.descricao || '',
+        propostaSource.id,
+        propostaSource.clienteId,
+        propostaSource.responsavelId,
+        propostaSource.orcamentistaId,
+        propostaSource.valor,
+        propostaSource.status,
+        propostaSource.descricao || '',
       ].join(':')
     : null
-
   useEffect(() => {
     if (!open) {
       hydratedKeyRef.current = null
+      isDirtyRef.current = false
       return
     }
 
-    if (proposta && isEditing) {
-      if (hydratedKeyRef.current === propostaHydrationKey) {
+    if (propostaSource && isEditing) {
+      if (hydratedKeyRef.current !== null) {
         return
       }
 
       hydratedKeyRef.current = propostaHydrationKey
-      setClienteId(proposta.clienteId)
+      setClienteId(propostaSource.clienteId)
       setClienteSearch('')
-      setResponsavelId(proposta.responsavelId || '')
-      setOrcamentistaId(proposta.orcamentistaId || '')
-      setValor(String(proposta.valor || ''))
-      setDescricao(proposta.descricao || '')
-      setStatus(proposta.status)
+      setResponsavelId(propostaSource.responsavelId || '')
+      setOrcamentistaId(propostaSource.orcamentistaId || '')
+      const hydratedValor = formatEditableProposalValue(propostaSource.valor)
+      latestValorRef.current = hydratedValor
+      setValor(hydratedValor)
+      setDescricao(propostaSource.descricao || '')
+      setStatus(propostaSource.status)
       setFiles([])
+      isDirtyRef.current = false
+      return
+    }
+
+    if (isEditing) {
       return
     }
 
     const nextCreateKey = `create:${clienteIdInicial || ''}:${user?.id || ''}:${isAdmin ? 'admin' : 'user'}`
-    if (hydratedKeyRef.current === nextCreateKey) {
+    if (hydratedKeyRef.current !== null) {
       return
     }
 
@@ -134,11 +194,17 @@ export function ProposalFormDialog({
     setClienteSearch('')
     setResponsavelId(isAdmin ? '' : user?.id || '')
     setOrcamentistaId('')
+    latestValorRef.current = ''
     setValor('')
     setDescricao('')
     setStatus('novo_cliente')
     setFiles([])
-  }, [clienteIdInicial, isAdmin, isEditing, open, proposta, propostaHydrationKey, user?.id])
+    isDirtyRef.current = false
+  }, [clienteIdInicial, isAdmin, isEditing, open, propostaHydrationKey, propostaSource, user?.id])
+
+  useEffect(() => {
+    latestValorRef.current = valor
+  }, [valor])
 
   const clientesFiltrados = useMemo(
     () =>
@@ -154,9 +220,12 @@ export function ProposalFormDialog({
   const orcamentistas = state.usuarios.filter(
     (usuario) => usuario.ativo && usuario.role === 'orcamentista'
   )
+  const currentWorkflowStatus = (proposta?.status || status) as StatusProposta
 
   const editStatusOptions = useMemo(() => {
-    if (isAdmin) return visibleStatuses
+    if (isAdmin) {
+      return workflowStatusOptionsByCurrentStatus[currentWorkflowStatus] || [currentWorkflowStatus]
+    }
     if (user?.role === 'orcamentista') {
       return ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'] as StatusProposta[]
     }
@@ -171,23 +240,52 @@ export function ProposalFormDialog({
       'fechado',
       'perdido',
     ] as StatusProposta[]
-  }, [isAdmin, user?.role])
+  }, [currentWorkflowStatus, isAdmin, user?.role])
 
   const valorObrigatorio = !statusesWithoutRequiredValue.includes(status)
   const orcamentistaObrigatorio =
     orcamentistas.length > 0 && statusesRequiringOrcamentista.includes(status)
-  const valorNumerico = Number(valor || 0)
-  const hasRequiredValue = !valorObrigatorio || valorNumerico > 0
+  const parsedValor = parseProposalNumericInput(valor)
+  const hasInvalidValue = valor.trim() !== '' && parsedValor === null
+  const hasRequiredValue = !valorObrigatorio || (parsedValor ?? 0) > 0
+  const requiresProposalPdf =
+    status === 'aguardando_aprovacao' &&
+    (!isEditing || proposta?.status !== 'aguardando_aprovacao')
+  const hasExistingProposalPdf = Boolean(proposta?.anexos?.some(isPdfAttachment))
+  const hasNewProposalPdf = files.some(isPdfFile)
+  const hasRequiredProposalPdf = !requiresProposalPdf || hasExistingProposalPdf || hasNewProposalPdf
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    const submittedForm = new FormData(event.currentTarget)
+    const submittedValor = submittedForm.get('valor')
+    const rawValor =
+      (typeof submittedValor === 'string' ? submittedValor : '') ||
+      latestValorRef.current ||
+      valueInputRef.current?.value ||
+      valor
+    const parsedSubmitValue = parseProposalNumericInput(rawValor)
+    const submitHasInvalidValue = rawValor.trim() !== '' && parsedSubmitValue === null
+    const submitHasRequiredValue = !valorObrigatorio || (parsedSubmitValue ?? 0) > 0
+
     if (isSubmitting) return
-    if (!clienteId || (!responsavelId && isAdmin) || (orcamentistaObrigatorio && !orcamentistaId) || !hasRequiredValue) {
+    if (submitHasInvalidValue) {
+      toast.error('Informe um valor valido para a proposta.')
+      return
+    }
+    if (!clienteId || (!responsavelId && isAdmin) || (orcamentistaObrigatorio && !orcamentistaId) || !submitHasRequiredValue) {
+      return
+    }
+
+    if (!hasRequiredProposalPdf) {
+      toast.error('Anexe obrigatoriamente a proposta em PDF antes de enviar para aprovacao.')
       return
     }
 
     const payload = {
       clienteId,
-      valor: valorNumerico,
+      valor: rawValor.trim() ? rawValor : null,
       descricao,
       status,
       responsavelId: isAdmin ? responsavelId : user?.id,
@@ -231,7 +329,7 @@ export function ProposalFormDialog({
         {isEditing && isLoading ? (
           <p className="py-8 text-center text-muted-foreground">Carregando proposta...</p>
         ) : (
-          <div className="space-y-6 py-1">
+          <form className="space-y-6 py-1" onSubmit={(event) => void handleSubmit(event)}>
             <div className="grid gap-6 xl:grid-cols-[1.25fr_0.9fr]">
               <div className="space-y-6">
                 <div className="rounded-xl border border-border bg-card p-6">
@@ -244,7 +342,10 @@ export function ProposalFormDialog({
                   <div className="grid gap-5 md:grid-cols-2">
                     <div className="space-y-2">
                 <Label><RequiredLabel>Cliente</RequiredLabel></Label>
-                <Select value={clienteId} onValueChange={setClienteId}>
+                <Select value={clienteId} onValueChange={(value) => {
+                  isDirtyRef.current = true
+                  setClienteId(value)
+                }}>
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione o cliente" />
                   </SelectTrigger>
@@ -268,15 +369,18 @@ export function ProposalFormDialog({
               {isAdmin && (
                 <div className="space-y-2">
                   <Label><RequiredLabel>Vendedor responsavel</RequiredLabel></Label>
-                  <Select value={responsavelId} onValueChange={setResponsavelId}>
+                  <Select value={responsavelId} onValueChange={(value) => {
+                    isDirtyRef.current = true
+                    setResponsavelId(value)
+                  }}>
                     <SelectTrigger>
                       <SelectValue placeholder="Selecione o vendedor" />
                     </SelectTrigger>
-                    <SelectContent>
-                      {responsaveis.map((usuario) => (
-                        <SelectItem key={usuario.id} value={usuario.id}>
-                          {usuario.nome}
-                        </SelectItem>
+                  <SelectContent>
+                    {responsaveis.map((usuario) => (
+                      <SelectItem key={usuario.id} value={usuario.id}>
+                        {usuario.nome}
+                      </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -285,7 +389,10 @@ export function ProposalFormDialog({
 
                     <div className="space-y-2">
                 <Label>{orcamentistaObrigatorio ? <RequiredLabel>Orcamentista</RequiredLabel> : 'Orcamentista'}</Label>
-                <Select value={orcamentistaId || 'nao_definido'} onValueChange={(value) => setOrcamentistaId(value === 'nao_definido' ? '' : value)}>
+                <Select value={orcamentistaId || 'nao_definido'} onValueChange={(value) => {
+                  isDirtyRef.current = true
+                  setOrcamentistaId(value === 'nao_definido' ? '' : value)
+                }}>
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione o orcamentista" />
                   </SelectTrigger>
@@ -302,13 +409,23 @@ export function ProposalFormDialog({
 
                     <div className="space-y-2">
                 <Label>{valorObrigatorio ? <RequiredLabel>Valor do orçamento</RequiredLabel> : 'Valor do orçamento'}</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.01"
+                <input
+                  ref={valueInputRef}
+                  name="valor"
+                  type="text"
+                  inputMode="decimal"
                   placeholder="0,00"
                   value={valor}
-                  onChange={(event) => setValor(event.target.value)}
+                  onChange={(event) => {
+                    isDirtyRef.current = true
+                    latestValorRef.current = event.target.value
+                    setValor(event.target.value)
+                  }}
+                  className={cn(
+                    'file:text-foreground placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground dark:bg-input/30 border-input h-9 w-full min-w-0 rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
+                    'focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]',
+                    'aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive',
+                  )}
                 />
                 <p className="text-xs text-muted-foreground">
                   {valorObrigatorio
@@ -319,18 +436,32 @@ export function ProposalFormDialog({
 
                     <div className="space-y-2 md:col-span-2">
                 <Label>{isEditing ? <RequiredLabel>Status</RequiredLabel> : 'Status inicial'}</Label>
-                <Select value={status} onValueChange={(value) => setStatus(value as StatusProposta)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(isEditing ? editStatusOptions : (['novo_cliente'] as StatusProposta[])).map((statusOption) => (
-                      <SelectItem key={statusOption} value={statusOption}>
-                        {statusPropostaLabels[statusOption]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {canEditStatusDirectly ? (
+                  <Select value={status} onValueChange={(value) => {
+                    isDirtyRef.current = true
+                    setStatus(value as StatusProposta)
+                  }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(isEditing ? editStatusOptions : (['novo_cliente'] as StatusProposta[])).map((statusOption) => (
+                        <SelectItem key={statusOption} value={statusOption}>
+                          {statusPropostaLabels[statusOption]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+                    {statusPropostaLabels[status]}
+                  </div>
+                )}
+                {!canEditStatusDirectly && isEditing ? (
+                  <p className="text-xs text-muted-foreground">
+                    Para vendedores, a mudanca de status acontece diretamente no funil de vendas.
+                  </p>
+                ) : null}
               </div>
                   </div>
                 </div>
@@ -348,7 +479,10 @@ export function ProposalFormDialog({
                   rows={6}
                   placeholder="Detalhes opcionais da proposta"
                   value={descricao}
-                  onChange={(event) => setDescricao(event.target.value)}
+                  onChange={(event) => {
+                    isDirtyRef.current = true
+                    setDescricao(event.target.value)
+                  }}
                 />
               </div>
                 </div>
@@ -363,18 +497,26 @@ export function ProposalFormDialog({
                     </p>
                   </div>
                   <div className="space-y-3">
-                <Label>Anexos do orcamento</Label>
+                <Label>{requiresProposalPdf ? <RequiredLabel>Proposta em PDF</RequiredLabel> : 'Anexos do orcamento'}</Label>
                 <div className="rounded-lg border border-dashed border-border bg-background/40 p-4">
                   <div className="flex items-center gap-3 text-sm text-muted-foreground">
                     <Upload className="h-4 w-4" />
-                    <span>Adicione um ou mais arquivos de qualquer tipo.</span>
+                    <span>
+                      {requiresProposalPdf
+                        ? 'Ao enviar para aguardando aprovacao, anexe obrigatoriamente a proposta em PDF.'
+                        : 'Adicione um ou mais arquivos de qualquer tipo.'}
+                    </span>
                   </div>
                   <Input
                     className="mt-3"
                     type="file"
                     multiple
+                    accept={requiresProposalPdf ? '.pdf,application/pdf' : undefined}
                     onChange={(event) =>
-                      setFiles(Array.from(event.target.files || []))
+                      {
+                        isDirtyRef.current = true
+                        setFiles(Array.from(event.target.files || []))
+                      }
                     }
                   />
                   {files.length > 0 && (
@@ -429,6 +571,11 @@ export function ProposalFormDialog({
                       <span>Anexos novos</span>
                       <span className="font-medium text-foreground">{files.length}</span>
                     </div>
+                    {requiresProposalPdf ? (
+                      <div className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs text-foreground">
+                        PDF obrigatorio para enviar esta proposta para aguardando aprovacao.
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -439,14 +586,22 @@ export function ProposalFormDialog({
                 Cancelar
               </Button>
               <Button
-                onClick={() => void handleSubmit()}
+                type="submit"
                 pending={isSubmitting}
-                disabled={isSubmitting || !clienteId || (isAdmin && !responsavelId) || (orcamentistaObrigatorio && !orcamentistaId) || !hasRequiredValue}
+                disabled={
+                  isSubmitting ||
+                  !clienteId ||
+                  (isAdmin && !responsavelId) ||
+                  (orcamentistaObrigatorio && !orcamentistaId) ||
+                  hasInvalidValue ||
+                  !hasRequiredValue ||
+                  !hasRequiredProposalPdf
+                }
               >
                 {isEditing ? 'Salvar proposta' : 'Criar proposta'}
               </Button>
             </div>
-          </div>
+          </form>
         )}
       </DialogContent>
     </Dialog>

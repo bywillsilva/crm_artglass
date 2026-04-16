@@ -512,11 +512,12 @@ export async function ensureClientSchema() {
        FROM INFORMATION_SCHEMA.COLUMNS
        WHERE TABLE_SCHEMA = DATABASE()
          AND TABLE_NAME = 'clientes'
-         AND COLUMN_NAME IN ('email', 'origem')`
+         AND COLUMN_NAME IN ('email', 'origem', 'cpf')`
     )
 
     const emailColumn = columns.find((column) => column.COLUMN_NAME === 'email')
     const origemColumn = columns.find((column) => column.COLUMN_NAME === 'origem')
+    const cpfColumn = columns.find((column) => column.COLUMN_NAME === 'cpf')
 
     const emailNeedsUpdate = emailColumn && emailColumn.IS_NULLABLE !== 'YES'
     const origemNeedsUpdate =
@@ -524,16 +525,26 @@ export async function ensureClientSchema() {
       (origemColumn.IS_NULLABLE !== 'YES' ||
         origemColumn.COLUMN_DEFAULT !== null ||
         !String(origemColumn.COLUMN_TYPE || '').includes(`'outro'`))
+    const cpfNeedsCreate = !cpfColumn
 
-    if (!emailNeedsUpdate && !origemNeedsUpdate) {
+    if (!emailNeedsUpdate && !origemNeedsUpdate && !cpfNeedsCreate) {
       return
     }
 
-    await query(`
-      ALTER TABLE clientes
-      MODIFY COLUMN email VARCHAR(255) NULL,
-      MODIFY COLUMN origem ENUM('site', 'indicacao', 'google', 'facebook', 'instagram', 'telefone', 'outro') NULL DEFAULT NULL
-    `)
+    if (cpfNeedsCreate) {
+      await query(`
+        ALTER TABLE clientes
+        ADD COLUMN cpf VARCHAR(20) NULL AFTER nome
+      `)
+    }
+
+    if (emailNeedsUpdate || origemNeedsUpdate) {
+      await query(`
+        ALTER TABLE clientes
+        MODIFY COLUMN email VARCHAR(255) NULL,
+        MODIFY COLUMN origem ENUM('site', 'indicacao', 'google', 'facebook', 'instagram', 'telefone', 'outro') NULL DEFAULT NULL
+      `)
+    }
   })
 }
 
@@ -895,7 +906,7 @@ export function requiresOrcamentistaAssignment(status: ProposalWorkflowStatus) {
 }
 
 export function requiresPositiveProposalValue(status: ProposalWorkflowStatus) {
-  return !['novo_cliente', 'em_orcamento', 'em_retificacao'].includes(status)
+  return !['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(status)
 }
 
 export function canOrcamentistaAccessProposal(proposta: {

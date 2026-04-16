@@ -4,6 +4,7 @@ import { query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
 import { deleteStoredFiles, saveProposalFiles } from '@/lib/server/proposal-files'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
+import { invalidateRuntimeCache } from '@/lib/server/runtime-cache'
 import {
   canOrcamentistaAccessProposal,
   ensureCrmRuntimeSchema,
@@ -20,8 +21,8 @@ import {
 type ProposalPayload = {
   titulo?: string
   descricao?: string
-  valor?: number
-  desconto?: number
+  valor?: number | null
+  desconto?: number | null
   status?: string
   validade?: string | null
   servicos?: unknown[]
@@ -29,18 +30,49 @@ type ProposalPayload = {
   responsavelId?: string | null
   orcamentistaId?: string | null
   comentario?: string | null
+  justificativa?: string | null
+  workflowAction?: string | null
   followUpTime?: string | null
   clienteId?: string
+  clienteNome?: string | null
+  clienteCpf?: string | null
+  clienteTelefone?: string | null
+  clienteEmail?: string | null
+  clienteEndereco?: string | null
+  clienteValorFechado?: number | null
   anexos: File[]
 }
 
+type SellerWorkflowAction =
+  | 'enviado_ao_cliente'
+  | 'em_retificacao'
+  | 'fechado'
+  | 'perdido'
+  | 'stand_by'
+  | 'outra_justificativa'
+
+function isPdfFile(file: File) {
+  return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+}
+
+const SELLER_VISIBLE_STATUSES: ProposalWorkflowStatus[] = [
+  'enviar_ao_cliente',
+  'enviado_ao_cliente',
+  'follow_up_1_dia',
+  'follow_up_3_dias',
+  'follow_up_7_dias',
+  'stand_by',
+  'fechado',
+  'perdido',
+]
+
 const SELLER_ALLOWED_TRANSITIONS: Partial<Record<ProposalWorkflowStatus, ProposalWorkflowStatus[]>> = {
   enviar_ao_cliente: ['enviado_ao_cliente'],
-  enviado_ao_cliente: ['follow_up_1_dia', 'em_retificacao', 'perdido', 'stand_by'],
-  follow_up_1_dia: ['aguardando_follow_up_3_dias', 'fechado', 'perdido', 'stand_by', 'em_retificacao'],
-  follow_up_3_dias: ['aguardando_follow_up_7_dias', 'fechado', 'perdido', 'stand_by', 'em_retificacao'],
-  follow_up_7_dias: ['fechado', 'perdido', 'stand_by', 'em_retificacao'],
-  stand_by: ['follow_up_1_dia', 'aguardando_follow_up_3_dias', 'aguardando_follow_up_7_dias', 'em_retificacao', 'fechado', 'perdido'],
+  enviado_ao_cliente: ['follow_up_1_dia', 'em_retificacao', 'perdido', 'fechado'],
+  follow_up_1_dia: ['aguardando_follow_up_3_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  follow_up_3_dias: ['aguardando_follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  follow_up_7_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  stand_by: ['stand_by', 'enviar_ao_cliente', 'enviado_ao_cliente', 'em_retificacao', 'fechado', 'perdido'],
 }
 
 const ORCAMENTISTA_ALLOWED_TRANSITIONS: Partial<Record<ProposalWorkflowStatus, ProposalWorkflowStatus[]>> = {
@@ -49,9 +81,93 @@ const ORCAMENTISTA_ALLOWED_TRANSITIONS: Partial<Record<ProposalWorkflowStatus, P
   em_retificacao: ['aguardando_aprovacao', 'em_orcamento'],
 }
 
+const WORKFLOW_ALLOWED_TRANSITIONS: Partial<Record<ProposalWorkflowStatus, ProposalWorkflowStatus[]>> = {
+  novo_cliente: ['em_orcamento'],
+  em_orcamento: ['aguardando_aprovacao', 'em_retificacao'],
+  em_retificacao: ['aguardando_aprovacao', 'em_orcamento'],
+  aguardando_aprovacao: ['enviar_ao_cliente', 'em_retificacao'],
+  enviar_ao_cliente: ['enviado_ao_cliente', 'aguardando_aprovacao', 'em_retificacao', 'em_orcamento'],
+  enviado_ao_cliente: ['follow_up_1_dia', 'fechado', 'perdido', 'em_retificacao'],
+  follow_up_1_dia: ['follow_up_3_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  follow_up_3_dias: ['follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  follow_up_7_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  stand_by: ['enviado_ao_cliente', 'em_retificacao', 'fechado', 'perdido'],
+  fechado: ['enviado_ao_cliente', 'em_retificacao'],
+  perdido: ['enviado_ao_cliente', 'em_retificacao'],
+}
+
 async function ensureBaseSchema() {
   await ensureCrmRuntimeSchema()
   await syncDueFollowUpStatuses()
+}
+
+function normalizeNullableText(value: unknown) {
+  if (typeof value !== 'string') {
+    return value == null ? null : String(value)
+  }
+
+  const trimmed = value.trim()
+  return trimmed ? trimmed : null
+}
+
+function parseNullableNumber(value: unknown) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    const parsed = Number(trimmed.replace(',', '.'))
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  return null
+}
+
+function isSellerVisibleStatus(status: ProposalWorkflowStatus) {
+  return SELLER_VISIBLE_STATUSES.includes(status)
+}
+
+function resolveSellerWorkflowStatus(
+  currentStatus: ProposalWorkflowStatus,
+  action: SellerWorkflowAction
+): ProposalWorkflowStatus {
+  if (action === 'enviado_ao_cliente') return 'enviado_ao_cliente'
+  if (action === 'em_retificacao') return 'em_retificacao'
+  if (action === 'fechado') return 'fechado'
+  if (action === 'perdido') return 'perdido'
+  if (action === 'stand_by') return 'stand_by'
+
+  if (currentStatus === 'enviado_ao_cliente') {
+    return 'follow_up_1_dia'
+  }
+
+  if (currentStatus === 'follow_up_1_dia') {
+    return 'aguardando_follow_up_3_dias'
+  }
+
+  if (currentStatus === 'follow_up_3_dias') {
+    return 'aguardando_follow_up_7_dias'
+  }
+
+  return currentStatus
+}
+
+function isSellerWorkflowActionAllowed(
+  currentStatus: ProposalWorkflowStatus,
+  action: SellerWorkflowAction
+) {
+  const allowedActions: Partial<Record<ProposalWorkflowStatus, SellerWorkflowAction[]>> = {
+    enviar_ao_cliente: ['enviado_ao_cliente'],
+    enviado_ao_cliente: ['fechado', 'perdido', 'em_retificacao', 'outra_justificativa'],
+    follow_up_1_dia: ['fechado', 'perdido', 'em_retificacao', 'stand_by', 'outra_justificativa'],
+    follow_up_3_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by', 'outra_justificativa'],
+    follow_up_7_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by'],
+    stand_by: ['fechado', 'perdido', 'em_retificacao', 'enviado_ao_cliente'],
+  }
+
+  return allowedActions[currentStatus]?.includes(action) ?? false
 }
 
 async function parseProposalPayload(request: NextRequest): Promise<ProposalPayload> {
@@ -68,11 +184,11 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
       }
     }
 
-    return {
-      titulo: String(formData.get('titulo') || '') || undefined,
-      descricao: String(formData.get('descricao') || '') || undefined,
-      valor: formData.get('valor') ? Number(formData.get('valor')) : undefined,
-      desconto: formData.get('desconto') ? Number(formData.get('desconto')) : undefined,
+      return {
+        titulo: String(formData.get('titulo') || '') || undefined,
+        descricao: String(formData.get('descricao') || '') || undefined,
+        valor: parseNullableNumber(formData.get('valor')),
+        desconto: parseNullableNumber(formData.get('desconto')),
       status: String(formData.get('status') || '') || undefined,
       validade: String(formData.get('validade') || '') || null,
       servicos: parseJsonValue(formData.get('servicos'), [] as unknown[]),
@@ -80,8 +196,18 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
       responsavelId: String(formData.get('responsavelId') || '') || null,
       orcamentistaId: String(formData.get('orcamentistaId') || '') || null,
       comentario: String(formData.get('comentario') || '') || null,
+      justificativa: String(formData.get('justificativa') || '') || null,
+      workflowAction: String(formData.get('workflowAction') || '') || null,
       followUpTime: String(formData.get('followUpTime') || '') || null,
       clienteId: String(formData.get('clienteId') || '') || undefined,
+      clienteNome: String(formData.get('clienteNome') || '') || null,
+      clienteCpf: String(formData.get('clienteCpf') || '') || null,
+      clienteTelefone: String(formData.get('clienteTelefone') || '') || null,
+      clienteEmail: String(formData.get('clienteEmail') || '') || null,
+      clienteEndereco: String(formData.get('clienteEndereco') || '') || null,
+      clienteValorFechado: formData.get('clienteValorFechado')
+        ? Number(formData.get('clienteValorFechado'))
+        : undefined,
       anexos: formData
         .getAll('anexos')
         .filter((value): value is File => value instanceof File && value.size > 0),
@@ -92,8 +218,8 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
   return {
     titulo: data.titulo,
     descricao: data.descricao,
-    valor: data.valor === undefined ? undefined : Number(data.valor),
-    desconto: data.desconto === undefined ? undefined : Number(data.desconto),
+    valor: parseNullableNumber(data.valor),
+    desconto: parseNullableNumber(data.desconto),
     status: data.status,
     validade: data.validade || null,
     servicos: Array.isArray(data.servicos) ? data.servicos : undefined,
@@ -101,8 +227,16 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
     responsavelId: data.responsavelId || null,
     orcamentistaId: data.orcamentistaId || null,
     comentario: data.comentario || null,
+    justificativa: data.justificativa || null,
+    workflowAction: data.workflowAction || null,
     followUpTime: data.followUpTime || null,
     clienteId: data.clienteId,
+    clienteNome: data.clienteNome || null,
+    clienteCpf: data.clienteCpf || null,
+    clienteTelefone: data.clienteTelefone || null,
+    clienteEmail: data.clienteEmail || null,
+    clienteEndereco: data.clienteEndereco || null,
+    clienteValorFechado: parseNullableNumber(data.clienteValorFechado),
     anexos: [],
   }
 }
@@ -141,7 +275,9 @@ async function getProposal(id: string) {
 
 function canViewProposal(user: any, proposta: any) {
   if (user.role === 'admin' || user.role === 'gerente') return true
-  if (user.role === 'vendedor') return proposta.responsavel_id === user.id
+  if (user.role === 'vendedor') {
+    return proposta.responsavel_id === user.id && isSellerVisibleStatus(normalizeProposalStatus(proposta.status))
+  }
   if (user.role === 'orcamentista') {
     return canOrcamentistaAccessProposal(proposta, user.id)
   }
@@ -150,7 +286,9 @@ function canViewProposal(user: any, proposta: any) {
 
 function canEditProposal(user: any, proposta: any) {
   if (user.role === 'admin' || user.role === 'gerente') return true
-  if (user.role === 'vendedor') return proposta.responsavel_id === user.id
+  if (user.role === 'vendedor') {
+    return proposta.responsavel_id === user.id && isSellerVisibleStatus(normalizeProposalStatus(proposta.status))
+  }
   if (user.role === 'orcamentista') {
     return canOrcamentistaAccessProposal(proposta, user.id)
   }
@@ -158,16 +296,20 @@ function canEditProposal(user: any, proposta: any) {
 }
 
 function isTransitionAllowed(user: any, currentStatus: ProposalWorkflowStatus, nextStatus: ProposalWorkflowStatus) {
-  if (user.role === 'admin' || user.role === 'gerente') {
+  if (currentStatus === nextStatus) {
     return true
   }
 
+  if (user.role === 'admin' || user.role === 'gerente') {
+    return WORKFLOW_ALLOWED_TRANSITIONS[currentStatus]?.includes(nextStatus) ?? false
+  }
+
   if (user.role === 'vendedor') {
-    return SELLER_ALLOWED_TRANSITIONS[currentStatus]?.includes(nextStatus) ?? currentStatus === nextStatus
+    return SELLER_ALLOWED_TRANSITIONS[currentStatus]?.includes(nextStatus) ?? false
   }
 
   if (user.role === 'orcamentista') {
-    return ORCAMENTISTA_ALLOWED_TRANSITIONS[currentStatus]?.includes(nextStatus) ?? currentStatus === nextStatus
+    return ORCAMENTISTA_ALLOWED_TRANSITIONS[currentStatus]?.includes(nextStatus) ?? false
   }
 
   return false
@@ -199,6 +341,26 @@ async function persistProposalComment(propostaId: string, usuarioId: string, com
      VALUES (?, ?, ?, ?)`,
     [uuidv4(), propostaId, usuarioId, cleaned]
   )
+}
+
+function formatWorkflowComment(action: SellerWorkflowAction | null, comentario: string | null) {
+  const cleaned = comentario?.trim()
+  if (!cleaned) {
+    return null
+  }
+
+  switch (action) {
+    case 'em_retificacao':
+      return `Retificacao\n${cleaned}`
+    case 'outra_justificativa':
+      return `Outra justificativa\n${cleaned}`
+    case 'perdido':
+      return `Perdido\n${cleaned}`
+    case 'stand_by':
+      return `Stand-by\n${cleaned}`
+    default:
+      return cleaned
+  }
 }
 
 export async function GET(
@@ -281,7 +443,28 @@ export async function PUT(
     }
 
     const previousStatus = normalizeProposalStatus(propostaAtual.status)
-    const nextStatus = normalizeProposalStatus(data.status ?? propostaAtual.status)
+    const workflowAction =
+      user.role === 'vendedor' && data.workflowAction
+        ? (data.workflowAction as SellerWorkflowAction)
+        : null
+    const nextStatus =
+      user.role === 'vendedor' && workflowAction
+        ? resolveSellerWorkflowStatus(previousStatus, workflowAction)
+        : normalizeProposalStatus(data.status ?? propostaAtual.status)
+    const isStatusChange = nextStatus !== previousStatus
+    const justificationText = normalizeNullableText(data.justificativa)
+    const rawCommentText = normalizeNullableText(data.comentario) ?? justificationText
+    const commentText = formatWorkflowComment(workflowAction, rawCommentText)
+    const requiresFollowUpComment =
+      isStatusChange &&
+      ((previousStatus === 'enviado_ao_cliente' && nextStatus === 'follow_up_1_dia') ||
+        (previousStatus === 'follow_up_1_dia' && nextStatus === 'follow_up_3_dias') ||
+        (previousStatus === 'follow_up_3_dias' && nextStatus === 'follow_up_7_dias'))
+    const requiresReasonComment =
+      isStatusChange &&
+      (nextStatus === 'perdido' ||
+        nextStatus === 'stand_by' ||
+        (user.role === 'vendedor' && nextStatus === 'em_retificacao'))
 
     if (!isTransitionAllowed(user, previousStatus, nextStatus)) {
       return NextResponse.json(
@@ -290,22 +473,64 @@ export async function PUT(
       )
     }
 
-    if (
-      user.role === 'vendedor' &&
-      ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias'].includes(previousStatus) &&
-      nextStatus !== previousStatus &&
-      !data.comentario?.trim()
-    ) {
-      return NextResponse.json(
-        { error: 'Informe um comentario de status antes de avancar o follow-up.' },
-        { status: 400 }
-      )
+    if (user.role === 'vendedor') {
+      if (!workflowAction) {
+        return NextResponse.json(
+          { error: 'Vendedores podem apenas atualizar status da proposta pelo funil.' },
+          { status: 400 }
+        )
+      } else {
+        if (!isSellerWorkflowActionAllowed(previousStatus, workflowAction)) {
+          return NextResponse.json(
+            { error: 'Esta acao nao esta disponivel para a etapa atual da proposta.' },
+            { status: 400 }
+          )
+        }
+
+        const requiresJustification =
+          workflowAction === 'outra_justificativa' ||
+          workflowAction === 'perdido' ||
+          workflowAction === 'stand_by' ||
+          workflowAction === 'em_retificacao'
+
+        if (requiresJustification && !justificationText) {
+          return NextResponse.json(
+            { error: 'Informe uma justificativa para concluir esta atualizacao.' },
+            { status: 400 }
+          )
+        }
+
+        if (
+          workflowAction === 'outra_justificativa' &&
+          ['enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias'].includes(previousStatus) &&
+          !data.followUpTime
+        ) {
+          return NextResponse.json(
+            { error: 'Defina o horario do proximo follow-up antes de continuar.' },
+            { status: 400 }
+          )
+        }
+      }
     }
 
     if (previousStatus === 'aguardando_aprovacao' && nextStatus === 'enviar_ao_cliente' && !['admin', 'gerente'].includes(user.role)) {
       return NextResponse.json(
         { error: 'Apenas administradores podem aprovar o orcamento pronto.' },
         { status: 403 }
+      )
+    }
+
+    if ((requiresFollowUpComment || requiresReasonComment) && !rawCommentText) {
+      return NextResponse.json(
+        { error: 'Informe um comentario ou justificativa para seguir com esta etapa da proposta.' },
+        { status: 400 }
+      )
+    }
+
+    if (requiresFollowUpComment && !data.followUpTime) {
+      return NextResponse.json(
+        { error: 'Defina o horario do proximo follow-up antes de continuar.' },
+        { status: 400 }
       )
     }
 
@@ -322,10 +547,27 @@ export async function PUT(
         ? user.id
         : requestedOrcamentistaId
     const orcamentistaId = await validateUserRole(resolvedOrcamentistaId, ['orcamentista'])
+    const isOrcamentistaFieldChanging = data.orcamentistaId !== undefined
 
-    if (requiresOrcamentistaAssignment(nextStatus) && !orcamentistaId) {
+    if (
+      requiresOrcamentistaAssignment(nextStatus) &&
+      !orcamentistaId &&
+      (isStatusChange || isOrcamentistaFieldChanging)
+    ) {
       return NextResponse.json(
         { error: 'Selecione um orcamentista para seguir com esta etapa da proposta.' },
+        { status: 400 }
+      )
+    }
+
+    if (
+      user.role === 'orcamentista' &&
+      previousStatus !== 'aguardando_aprovacao' &&
+      nextStatus === 'aguardando_aprovacao' &&
+      !data.anexos.some(isPdfFile)
+    ) {
+      return NextResponse.json(
+        { error: 'Anexe obrigatoriamente a proposta em PDF antes de enviar para aprovacao.' },
         { status: 400 }
       )
     }
@@ -337,8 +579,11 @@ export async function PUT(
           ? 'aguardando_follow_up_7_dias'
           : nextStatus
 
-    const valor = Number(data.valor ?? propostaAtual.valor ?? 0)
-    const desconto = Number(data.desconto ?? propostaAtual.desconto ?? 0)
+    const requestedClosedValue = parseNullableNumber(data.clienteValorFechado)
+    const requestedProposalValue = parseNullableNumber(data.valor)
+    const requestedDiscount = parseNullableNumber(data.desconto)
+    const valor = requestedClosedValue ?? requestedProposalValue ?? parseNullableNumber(propostaAtual.valor) ?? 0
+    const desconto = requestedDiscount ?? parseNullableNumber(propostaAtual.desconto) ?? 0
     const valorFinal = valor - (valor * desconto) / 100
     const resolvedClienteId = data.clienteId || propostaAtual.cliente_id
 
@@ -346,6 +591,60 @@ export async function PUT(
       return NextResponse.json(
         { error: 'Informe o valor do orcamento antes de avancar esta proposta.' },
         { status: 400 }
+      )
+    }
+
+    const [clienteAtual] = await query<any[]>(
+      `SELECT id, nome, cpf, email, telefone, endereco, status_funil, valor_potencial
+       FROM clientes
+       WHERE id = ? LIMIT 1`,
+      [resolvedClienteId]
+    )
+
+    if (!clienteAtual) {
+      return NextResponse.json({ error: 'Cliente vinculado a proposta nao foi encontrado.' }, { status: 404 })
+    }
+
+    if (storedStatus === 'fechado') {
+      const mergedClienteFechado = {
+        nome: normalizeNullableText(data.clienteNome) ?? clienteAtual.nome,
+        cpf: normalizeNullableText(data.clienteCpf) ?? clienteAtual.cpf,
+        email: normalizeNullableText(data.clienteEmail) ?? clienteAtual.email,
+        telefone: normalizeNullableText(data.clienteTelefone) ?? clienteAtual.telefone,
+        endereco: normalizeNullableText(data.clienteEndereco) ?? clienteAtual.endereco,
+      }
+
+      if (
+        !mergedClienteFechado.nome ||
+        !mergedClienteFechado.cpf ||
+        !mergedClienteFechado.email ||
+        !mergedClienteFechado.telefone ||
+        !mergedClienteFechado.endereco ||
+        valor <= 0
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              'Para fechar a proposta, complete nome, CPF, e-mail, telefone, endereco e valor fechado do cliente.',
+          },
+          { status: 400 }
+        )
+      }
+
+      await query(
+        `UPDATE clientes
+         SET nome = ?, cpf = ?, email = ?, telefone = ?, endereco = ?, status_funil = ?, valor_potencial = ?
+         WHERE id = ?`,
+        [
+          mergedClienteFechado.nome,
+          mergedClienteFechado.cpf,
+          mergedClienteFechado.email,
+          mergedClienteFechado.telefone,
+          mergedClienteFechado.endereco,
+          'fechado',
+          valor,
+          resolvedClienteId,
+        ]
       )
     }
 
@@ -396,8 +695,8 @@ export async function PUT(
     )
 
     const savedFilesPromise = saveProposalFiles(id, data.anexos)
-    const commentPromise = data.comentario?.trim()
-      ? persistProposalComment(id, user.id, data.comentario)
+    const commentPromise = commentText
+      ? persistProposalComment(id, user.id, commentText)
       : Promise.resolve()
     const clientePromise =
       previousStatus !== storedStatus && resolvedClienteId !== propostaAtual.cliente_id
@@ -475,6 +774,7 @@ export async function PUT(
       )
     }
 
+    invalidateRuntimeCache('crm-bootstrap:')
     await publishRealtimeEvent({
       actorUserId: user.id,
       resource: 'proposta',
@@ -527,6 +827,7 @@ export async function DELETE(
 
     await deleteStoredFiles(anexos.map((item) => item.caminho))
 
+    invalidateRuntimeCache('crm-bootstrap:')
     await publishRealtimeEvent({
       actorUserId: user.id,
       resource: 'proposta',

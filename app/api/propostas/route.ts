@@ -4,6 +4,7 @@ import { query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
 import { saveProposalFiles } from '@/lib/server/proposal-files'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
+import { invalidateRuntimeCache } from '@/lib/server/runtime-cache'
 import {
   ensureCrmRuntimeSchema,
   getNextProposalNumber,
@@ -20,8 +21,8 @@ type ProposalPayload = {
   clienteId: string
   titulo?: string
   descricao?: string
-  valor: number
-  desconto?: number
+  valor?: number | null
+  desconto?: number | null
   status?: string
   validade?: string | null
   servicos?: unknown[]
@@ -31,6 +32,31 @@ type ProposalPayload = {
   comentario?: string | null
   followUpTime?: string | null
   anexos: File[]
+}
+
+function isPdfFile(file: File) {
+  return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+}
+
+function parseNumberLike(value: unknown) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+
+    const normalized = trimmed
+      .replace(/\s+/g, '')
+      .replace(/\.(?=\d{3}(?:\D|$))/g, '')
+      .replace(',', '.')
+
+    const parsed = Number(normalized)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  return null
 }
 
 async function insertProposalWithUniqueNumber(params: {
@@ -112,12 +138,12 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
       }
     }
 
-    return {
-      clienteId: String(formData.get('clienteId') || ''),
-      titulo: String(formData.get('titulo') || 'Proposta Comercial'),
-      descricao: String(formData.get('descricao') || ''),
-      valor: Number(formData.get('valor') || 0),
-      desconto: Number(formData.get('desconto') || 0),
+      return {
+        clienteId: String(formData.get('clienteId') || ''),
+        titulo: String(formData.get('titulo') || 'Proposta Comercial'),
+        descricao: String(formData.get('descricao') || ''),
+        valor: parseNumberLike(formData.get('valor')),
+        desconto: parseNumberLike(formData.get('desconto')),
       status: String(formData.get('status') || ''),
       validade: String(formData.get('validade') || '') || null,
       servicos: parseJsonValue(formData.get('servicos'), [] as unknown[]),
@@ -137,8 +163,8 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
     clienteId: data.clienteId,
     titulo: data.titulo,
     descricao: data.descricao,
-    valor: Number(data.valor || 0),
-    desconto: Number(data.desconto || 0),
+    valor: parseNumberLike(data.valor),
+    desconto: parseNumberLike(data.desconto),
     status: data.status,
     validade: data.validade || null,
     servicos: Array.isArray(data.servicos) ? data.servicos : [],
@@ -224,6 +250,27 @@ async function persistProposalComment(propostaId: string, usuarioId: string, com
   )
 }
 
+async function findReusableSeedProposal(clienteId: string) {
+  const [proposal] = await query<any[]>(
+    `SELECT p.id, p.numero
+     FROM propostas p
+     LEFT JOIN proposta_anexos pa ON pa.proposta_id = p.id
+     LEFT JOIN proposta_comentarios pc ON pc.proposta_id = p.id
+     WHERE p.cliente_id = ?
+       AND p.status = 'novo_cliente'
+       AND COALESCE(p.valor, 0) <= 0
+       AND (p.descricao IS NULL OR TRIM(p.descricao) = '')
+       AND p.titulo LIKE 'Novo cliente - %'
+     GROUP BY p.id, p.numero, p.created_at
+     HAVING COUNT(DISTINCT pa.id) = 0 AND COUNT(DISTINCT pc.id) = 0
+     ORDER BY p.created_at DESC
+     LIMIT 1`,
+    [clienteId]
+  )
+
+  return proposal || null
+}
+
 export async function GET(request: NextRequest) {
   try {
     await ensureBaseSchema()
@@ -274,7 +321,8 @@ export async function GET(request: NextRequest) {
     }
 
     if (user.role === 'vendedor') {
-      sql += ' AND p.responsavel_id = ?'
+      sql += ` AND p.responsavel_id = ?
+               AND p.status IN ('enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'perdido')`
       params.push(user.id)
     } else if (user.role === 'orcamentista') {
       sql += ` AND p.status IN ('novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao')
@@ -324,9 +372,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const valor = Number(data.valor || 0)
-    const desconto = Number(data.desconto || 0)
+    const valor = parseNumberLike(data.valor) ?? 0
+    const desconto = parseNumberLike(data.desconto) ?? 0
     const valorFinal = valor - (valor * desconto) / 100
+
+    if (status === 'aguardando_aprovacao' && !data.anexos.some(isPdfFile)) {
+      return NextResponse.json(
+        { error: 'Anexe obrigatoriamente a proposta em PDF antes de enviar para aprovacao.' },
+        { status: 400 }
+      )
+    }
 
     if (requiresPositiveProposalValue(status) && valor <= 0) {
       return NextResponse.json(
@@ -335,35 +390,75 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const numero = await insertProposalWithUniqueNumber({
-      id,
-      clienteId: data.clienteId,
-      responsavelId,
-      orcamentistaId,
-      titulo: data.titulo || 'Proposta Comercial',
-      descricao: data.descricao || null,
-      valor,
-      desconto,
-      valorFinal,
-      status,
-      validade: data.validade || null,
-      servicos: data.servicos || [],
-      condicoes: data.condicoes || null,
-      now,
-      followUpTime: data.followUpTime || null,
-    })
+    const reusableSeedProposal = await findReusableSeedProposal(data.clienteId)
+    const propostaId = reusableSeedProposal?.id || id
+    const numero =
+      reusableSeedProposal?.numero ||
+      (await insertProposalWithUniqueNumber({
+        id: propostaId,
+        clienteId: data.clienteId,
+        responsavelId,
+        orcamentistaId,
+        titulo: data.titulo || 'Proposta Comercial',
+        descricao: data.descricao || null,
+        valor,
+        desconto,
+        valorFinal,
+        status,
+        validade: data.validade || null,
+        servicos: data.servicos || [],
+        condicoes: data.condicoes || null,
+        now,
+        followUpTime: data.followUpTime || null,
+      }))
 
-    if (data.comentario?.trim()) {
-      await persistProposalComment(id, user.id, data.comentario)
+    if (reusableSeedProposal) {
+      await query(
+        `UPDATE propostas SET
+          cliente_id = ?, responsavel_id = ?, orcamentista_id = ?, titulo = ?, descricao = ?,
+          valor = ?, desconto = ?, valor_final = ?, status = ?, validade = ?, servicos = ?,
+          condicoes = ?, follow_up_base_at = ?, follow_up_time = ?
+         WHERE id = ?`,
+        [
+          data.clienteId,
+          responsavelId,
+          orcamentistaId,
+          data.titulo || 'Proposta Comercial',
+          data.descricao || null,
+          valor,
+          desconto,
+          valorFinal,
+          status,
+          data.validade || null,
+          JSON.stringify(data.servicos || []),
+          data.condicoes || null,
+          status === 'enviado_ao_cliente' ? formatDateTime(now) : null,
+          data.followUpTime || null,
+          propostaId,
+        ]
+      )
     }
 
-    const savedFiles = await saveProposalFiles(id, data.anexos)
+    if (data.comentario?.trim()) {
+      await persistProposalComment(propostaId, user.id, data.comentario)
+    }
+
+    const savedFiles = await saveProposalFiles(propostaId, data.anexos)
     for (const file of savedFiles) {
       await query(
         `INSERT INTO proposta_anexos (
           id, proposta_id, nome_original, nome_arquivo, caminho, tipo_mime, tamanho, usuario_id
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [file.id, id, file.nomeOriginal, file.nomeArquivo, file.caminho, file.tipoMime, file.tamanho, user.id]
+        [
+          file.id,
+          propostaId,
+          file.nomeOriginal,
+          file.nomeArquivo,
+          file.caminho,
+          file.tipoMime,
+          file.tamanho,
+          user.id,
+        ]
       )
     }
 
@@ -375,7 +470,7 @@ export async function POST(request: NextRequest) {
         data.clienteId,
         user.id,
         `Proposta ${numero} criada em ${status}`,
-        JSON.stringify({ proposta_id: id, status, silent_notification: true }),
+        JSON.stringify({ proposta_id: propostaId, status, silent_notification: true }),
         formatDateTime(now),
       ]
     )
@@ -385,20 +480,21 @@ export async function POST(request: NextRequest) {
       clienteNome: cliente.nome,
       responsavelId,
       orcamentistaId,
-      propostaId: id,
+      propostaId,
       status,
       createdAt: now,
       followUpBaseAt: status === 'enviado_ao_cliente' ? now : null,
       followUpTime: data.followUpTime || null,
     })
 
+    invalidateRuntimeCache('crm-bootstrap:')
     await publishRealtimeEvent({
       actorUserId: user.id,
       resource: 'proposta',
-      resourceId: id,
+      resourceId: propostaId,
     })
 
-    const [proposta] = await query<any[]>('SELECT * FROM propostas WHERE id = ?', [id])
+    const [proposta] = await query<any[]>('SELECT * FROM propostas WHERE id = ?', [propostaId])
     return NextResponse.json(proposta, { status: 201 })
   } catch (error) {
     console.error('Erro ao criar proposta:', error)

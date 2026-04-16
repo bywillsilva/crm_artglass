@@ -120,7 +120,14 @@ const toDateValue = parseDateTimeValue
 const AppSettingsContext = createContext<AppSettingsContextType | null>(null)
 
 export function AppSettingsProvider({ children }: { children: ReactNode }) {
-  const { data, isLoading } = useSWR('/api/configuracoes', fetcher)
+  const { data, isLoading } = useSWR('/api/configuracoes', fetcher, {
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+    revalidateIfStale: false,
+    dedupingInterval: 60000,
+    errorRetryCount: 0,
+    shouldRetryOnError: false,
+  })
   const { setTheme } = useTheme()
   const { user } = useSession()
 

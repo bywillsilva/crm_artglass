@@ -37,6 +37,9 @@ const READ_ONLY_SWR_OPTIONS = {
   shouldRetryOnError: false,
   errorRetryCount: 0,
   revalidateOnReconnect: false,
+  revalidateOnFocus: false,
+  revalidateIfStale: false,
+  dedupingInterval: 15000,
 } as const
 
 const REALTIME_REVALIDATE_PREFIXES = [
@@ -53,6 +56,39 @@ const REALTIME_REVALIDATE_PREFIXES = [
 function toNumber(value: unknown) {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+function parseNumberLike(value: unknown) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+
+    const normalized = trimmed
+      .replace(/\s+/g, '')
+      .replace(/\.(?=\d{3}(?:\D|$))/g, '')
+      .replace(',', '.')
+
+    const parsed = Number(normalized)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  return null
+}
+
+function hasFilledValue(value: unknown) {
+  if (value === undefined || value === null) {
+    return false
+  }
+
+  if (typeof value === 'string') {
+    return value.trim().length > 0
+  }
+
+  return true
 }
 
 function parseJsonObject(value: unknown) {
@@ -162,6 +198,7 @@ function normalizeCliente(row: JsonRecord): Cliente {
   return {
     id: row.id,
     nome: row.nome ?? '',
+    cpf: row.cpf ?? '',
     telefone: row.telefone ?? '',
     email: row.email ?? '',
     empresa: row.empresa ?? '',
@@ -218,7 +255,7 @@ function normalizeProposta(row: JsonRecord): Proposta {
     clienteNome: row.clienteNome ?? row.cliente_nome ?? '',
     numero: row.numero ?? '',
     titulo: row.titulo ?? 'Proposta Comercial',
-    valor: toNumber(row.valor_final ?? row.valor),
+    valor: toNumber(row.valor ?? row.valor_final),
     descricao: row.descricao ?? '',
     status: mapPropostaStatusFromApi(row.status),
     responsavelId: row.responsavelId ?? row.responsavel_id ?? '',
@@ -366,7 +403,14 @@ function mutateBootstrapCollection(
 }
 
 function prependBootstrapEntity(collection: BootstrapCollectionKey, entity: JsonRecord) {
-  return mutateBootstrapCollection(collection, (items) => [entity, ...items])
+  return mutateBootstrapCollection(collection, (items) => {
+    const entityId = entity?.id
+    if (!entityId) {
+      return [entity, ...items]
+    }
+
+    return [entity, ...items.filter((item) => item?.id !== entityId)]
+  })
 }
 
 function patchBootstrapEntity(collection: BootstrapCollectionKey, id: string, patch: JsonRecord) {
@@ -440,7 +484,7 @@ export function useDashboard(filter?: DateFilterValue) {
 export function useCrmBootstrap() {
   const { data, error, isLoading, mutate: localMutate } = useSWR('/api/crm/bootstrap', fetcher, {
     ...READ_ONLY_SWR_OPTIONS,
-    revalidateIfStale: false,
+    dedupingInterval: 30000,
   })
 
   const clientes = useMemo(() => (data?.clientes || []).map(normalizeCliente), [data?.clientes])
@@ -614,7 +658,10 @@ export function useSession() {
   const { data, error, isLoading, mutate: localMutate } = useSWR(
     '/api/auth/session',
     fetcher,
-    READ_ONLY_SWR_OPTIONS
+    {
+      ...READ_ONLY_SWR_OPTIONS,
+      dedupingInterval: 60000,
+    }
   )
   const user = useMemo(() => {
     if (!data?.user) return null
@@ -631,6 +678,25 @@ export function useSession() {
 
   return {
     user,
+    error,
+    isLoading,
+    mutate: localMutate,
+  }
+}
+
+export function useReadNotifications(enabled = true) {
+  const key = enabled ? '/api/notificacoes/read' : null
+  const { data, error, isLoading, mutate: localMutate } = useSWR(
+    key,
+    fetcher,
+    {
+      ...READ_ONLY_SWR_OPTIONS,
+      dedupingInterval: 60000,
+    }
+  )
+
+  return {
+    readNotificationIds: Array.isArray(data) ? (data as string[]) : [],
     error,
     isLoading,
     mutate: localMutate,
@@ -680,9 +746,9 @@ export function useRealtimeSync(enabled = true) {
     fetcher,
     {
       ...READ_ONLY_SWR_OPTIONS,
-      refreshInterval: 15000,
+      refreshInterval: 30000,
       revalidateOnFocus: false,
-      dedupingInterval: 10000,
+      dedupingInterval: 30000,
     }
   )
 
@@ -711,6 +777,7 @@ export function useRealtimeSync(enabled = true) {
 export async function createCliente(data: Partial<Cliente> & JsonRecord) {
   const payload = {
     nome: data.nome,
+    cpf: data.cpf || null,
     email: data.email || null,
     telefone: data.telefone || null,
     endereco: data.endereco || null,
@@ -734,7 +801,6 @@ export async function createCliente(data: Partial<Cliente> & JsonRecord) {
   await prependBootstrapEntity('clientes', created as JsonRecord)
   mutateByPrefix('/api/clientes')
   mutateByPrefix('/api/propostas')
-  mutate('/api/crm/bootstrap')
   mutate('/api/dashboard')
   mutateByPrefix('/api/interacoes')
   return created
@@ -743,6 +809,7 @@ export async function createCliente(data: Partial<Cliente> & JsonRecord) {
 export async function updateCliente(id: string, data: Partial<Cliente> & JsonRecord) {
   const payload = {
     nome: data.nome,
+    cpf: data.cpf || null,
     email: data.email || null,
     telefone: data.telefone || null,
     endereco: data.endereco || null,
@@ -759,6 +826,7 @@ export async function updateCliente(id: string, data: Partial<Cliente> & JsonRec
 
   const optimisticPatch = compactObject({
     nome: payload.nome,
+    cpf: payload.cpf,
     email: payload.email,
     telefone: payload.telefone,
     endereco: payload.endereco,
@@ -784,8 +852,9 @@ export async function updateCliente(id: string, data: Partial<Cliente> & JsonRec
       body: JSON.stringify(payload),
     })
 
+    await mutateEntityByPrefix('/api/clientes', id, updated as JsonRecord)
+    await patchBootstrapEntity('clientes', id, updated as JsonRecord)
     mutateByPrefix('/api/clientes')
-    mutate('/api/crm/bootstrap')
     mutate('/api/dashboard')
     mutateByPrefix('/api/interacoes')
     return updated
@@ -801,7 +870,6 @@ export async function deleteCliente(id: string) {
   mutateByPrefix('/api/clientes')
   mutateByPrefix('/api/tarefas')
   mutateByPrefix('/api/propostas')
-  mutate('/api/crm/bootstrap')
   mutateByPrefix('/api/interacoes')
   mutate('/api/dashboard')
   return deleted
@@ -826,7 +894,6 @@ export async function createTarefa(data: Partial<Tarefa> & JsonRecord) {
 
   await prependBootstrapEntity('tarefas', created as JsonRecord)
   mutateByPrefix('/api/tarefas')
-  mutate('/api/crm/bootstrap')
   mutate('/api/dashboard')
   mutateByPrefix('/api/interacoes')
   return created
@@ -865,8 +932,9 @@ export async function updateTarefa(id: string, data: Partial<Tarefa> & JsonRecor
       body: JSON.stringify(payload),
     })
 
+    await mutateEntityByPrefix('/api/tarefas', id, updated as JsonRecord)
+    await patchBootstrapEntity('tarefas', id, updated as JsonRecord)
     mutateByPrefix('/api/tarefas')
-    mutate('/api/crm/bootstrap')
     mutate('/api/dashboard')
     mutateByPrefix('/api/interacoes')
     return updated
@@ -889,8 +957,9 @@ export async function updateTarefaStatus(id: string, status: StatusTarefa) {
       body: JSON.stringify({ status }),
     })
 
+    await mutateEntityByPrefix('/api/tarefas', id, updated as JsonRecord)
+    await patchBootstrapEntity('tarefas', id, updated as JsonRecord)
     mutateByPrefix('/api/tarefas')
-    mutate('/api/crm/bootstrap')
     mutate('/api/dashboard')
     mutateByPrefix('/api/interacoes')
     return updated
@@ -906,18 +975,19 @@ export async function deleteTarefa(id: string) {
   await removeBootstrapEntity('tarefas', id)
   const deleted = await requestJson(`/api/tarefas/${id}`, { method: 'DELETE' })
   mutateByPrefix('/api/tarefas')
-  mutate('/api/crm/bootstrap')
   mutate('/api/dashboard')
   return deleted
 }
 
 export async function createProposta(data: Partial<Proposta> & JsonRecord) {
+  const parsedValor = parseNumberLike(data.valor)
+  const parsedDesconto = parseNumberLike(data.desconto)
   const payload = {
     clienteId: data.clienteId,
     titulo: data.titulo || 'Proposta Comercial',
     descricao: data.descricao || '',
-    valor: data.valor ?? 0,
-    desconto: data.desconto || 0,
+    valor: parsedValor ?? 0,
+    desconto: parsedDesconto ?? 0,
     status: mapPropostaStatusToApi(data.status),
     validade:
       data.validade ||
@@ -943,18 +1013,22 @@ export async function createProposta(data: Partial<Proposta> & JsonRecord) {
   await prependBootstrapEntity('propostas', created as JsonRecord)
   mutateByPrefix('/api/propostas')
   mutateByPrefix('/api/clientes')
-  mutate('/api/crm/bootstrap')
   mutate('/api/dashboard')
   mutateByPrefix('/api/interacoes')
   return created
 }
 
 export async function updateProposta(id: string, data: Partial<Proposta> & JsonRecord) {
+  const parsedValor = parseNumberLike(data.valor)
+  const parsedDesconto = parseNumberLike(data.desconto)
+  const parsedClienteValorFechado = parseNumberLike(data.clienteValorFechado)
+  const hasExplicitValor = hasFilledValue(data.valor)
+  const hasExplicitDesconto = hasFilledValue(data.desconto)
   const payload = {
     titulo: data.titulo || 'Proposta Comercial',
     descricao: data.descricao || '',
-    valor: data.valor ?? 0,
-    desconto: data.desconto || 0,
+    valor: hasExplicitValor ? (parsedValor ?? 0) : null,
+    desconto: hasExplicitDesconto ? (parsedDesconto ?? 0) : null,
     status: mapPropostaStatusToApi(data.status),
     validade: data.validade || null,
     servicos: data.servicos || [],
@@ -962,8 +1036,16 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     responsavelId: data.responsavelId || null,
     orcamentistaId: data.orcamentistaId || null,
     comentario: data.comentario || null,
+    justificativa: data.justificativa || null,
+    workflowAction: data.workflowAction || null,
     clienteId: data.clienteId || null,
     followUpTime: data.followUpTime || null,
+    clienteNome: data.clienteNome || null,
+    clienteCpf: data.clienteCpf || null,
+    clienteTelefone: data.clienteTelefone || null,
+    clienteEmail: data.clienteEmail || null,
+    clienteEndereco: data.clienteEndereco || null,
+    clienteValorFechado: parsedClienteValorFechado ?? null,
   }
   const anexos = Array.isArray(data.anexos)
     ? (data.anexos as unknown[]).filter((item): item is File => item instanceof File)
@@ -988,6 +1070,9 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     follow_up_time: payload.followUpTime,
   })
 
+  await mutate(`/api/propostas/${id}`, (current) => updateCachedEntity(current, id, optimisticPatch), {
+    revalidate: false,
+  })
   await mutateEntityByPrefix('/api/propostas', id, optimisticPatch)
   await patchBootstrapEntity('propostas', id, optimisticPatch)
 
@@ -998,13 +1083,15 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
       body,
     })
 
-    mutateByPrefix('/api/propostas')
+    await mutate(`/api/propostas/${id}`, updated as JsonRecord, { revalidate: false })
+    await mutateEntityByPrefix('/api/propostas', id, updated as JsonRecord)
+    await patchBootstrapEntity('propostas', id, updated as JsonRecord)
     mutateByPrefix('/api/clientes')
-    mutate('/api/crm/bootstrap')
     mutate('/api/dashboard')
     mutateByPrefix('/api/interacoes')
     return updated
   } catch (error) {
+    mutate(`/api/propostas/${id}`)
     mutateByPrefix('/api/propostas')
     mutateByPrefix('/api/clientes')
     mutate('/api/crm/bootstrap')
@@ -1022,7 +1109,6 @@ export async function deleteProposta(id: string) {
   const deleted = await requestJson(`/api/propostas/${id}`, { method: 'DELETE' })
   mutateByPrefix('/api/propostas')
   mutateByPrefix('/api/clientes')
-  mutate('/api/crm/bootstrap')
   mutate('/api/dashboard')
   return deleted
 }
@@ -1036,7 +1122,6 @@ export async function createUsuario(data: Partial<Usuario> & JsonRecord) {
 
   await prependBootstrapEntity('usuarios', created as JsonRecord)
   mutateByPrefix('/api/usuarios')
-  mutate('/api/crm/bootstrap')
   return created
 }
 
@@ -1050,8 +1135,9 @@ export async function updateUsuario(id: string, data: Partial<Usuario> & JsonRec
       body: JSON.stringify(data),
     })
 
+    await mutateEntityByPrefix('/api/usuarios', id, updated as JsonRecord)
+    await patchBootstrapEntity('usuarios', id, updated as JsonRecord)
     mutateByPrefix('/api/usuarios')
-    mutate('/api/crm/bootstrap')
     return updated
   } catch (error) {
     mutate('/api/crm/bootstrap')
@@ -1063,7 +1149,6 @@ export async function deleteUsuario(id: string) {
   await removeBootstrapEntity('usuarios', id)
   const deleted = await requestJson(`/api/usuarios/${id}`, { method: 'DELETE' })
   mutateByPrefix('/api/usuarios')
-  mutate('/api/crm/bootstrap')
   return deleted
 }
 

@@ -16,18 +16,20 @@ export default async function CRMLayout({
   }
 
   return (
-    <AppSettingsProvider>
-      <SWRConfig
-        value={{
-          revalidateOnFocus: false,
-          revalidateOnReconnect: false,
-          keepPreviousData: true,
-          dedupingInterval: 5000,
-          focusThrottleInterval: 15000,
-          errorRetryCount: 0,
-          shouldRetryOnError: false,
-        }}
-      >
+    <SWRConfig
+      value={{
+        revalidateOnFocus: false,
+        revalidateOnReconnect: false,
+        revalidateIfStale: false,
+        keepPreviousData: true,
+        dedupingInterval: 15000,
+        focusThrottleInterval: 30000,
+        loadingTimeout: 15000,
+        errorRetryCount: 0,
+        shouldRetryOnError: false,
+      }}
+    >
+      <AppSettingsProvider>
         <CRMProvider>
           <div className="flex min-h-screen bg-background">
             <CRMSidebar />
@@ -36,7 +38,7 @@ export default async function CRMLayout({
             </main>
           </div>
         </CRMProvider>
-      </SWRConfig>
-    </AppSettingsProvider>
+      </AppSettingsProvider>
+    </SWRConfig>
   )
 }

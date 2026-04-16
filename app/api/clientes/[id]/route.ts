@@ -72,9 +72,9 @@ export async function PUT(
     const { id } = await params
     const data = (await request.json()) as Record<string, unknown>
 
-    const [clienteAtual] = await query<any[]>(
-      `SELECT
-        id, nome, email, telefone, empresa, cargo, endereco, cidade, estado, cep,
+      const [clienteAtual] = await query<any[]>(
+        `SELECT
+        id, nome, cpf, email, telefone, empresa, cargo, endereco, cidade, estado, cep,
         origem, status_funil, valor_potencial, observacoes
        FROM clientes
        WHERE id = ?`,
@@ -98,6 +98,7 @@ export async function PUT(
 
     const mergedCliente = {
       nome: hasOwn(data, 'nome') ? normalizeNullableText(data.nome) : clienteAtual.nome,
+      cpf: hasOwn(data, 'cpf') ? normalizeNullableText(data.cpf) : clienteAtual.cpf,
       email: hasOwn(data, 'email') ? normalizeNullableText(data.email) : clienteAtual.email,
       telefone: hasOwn(data, 'telefone') ? normalizeNullableText(data.telefone) : clienteAtual.telefone,
       empresa: hasOwn(data, 'empresa') ? normalizeNullableText(data.empresa) : clienteAtual.empresa,
@@ -114,12 +115,13 @@ export async function PUT(
 
     await query(
       `UPDATE clientes SET
-        nome = ?, email = ?, telefone = ?, empresa = ?, cargo = ?,
+        nome = ?, cpf = ?, email = ?, telefone = ?, empresa = ?, cargo = ?,
         endereco = ?, cidade = ?, estado = ?, cep = ?, origem = ?,
         status_funil = ?, valor_potencial = ?, observacoes = ?
        WHERE id = ?`,
       [
         mergedCliente.nome,
+        mergedCliente.cpf,
         mergedCliente.email,
         mergedCliente.telefone,
         mergedCliente.empresa,

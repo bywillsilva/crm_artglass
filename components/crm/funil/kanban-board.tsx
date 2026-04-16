@@ -9,9 +9,6 @@ import { useSession } from '@/lib/hooks/use-api'
 import {
   getProposalCardVisualState,
   getProposalTaskStage,
-  requiresFollowUpTimeForMove,
-  requiresSellerCommentForMove,
-  resolveProposalStatusForPersistence,
 } from '@/lib/utils/proposal-kanban'
 import { ProposalFormDialog } from '@/components/crm/propostas/proposal-form-dialog'
 import { ProposalDetailsSheet } from '@/components/crm/propostas/proposal-details-sheet'
@@ -59,6 +56,41 @@ type PendingMove = {
   targetStatus: StatusProposta
 }
 
+type SellerMoveAction =
+  | 'enviado_ao_cliente'
+  | 'em_retificacao'
+  | 'fechado'
+  | 'perdido'
+  | 'stand_by'
+  | 'outra_justificativa'
+
+const ORCAMENTISTA_COLUMNS: StatusProposta[] = [
+  'novo_cliente',
+  'em_orcamento',
+  'em_retificacao',
+  'aguardando_aprovacao',
+]
+
+const SELLER_COLUMNS: StatusProposta[] = [
+  'enviar_ao_cliente',
+  'enviado_ao_cliente',
+  'follow_up_1_dia',
+  'follow_up_3_dias',
+  'follow_up_7_dias',
+  'stand_by',
+  'fechado',
+  'perdido',
+]
+
+const SELLER_ACTION_LABELS: Record<SellerMoveAction, string> = {
+  enviado_ao_cliente: 'Enviado ao cliente',
+  em_retificacao: 'Enviar para retificacao',
+  fechado: 'Fechado',
+  perdido: 'Perdido',
+  stand_by: 'Stand-by',
+  outra_justificativa: 'Outra justificativa',
+}
+
 type DragPointerType = 'mouse' | 'touch' | 'pen'
 
 type PendingDrag = {
@@ -103,14 +135,74 @@ interface KanbanBoardProps {
   propostas?: Proposta[]
 }
 
+function getSellerActionOptions(status: StatusProposta): SellerMoveAction[] {
+  switch (status) {
+    case 'enviar_ao_cliente':
+      return ['enviado_ao_cliente']
+    case 'enviado_ao_cliente':
+      return ['fechado', 'perdido', 'em_retificacao', 'outra_justificativa']
+    case 'follow_up_1_dia':
+    case 'follow_up_3_dias':
+      return ['fechado', 'perdido', 'em_retificacao', 'stand_by', 'outra_justificativa']
+    case 'follow_up_7_dias':
+      return ['fechado', 'perdido', 'em_retificacao', 'stand_by']
+    case 'stand_by':
+      return ['enviado_ao_cliente', 'em_retificacao', 'fechado', 'perdido']
+    default:
+      return []
+  }
+}
+
+function formatPhone(value: string) {
+  const digits = value.replace(/\D/g, '').slice(0, 11)
+  if (!digits) return ''
+  if (digits.length <= 2) return digits
+  if (digits.length <= 3) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
+  if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2, 3)} ${digits.slice(3)}`
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 3)} ${digits.slice(3, 7)}-${digits.slice(7)}`
+}
+
+function formatCpf(value: string) {
+  const digits = value.replace(/\D/g, '').slice(0, 11)
+  if (!digits) return ''
+  if (digits.length <= 3) return digits
+  if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`
+  if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`
+  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`
+}
+
+function isPdfFile(file: File) {
+  return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+}
+
+function parseProposalNumericInput(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+
+  const normalized = trimmed
+    .replace(/\s+/g, '')
+    .replace(/\.(?=\d{3}(?:\D|$))/g, '')
+    .replace(',', '.')
+
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const { state, lookups, updateProposta } = useCRM()
   const { formatCurrency, formatDateTime } = useAppSettings()
   const { user } = useSession()
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
+  const [sellerAction, setSellerAction] = useState<SellerMoveAction | ''>('')
   const [moveComment, setMoveComment] = useState('')
   const [followUpTime, setFollowUpTime] = useState('')
   const [moveValue, setMoveValue] = useState('')
+  const [moveFiles, setMoveFiles] = useState<File[]>([])
+  const [closeClientName, setCloseClientName] = useState('')
+  const [closeClientCpf, setCloseClientCpf] = useState('')
+  const [closeClientEmail, setCloseClientEmail] = useState('')
+  const [closeClientPhone, setCloseClientPhone] = useState('')
+  const [closeClientAddress, setCloseClientAddress] = useState('')
   const [optimisticPropostas, setOptimisticPropostas] = useState<Record<string, Partial<Proposta>>>({})
   const [updatingProposalIds, setUpdatingProposalIds] = useState<Record<string, true>>({})
   const [editingPropostaId, setEditingPropostaId] = useState<string | null>(null)
@@ -219,11 +311,19 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       return source.filter(
         (proposta) =>
           (!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
-          ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
+          ORCAMENTISTA_COLUMNS.includes(proposta.status)
       )
     }
-    return source.filter((proposta) => proposta.responsavelId === user?.id)
+    return source.filter(
+      (proposta) => proposta.responsavelId === user?.id && SELLER_COLUMNS.includes(proposta.status)
+    )
   }, [propostasBase, user?.id, user?.role])
+
+  const visibleColumns = useMemo(() => {
+    if (user?.role === 'admin' || user?.role === 'gerente') return columns
+    if (user?.role === 'orcamentista') return ORCAMENTISTA_COLUMNS
+    return SELLER_COLUMNS
+  }, [user?.role])
 
   const propostasById = useMemo(
     () => new Map(propostasVisiveis.map((proposta) => [proposta.id, proposta])),
@@ -342,19 +442,32 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
 
   const requestMove = (propostaId: string, targetStatus: StatusProposta) => {
     const proposta = propostasById.get(propostaId)
-    if (!proposta || proposta.status === targetStatus) {
+    const canOpenSameStatusSellerAction = user?.role === 'vendedor' && proposta?.status === targetStatus
+    if (!proposta || (proposta.status === targetStatus && !canOpenSameStatusSellerAction)) {
       return
     }
 
+    const cliente = lookups.clientesById.get(proposta.clienteId)
     const currentTime = `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`
     setPendingMove({ propostaId, targetStatus })
+    setSellerAction(
+      user?.role === 'vendedor' && proposta.status === 'enviar_ao_cliente' && targetStatus === proposta.status
+        ? 'enviado_ao_cliente'
+        : ''
+    )
     setMoveComment('')
-    setMoveValue(targetStatus === 'aguardando_aprovacao' && proposta.valor > 0 ? String(proposta.valor) : '')
+    setMoveValue(proposta.valor > 0 && user?.role === 'vendedor' ? String(proposta.valor) : '')
+    setMoveFiles([])
     setFollowUpTime(
       ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias'].includes(targetStatus)
         ? (proposta.followUpTime || currentTime).slice(0, 5)
         : (proposta.followUpTime || '').slice(0, 5)
     )
+    setCloseClientName(cliente?.nome || proposta.clienteNome || '')
+    setCloseClientCpf(cliente?.cpf || '')
+    setCloseClientEmail(cliente?.email || '')
+    setCloseClientPhone(cliente?.telefone || '')
+    setCloseClientAddress(cliente?.endereco || '')
   }
 
   const openTouchMovePicker = (propostaId: string) => {
@@ -370,6 +483,10 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   }
 
   const handleTouchPointerDown = (event: React.PointerEvent<HTMLDivElement>, proposta: Proposta) => {
+    if (user?.role === 'vendedor') {
+      return
+    }
+
     if ((event.pointerType === 'mouse' && event.button !== 0) || isInteractiveTarget(event.target)) {
       return
     }
@@ -512,8 +629,30 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     const proposta = propostasById.get(pendingMove.propostaId)
     if (!proposta) return
     const currentPendingMove = pendingMove
-    const persistedStatus = resolveProposalStatusForPersistence(proposta.status, pendingMove.targetStatus)
-    const nextValue = pendingMove.targetStatus === 'aguardando_aprovacao' ? Number(moveValue || 0) : proposta.valor
+    const persistedStatus = (() => {
+      if (isSellerMove && effectiveSellerAction) {
+        if (effectiveSellerAction === 'outra_justificativa') {
+          if (proposta.status === 'follow_up_1_dia') return 'aguardando_follow_up_3_dias' as StatusProposta
+          if (proposta.status === 'follow_up_3_dias') return 'aguardando_follow_up_7_dias' as StatusProposta
+          return proposta.status
+        }
+
+        return effectiveSellerAction as StatusProposta
+      }
+
+      if (proposta.status === 'follow_up_1_dia' && pendingMove.targetStatus === 'follow_up_3_dias') {
+        return 'aguardando_follow_up_3_dias'
+      }
+
+      if (proposta.status === 'follow_up_3_dias' && pendingMove.targetStatus === 'follow_up_7_dias') {
+        return 'aguardando_follow_up_7_dias'
+      }
+
+      return pendingMove.targetStatus
+    })()
+    const parsedMoveValue = parseProposalNumericInput(moveValue)
+    const nextValue =
+      requiresClosedClientData ? (parsedMoveValue ?? 0) : proposta.valor
     const optimisticPatch: Partial<Proposta> = {
       status: persistedStatus,
       valor: nextValue,
@@ -527,16 +666,27 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     try {
       await updateProposta({
         ...proposta,
-        status: currentPendingMove.targetStatus,
+        status: isSellerMove ? proposta.status : currentPendingMove.targetStatus,
         valor: nextValue,
-        comentario: moveComment,
+        comentario: requiresMoveComment ? moveComment : null,
+        justificativa: requiresMoveComment ? moveComment : null,
+        workflowAction: isSellerMove ? effectiveSellerAction : null,
         followUpTime: followUpTime || proposta.followUpTime || null,
-      } as Proposta)
+        clienteNome: requiresClosedClientData ? closeClientName : null,
+        clienteCpf: requiresClosedClientData ? closeClientCpf : null,
+        clienteEmail: requiresClosedClientData ? closeClientEmail : null,
+        clienteTelefone: requiresClosedClientData ? closeClientPhone : null,
+        clienteEndereco: requiresClosedClientData ? closeClientAddress : null,
+        clienteValorFechado: requiresClosedClientData ? nextValue : null,
+        anexos: moveFiles,
+      } as unknown as Proposta)
       toast.success('Proposta atualizada com sucesso.')
       setPendingMove(null)
+      setSellerAction('')
       setMoveComment('')
       setFollowUpTime('')
       setMoveValue('')
+      setMoveFiles([])
     } catch (error: any) {
       setOptimisticPropostas((prev) => {
         const next = { ...prev }
@@ -562,18 +712,37 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const pendingMoveProposal = pendingMove
     ? propostasById.get(pendingMove.propostaId) || null
     : null
-  const requiresMoveComment = requiresSellerCommentForMove(
-    user?.role,
-    pendingMoveProposal?.status,
-    pendingMove?.targetStatus
-  )
-  const requiresFollowUpTime = requiresFollowUpTimeForMove(user?.role, pendingMove?.targetStatus)
-  const requiresBudgetValue = pendingMove?.targetStatus === 'aguardando_aprovacao'
+  const isSellerMove = user?.role === 'vendedor' && Boolean(pendingMoveProposal)
+  const sellerActionOptions = pendingMoveProposal ? getSellerActionOptions(pendingMoveProposal.status) : []
+  const selectedSellerAction = isSellerMove ? sellerAction : ''
+  const sellerCanOnlyConfirmSend = pendingMoveProposal?.status === 'enviar_ao_cliente'
+  const effectiveSellerAction =
+    sellerCanOnlyConfirmSend && isSellerMove
+      ? ('enviado_ao_cliente' as SellerMoveAction)
+      : (selectedSellerAction as SellerMoveAction | '')
+  const shouldShowSellerActionSelect = isSellerMove && !sellerCanOnlyConfirmSend
+  const requiresMoveComment =
+    effectiveSellerAction === 'em_retificacao' ||
+    effectiveSellerAction === 'outra_justificativa' ||
+    effectiveSellerAction === 'perdido' ||
+    effectiveSellerAction === 'stand_by'
+  const requiresFollowUpTime =
+    effectiveSellerAction === 'outra_justificativa' &&
+    ['enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias'].includes(
+      pendingMoveProposal?.status || ''
+    )
+  const requiresBudgetValue = false
+  const requiresAttachment =
+    user?.role === 'orcamentista' &&
+    pendingMove?.targetStatus === 'aguardando_aprovacao'
+  const hasRequiredPdfAttachment = !requiresAttachment || moveFiles.some(isPdfFile)
+  const requiresClosedClientData = effectiveSellerAction === 'fechado'
+  const hasInvalidMoveValue = moveValue.trim() !== '' && parseProposalNumericInput(moveValue) === null
   const isSchedulingFollowUp = requiresFollowUpTime
   const pendingMoveTargetLabel = pendingMove ? statusPropostaLabels[pendingMove.targetStatus] : ''
   const touchMoveProposal = touchMovePropostaId ? propostasById.get(touchMovePropostaId) || null : null
   const availableTouchStatuses = touchMoveProposal
-    ? columns.filter((status) => status !== touchMoveProposal.status)
+    ? visibleColumns.filter((status) => status !== touchMoveProposal.status)
     : []
   const draggedTouchProposal = dragState ? propostasById.get(dragState.propostaId) || null : null
   const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 0
@@ -650,7 +819,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         ref={scrollContainerRef}
         className={`flex min-h-[calc(100vh-12rem)] gap-4 overflow-x-auto pb-4 ${dragState ? 'touch-none' : ''}`}
       >
-        {columns.map((status) => {
+        {visibleColumns.map((status) => {
           const propostasDaColuna = columnSummaries[status].propostas
           const valorTotal = columnSummaries[status].valorTotal
           const isTouchDropTarget = dragState?.overStatus === status
@@ -697,7 +866,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                             ? 'opacity-35 scale-[0.98]'
                             : ''
                         } select-none [-webkit-touch-callout:none]`}
-                        style={{ touchAction: isTouchDevice ? 'none' : undefined }}
+                        style={{ touchAction: isTouchDevice && user?.role !== 'vendedor' ? 'none' : undefined }}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
@@ -709,7 +878,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                             </p>
                           </div>
                           <div className="flex items-center gap-1">
-                            {isTouchDevice ? (
+                            {isTouchDevice && user?.role !== 'vendedor' ? (
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -722,9 +891,33 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                             <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => setDetailsPropostaId(proposta.id)}>
                               Ver detalhes
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingPropostaId(proposta.id)}>
-                              <Pencil className="h-4 w-4" />
-                            </Button>
+                            {user?.role === 'vendedor' && proposta.status === 'enviar_ao_cliente' ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 px-2 text-xs"
+                                onClick={() => requestMove(proposta.id, proposta.status)}
+                              >
+                                OK
+                              </Button>
+                            ) : null}
+                            {user?.role === 'vendedor' &&
+                            proposta.status !== 'enviar_ao_cliente' &&
+                            getSellerActionOptions(proposta.status).length > 0 ? (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 px-2 text-xs"
+                                onClick={() => requestMove(proposta.id, proposta.status)}
+                              >
+                                Atualizar status
+                              </Button>
+                            ) : null}
+                            {user?.role !== 'vendedor' ? (
+                              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingPropostaId(proposta.id)}>
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            ) : null}
                           </div>
                         </div>
 
@@ -864,12 +1057,64 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={Boolean(pendingMove)} onOpenChange={(open) => !open && setPendingMove(null)}>
+      <Dialog
+        open={Boolean(pendingMove)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingMove(null)
+            setSellerAction('')
+            setMoveComment('')
+            setFollowUpTime('')
+            setMoveValue('')
+            setMoveFiles([])
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{isSchedulingFollowUp ? `Agendar ${pendingMoveTargetLabel}` : 'Atualizar etapa da proposta'}</DialogTitle>
+            <DialogTitle>
+              {sellerCanOnlyConfirmSend
+                ? 'Confirmar envio ao cliente'
+                : isSellerMove
+                ? 'Atualizar status da proposta'
+                : isSchedulingFollowUp
+                  ? `Agendar ${pendingMoveTargetLabel}`
+                  : 'Atualizar etapa da proposta'}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            {isSellerMove && pendingMoveProposal ? (
+              <div className="space-y-3 rounded-xl border border-border bg-secondary/20 p-4">
+                {shouldShowSellerActionSelect ? (
+                  <>
+                    <p className="text-sm font-medium text-foreground">
+                      Escolha como esta proposta deve seguir nesta etapa.
+                    </p>
+                    <Select value={sellerAction} onValueChange={(value) => setSellerAction(value as SellerMoveAction)}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Selecione a atualizacao" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sellerActionOptions.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {SELLER_ACTION_LABELS[option]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-medium text-foreground">
+                      Confirmar envio da proposta para o cliente.
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      Ao confirmar, o card sera movido para Enviado ao cliente e o fluxo seguira normalmente.
+                    </p>
+                  </>
+                )}
+              </div>
+            ) : null}
             {requiresFollowUpTime && (
               <div className="space-y-3 rounded-xl border border-border bg-secondary/20 p-4">
                 <p className="text-sm font-medium text-foreground">
@@ -906,10 +1151,33 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                 </div>
               </div>
             )}
+            {requiresAttachment && (
+              <div className="space-y-3 rounded-xl border border-border bg-secondary/20 p-4">
+                <p className="text-sm font-medium text-foreground">
+                  Anexe obrigatoriamente a proposta em PDF antes de enviar para aprovacao.
+                </p>
+                <Input
+                  type="file"
+                  multiple
+                  accept=".pdf,application/pdf"
+                  onChange={(event) => setMoveFiles(Array.from(event.target.files || []))}
+                />
+                {moveFiles.length > 0 ? (
+                  <div className="space-y-1 text-sm text-muted-foreground">
+                    {moveFiles.map((file) => (
+                      <p key={`${file.name}-${file.size}`}>{file.name}</p>
+                    ))}
+                  </div>
+                ) : null}
+                {!hasRequiredPdfAttachment ? (
+                  <p className="text-sm text-destructive">Selecione pelo menos um arquivo PDF valido.</p>
+                ) : null}
+              </div>
+            )}
             {requiresMoveComment && (
               <div className="space-y-3 rounded-xl border border-border bg-secondary/20 p-4">
                 <p className="text-sm text-muted-foreground">
-                  Este follow-up exige um comentario do vendedor antes da movimentacao.
+                  Informe uma justificativa para registrar no historico desta proposta antes da movimentacao.
                 </p>
                 <Textarea
                   rows={4}
@@ -917,6 +1185,62 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                   value={moveComment}
                   onChange={(event) => setMoveComment(event.target.value)}
                 />
+              </div>
+            )}
+            {requiresClosedClientData && (
+              <div className="space-y-4 rounded-xl border border-border bg-secondary/20 p-4">
+                <p className="text-sm font-medium text-foreground">
+                  Complete os dados do cliente para seguir com o fechamento e o contrato.
+                </p>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Nome completo</label>
+                    <Input value={closeClientName} onChange={(event) => setCloseClientName(event.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">CPF</label>
+                    <Input
+                      value={closeClientCpf}
+                      placeholder="000.000.000-00"
+                      onChange={(event) => setCloseClientCpf(event.target.value)}
+                      onBlur={(event) => setCloseClientCpf(formatCpf(event.target.value))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Telefone</label>
+                    <Input
+                      value={closeClientPhone}
+                      placeholder="(00) 9 0000-0000"
+                      onChange={(event) => setCloseClientPhone(event.target.value)}
+                      onBlur={(event) => setCloseClientPhone(formatPhone(event.target.value))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">E-mail</label>
+                    <Input
+                      type="email"
+                      value={closeClientEmail}
+                      onChange={(event) => setCloseClientEmail(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <label className="text-sm font-medium text-foreground">Endereco</label>
+                    <Input
+                      value={closeClientAddress}
+                      onChange={(event) => setCloseClientAddress(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Valor fechado</label>
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      value={moveValue}
+                      onChange={(event) => setMoveValue(event.target.value)}
+                      placeholder="0,00"
+                    />
+                  </div>
+                </div>
               </div>
             )}
             <div className="flex justify-end gap-3">
@@ -927,13 +1251,23 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                 onClick={() => void confirmMove()}
                 pending={isSubmittingMove}
                 disabled={
-                  isSubmittingMove ||
-                  (requiresBudgetValue && Number(moveValue || 0) <= 0) ||
-                  (requiresMoveComment && !moveComment.trim()) ||
-                  (requiresFollowUpTime && !followUpTime)
+                    isSubmittingMove ||
+                    (isSellerMove && !effectiveSellerAction) ||
+                    hasInvalidMoveValue ||
+                    (requiresBudgetValue && (parseProposalNumericInput(moveValue) ?? 0) <= 0) ||
+                    !hasRequiredPdfAttachment ||
+                    (requiresMoveComment && !moveComment.trim()) ||
+                    (requiresFollowUpTime && !followUpTime) ||
+                    (requiresClosedClientData &&
+                      (!closeClientName.trim() ||
+                        !closeClientCpf.trim() ||
+                        !closeClientPhone.trim() ||
+                        !closeClientEmail.trim() ||
+                        !closeClientAddress.trim() ||
+                        (parseProposalNumericInput(moveValue) ?? 0) <= 0))
                 }
               >
-                Confirmar
+                {sellerCanOnlyConfirmSend ? 'Confirmar envio' : 'Confirmar'}
               </Button>
             </div>
           </div>
@@ -944,6 +1278,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         open={Boolean(editingPropostaId)}
         onOpenChange={(open) => !open && setEditingPropostaId(null)}
         propostaId={editingPropostaId}
+        propostaInicial={editingPropostaId ? propostasById.get(editingPropostaId) || null : null}
       />
       <ProposalDetailsSheet
         open={Boolean(detailsPropostaId)}

@@ -58,6 +58,7 @@ export type ModulePermissions = Record<ModuleKey, boolean>
 export interface Cliente {
   id: string
   nome: string
+  cpf?: string
   telefone: string
   email: string
   empresa?: string
