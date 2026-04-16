@@ -119,11 +119,13 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
         open={Boolean(editingPropostaId)}
         onOpenChange={(open) => !open && setEditingPropostaId(null)}
         propostaId={editingPropostaId}
+        propostaInicial={propostas.find((proposta) => proposta.id === editingPropostaId) ?? null}
       />
       <ProposalDetailsSheet
         open={Boolean(detailsPropostaId)}
         onOpenChange={(open) => !open && setDetailsPropostaId(null)}
         propostaId={detailsPropostaId}
+        propostaInicial={propostas.find((proposta) => proposta.id === detailsPropostaId) ?? null}
       />
     </>
   )

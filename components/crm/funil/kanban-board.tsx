@@ -1464,6 +1464,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         open={Boolean(detailsPropostaId)}
         onOpenChange={(open) => !open && setDetailsPropostaId(null)}
         propostaId={detailsPropostaId}
+        propostaInicial={detailsPropostaId ? propostasById.get(detailsPropostaId) || null : null}
       />
     </>
   )

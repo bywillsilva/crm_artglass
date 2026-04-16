@@ -15,7 +15,7 @@ import {
 import { toast } from 'sonner'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useProposta, useSession } from '@/lib/hooks/use-api'
-import { statusPropostaColors, statusPropostaLabels } from '@/lib/data/types'
+import { statusPropostaColors, statusPropostaLabels, type Proposta } from '@/lib/data/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -46,12 +46,14 @@ interface ProposalDetailsSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   propostaId?: string | null
+  propostaInicial?: Proposta | null
 }
 
 export function ProposalDetailsSheet({
   open,
   onOpenChange,
   propostaId,
+  propostaInicial,
 }: ProposalDetailsSheetProps) {
   const { formatCurrency, formatDateTime } = useAppSettings()
   const { user } = useSession()
@@ -61,6 +63,7 @@ export function ProposalDetailsSheet({
     error,
     mutate: mutateProposta,
   } = useProposta(open && propostaId ? propostaId : null)
+  const propostaSource = proposta || propostaInicial || null
   const [newComment, setNewComment] = useState('')
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [editingComment, setEditingComment] = useState('')
@@ -96,7 +99,9 @@ export function ProposalDetailsSheet({
       proposalPatch.comentarios_count = comentarios.length
     }
 
-    await mutate(`/api/propostas/${propostaId}`, proposalPatch, { revalidate: false })
+    if (hasDetailedCollections) {
+      await mutate(`/api/propostas/${propostaId}`, proposalPatch, { revalidate: false })
+    }
     await mutate(
       (key) => typeof key === 'string' && key.startsWith('/api/crm/bootstrap'),
       (current?: Record<string, unknown> | null) => {
@@ -205,6 +210,10 @@ export function ProposalDetailsSheet({
 
   useEffect(() => {
     if (!open || !propostaId || !proposta) {
+      return
+    }
+
+    if (!Array.isArray(proposta.anexos) && !Array.isArray(proposta.comentarios)) {
       return
     }
 
@@ -337,7 +346,7 @@ export function ProposalDetailsSheet({
           </SheetDescription>
         </SheetHeader>
 
-        {proposta ? (
+        {propostaSource ? (
           <div className="grid flex-1 gap-6 overflow-hidden px-4 pb-4 lg:grid-cols-[1.05fr_0.95fr]">
             <ScrollArea className="h-[calc(100vh-9rem)] pr-4">
               <div className="space-y-6">
@@ -345,24 +354,24 @@ export function ProposalDetailsSheet({
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                        {proposta.numero || 'Proposta Comercial'}
+                        {propostaSource.numero || 'Proposta Comercial'}
                       </p>
                       <h3 className="text-xl font-semibold text-foreground">
-                        {proposta.titulo || 'Proposta Comercial'}
+                        {propostaSource.titulo || 'Proposta Comercial'}
                       </h3>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        Cliente: {proposta.clienteNome || 'Nao informado'}
+                        Cliente: {propostaSource.clienteNome || 'Nao informado'}
                       </p>
                     </div>
-                    <Badge variant="outline" className={statusPropostaColors[proposta.status]}>
-                      {statusPropostaLabels[proposta.status]}
+                    <Badge variant="outline" className={statusPropostaColors[propostaSource.status]}>
+                      {statusPropostaLabels[propostaSource.status]}
                     </Badge>
                   </div>
                   <p className="text-3xl font-bold text-foreground">
-                    {formatCurrency(proposta.valor)}
+                    {formatCurrency(propostaSource.valor)}
                   </p>
-                  {proposta.descricao ? (
-                    <p className="text-sm leading-6 text-muted-foreground">{proposta.descricao}</p>
+                  {propostaSource.descricao ? (
+                    <p className="text-sm leading-6 text-muted-foreground">{propostaSource.descricao}</p>
                   ) : (
                     <p className="text-sm text-muted-foreground">
                       Nenhuma descricao adicional foi registrada.
@@ -373,27 +382,27 @@ export function ProposalDetailsSheet({
                 <div className="grid gap-4 md:grid-cols-2">
                   <InfoCard
                     title="Vendedor Responsavel"
-                    value={proposta.responsavelNome || '-'}
+                    value={propostaSource.responsavelNome || '-'}
                     subtitle="Responsavel comercial"
                   />
                   <InfoCard
                     title="Orcamentista"
-                    value={proposta.orcamentistaNome || '-'}
+                    value={propostaSource.orcamentistaNome || '-'}
                     subtitle="Responsavel pelo orcamento"
                   />
                   <InfoCard
                     title="Retificacoes"
-                    value={String(proposta.retificacoesCount || 0)}
+                    value={String(propostaSource.retificacoesCount || 0)}
                     subtitle="Quantidade de retornos para ajuste"
                   />
                   <InfoCard
                     title="Anexos"
-                    value={String(proposta.anexos?.length ?? proposta.anexosCount ?? 0)}
+                    value={String(propostaSource.anexos?.length ?? propostaSource.anexosCount ?? 0)}
                     subtitle="Arquivos vinculados a proposta"
                   />
                   <InfoCard
                     title="Comentarios"
-                    value={String(proposta.comentarios?.length ?? proposta.comentariosCount ?? 0)}
+                    value={String(propostaSource.comentarios?.length ?? propostaSource.comentariosCount ?? 0)}
                     subtitle="Atualizacoes registradas"
                   />
                 </div>
@@ -404,11 +413,11 @@ export function ProposalDetailsSheet({
                     Linha do tempo
                   </div>
                   <div className="space-y-2 text-sm text-muted-foreground">
-                    <p>Criada em {formatDateTime(proposta.criadoEm)}</p>
-                    {proposta.followUpBaseAt ? (
-                      <p>Base do follow-up em {formatDateTime(proposta.followUpBaseAt)}</p>
+                    <p>Criada em {formatDateTime(propostaSource.criadoEm)}</p>
+                    {propostaSource.followUpBaseAt ? (
+                      <p>Base do follow-up em {formatDateTime(propostaSource.followUpBaseAt)}</p>
                     ) : null}
-                    {proposta.followUpTime ? <p>Horario planejado do follow-up: {proposta.followUpTime.slice(0, 5)}</p> : null}
+                    {propostaSource.followUpTime ? <p>Horario planejado do follow-up: {propostaSource.followUpTime.slice(0, 5)}</p> : null}
                   </div>
                 </div>
 
@@ -417,9 +426,9 @@ export function ProposalDetailsSheet({
                     <Paperclip className="h-4 w-4 text-muted-foreground" />
                     Anexos
                   </div>
-                  {proposta.anexos?.length ? (
+                  {propostaSource.anexos?.length ? (
                     <div className="space-y-2">
-                      {proposta.anexos.map((anexo) => (
+                      {propostaSource.anexos.map((anexo) => (
                         <a
                           key={anexo.id}
                           href={anexo.url}
@@ -475,8 +484,8 @@ export function ProposalDetailsSheet({
 
               <ScrollArea className="min-h-0 flex-1 px-4 py-4">
                 <div className="space-y-4">
-                  {proposta.comentarios?.length ? (
-                    proposta.comentarios.map((item) => {
+                  {propostaSource.comentarios?.length ? (
+                    propostaSource.comentarios.map((item) => {
                       const canManageComment =
                         user?.role === 'admin' ||
                         user?.role === 'gerente' ||

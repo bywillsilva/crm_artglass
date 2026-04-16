@@ -213,6 +213,25 @@ export function ProposalFormDialog({
       ),
     [clienteSearch, state.clientes]
   )
+  const currentClient = useMemo(
+    () =>
+      state.clientes.find((cliente) => cliente.id === clienteId) ||
+      (clienteId
+        ? {
+            id: clienteId,
+            nome: propostaSource?.clienteNome || 'Cliente atual',
+          }
+        : null),
+    [clienteId, propostaSource?.clienteNome, state.clientes]
+  )
+  const clientesSelectOptions = useMemo(() => {
+    if (!currentClient) {
+      return clientesFiltrados
+    }
+
+    const hasCurrentClient = clientesFiltrados.some((cliente) => cliente.id === currentClient.id)
+    return hasCurrentClient ? clientesFiltrados : [currentClient, ...clientesFiltrados]
+  }, [clientesFiltrados, currentClient])
 
   const responsaveis = state.usuarios.filter(
     (usuario) => usuario.ativo && (usuario.role === 'vendedor' || usuario.role === 'gerente')
@@ -361,7 +380,7 @@ export function ProposalFormDialog({
                         onChange={(event) => setClienteSearch(event.target.value)}
                       />
                     </div>
-                    {clientesFiltrados.map((cliente) => (
+                    {clientesSelectOptions.map((cliente) => (
                       <SelectItem key={cliente.id} value={cliente.id}>
                         {cliente.nome}
                       </SelectItem>
@@ -560,7 +579,9 @@ export function ProposalFormDialog({
                     <div className="flex items-center justify-between gap-3">
                       <span>Cliente</span>
                       <span className="font-medium text-foreground">
-                        {lookups.clientesById.get(clienteId)?.nome || 'Nao selecionado'}
+                        {lookups.clientesById.get(clienteId)?.nome ||
+                          currentClient?.nome ||
+                          'Nao selecionado'}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-3">

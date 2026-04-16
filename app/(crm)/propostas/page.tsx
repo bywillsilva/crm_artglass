@@ -99,6 +99,12 @@ export default function PropostasPage() {
   const propostasEmAndamento = propostasPorTab.abertas
   const propostasFechadas = propostasPorTab.fechadas
   const propostasPerdidas = propostasPorTab.perdidas
+  const editingProposta = editingPropostaId
+    ? state.propostas.find((proposta) => proposta.id === editingPropostaId) ?? null
+    : null
+  const detailsProposta = detailsPropostaId
+    ? state.propostas.find((proposta) => proposta.id === detailsPropostaId) ?? null
+    : null
 
   const totalEmAndamento = propostasEmAndamento.reduce((acc, proposta) => acc + proposta.valor, 0)
   const totalFechado = propostasFechadas.reduce((acc, proposta) => acc + proposta.valor, 0)
@@ -325,6 +331,7 @@ export default function PropostasPage() {
           open={Boolean(editingPropostaId)}
           onOpenChange={(open) => !open && setEditingPropostaId(null)}
           propostaId={editingPropostaId}
+          propostaInicial={editingProposta}
         />
       ) : null}
       {detailsPropostaId ? (
@@ -332,6 +339,7 @@ export default function PropostasPage() {
           open={Boolean(detailsPropostaId)}
           onOpenChange={(open) => !open && setDetailsPropostaId(null)}
           propostaId={detailsPropostaId}
+          propostaInicial={detailsProposta}
         />
       ) : null}
     </>
