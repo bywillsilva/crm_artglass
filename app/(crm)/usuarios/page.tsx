@@ -1,11 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import dynamic from "next/dynamic"
+import { useDeferredValue, useMemo, useState } from "react"
 import {
-  MODULE_KEYS,
   getDefaultModulePermissions,
   hasModuleAccess,
-  moduleLabels,
   normalizeModulePermissions,
 } from "@/lib/auth/module-access"
 import { useCRM } from "@/lib/context/crm-context"
@@ -19,21 +18,12 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -41,10 +31,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { MoreHorizontal, Pencil, Search, Shield, Trash2, User as UserIcon, Users } from "lucide-react"
 import { toast } from "sonner"
+
+const LazyUserFormDialog = dynamic(
+  () => import("@/components/crm/users/user-form-dialog").then((mod) => mod.UserFormDialog),
+  { ssr: false }
+)
 
 export default function UsuariosPage() {
   const { state, addUsuario, updateUsuario, deleteUsuario } = useCRM()
@@ -66,14 +60,20 @@ export default function UsuariosPage() {
     permissionMode: "padrao" as "padrao" | "personalizado",
     modulePermissions: getDefaultModulePermissions("vendedor"),
   })
+  const deferredSearch = useDeferredValue(search)
 
-  const filteredUsers = state.usuarios.filter((user) => {
-    const matchesSearch =
-      user.nome.toLowerCase().includes(search.toLowerCase()) ||
-      user.email.toLowerCase().includes(search.toLowerCase())
-    const matchesRole = roleFilter === "all" || user.role === roleFilter
-    return matchesSearch && matchesRole
-  })
+  const filteredUsers = useMemo(() => {
+    const normalizedSearch = deferredSearch.trim().toLowerCase()
+
+    return state.usuarios.filter((user) => {
+      const matchesSearch =
+        !normalizedSearch ||
+        user.nome.toLowerCase().includes(normalizedSearch) ||
+        user.email.toLowerCase().includes(normalizedSearch)
+      const matchesRole = roleFilter === "all" || user.role === roleFilter
+      return matchesSearch && matchesRole
+    })
+  }, [deferredSearch, roleFilter, state.usuarios])
 
   const isEditingSelfAdmin =
     !!editingUser &&
@@ -212,12 +212,27 @@ export default function UsuariosPage() {
     return <ModuleAccessState module="usuarios" />
   }
 
-  const totalUsers = state.usuarios.length
-  const activeUsers = state.usuarios.filter((u) => u.ativo).length
-  const adminCount = state.usuarios.filter((u) => u.role === "admin").length
-  const gerenteCount = state.usuarios.filter((u) => u.role === "gerente").length
-  const vendedorCount = state.usuarios.filter((u) => u.role === "vendedor").length
-  const orcamentistaCount = state.usuarios.filter((u) => u.role === "orcamentista").length
+  const userStats = useMemo(() => {
+    return state.usuarios.reduce(
+      (acc, currentUser) => {
+        acc.total += 1
+        if (currentUser.ativo) acc.ativos += 1
+        if (currentUser.role === "admin") acc.admin += 1
+        if (currentUser.role === "gerente") acc.gerente += 1
+        if (currentUser.role === "vendedor") acc.vendedor += 1
+        if (currentUser.role === "orcamentista") acc.orcamentista += 1
+        return acc
+      },
+      {
+        total: 0,
+        ativos: 0,
+        admin: 0,
+        gerente: 0,
+        vendedor: 0,
+        orcamentista: 0,
+      }
+    )
+  }, [state.usuarios])
 
   return (
     <>
@@ -229,12 +244,12 @@ export default function UsuariosPage() {
 
       <div className="flex-1 overflow-auto p-6 space-y-6">
         <div className="grid gap-4 md:grid-cols-6">
-          <SummaryCard title="Total" value={totalUsers} icon={<Users className="h-4 w-4 text-muted-foreground" />} />
-          <SummaryCard title="Ativos" value={activeUsers} icon={<div className="h-2 w-2 rounded-full bg-green-500" />} />
-          <SummaryCard title="Admins" value={adminCount} icon={<Shield className="h-4 w-4 text-purple-400" />} />
-          <SummaryCard title="Gerentes" value={gerenteCount} icon={<Users className="h-4 w-4 text-blue-400" />} />
-          <SummaryCard title="Vendedores" value={vendedorCount} icon={<UserIcon className="h-4 w-4 text-green-400" />} />
-          <SummaryCard title="Orcamentistas" value={orcamentistaCount} icon={<UserIcon className="h-4 w-4 text-amber-400" />} />
+          <SummaryCard title="Total" value={userStats.total} icon={<Users className="h-4 w-4 text-muted-foreground" />} />
+          <SummaryCard title="Ativos" value={userStats.ativos} icon={<div className="h-2 w-2 rounded-full bg-green-500" />} />
+          <SummaryCard title="Admins" value={userStats.admin} icon={<Shield className="h-4 w-4 text-purple-400" />} />
+          <SummaryCard title="Gerentes" value={userStats.gerente} icon={<Users className="h-4 w-4 text-blue-400" />} />
+          <SummaryCard title="Vendedores" value={userStats.vendedor} icon={<UserIcon className="h-4 w-4 text-green-400" />} />
+          <SummaryCard title="Orcamentistas" value={userStats.orcamentista} icon={<UserIcon className="h-4 w-4 text-amber-400" />} />
         </div>
 
         <Card className="bg-card border-border">
@@ -342,179 +357,18 @@ export default function UsuariosPage() {
         </Card>
       </div>
 
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>{editingUser ? "Editar Usuario" : "Novo Usuario"}</DialogTitle>
-            <DialogDescription>
-              {editingUser ? "Atualize as informacoes do usuario" : "Preencha os dados para criar um novo usuario"}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="nome">Nome</Label>
-              <Input id="nome" value={formData.nome} onChange={(event) => setFormData({ ...formData, nome: event.target.value })} placeholder="Nome completo" />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="email">E-mail</Label>
-              <Input id="email" type="email" value={formData.email} onChange={(event) => setFormData({ ...formData, email: event.target.value })} placeholder="email@exemplo.com" />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="role">Funcao</Label>
-              <Select
-                value={formData.role}
-                onValueChange={(value: RoleUsuario) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    role: value,
-                    modulePermissions:
-                      prev.permissionMode === "padrao"
-                        ? getDefaultModulePermissions(value)
-                        : prev.modulePermissions,
-                  }))
-                }
-                disabled={isEditingSelfAdmin}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione a funcao" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="admin">Administrador</SelectItem>
-                  <SelectItem value="gerente">Gerente</SelectItem>
-                  <SelectItem value="vendedor">Vendedor</SelectItem>
-                  <SelectItem value="orcamentista">Orcamentista</SelectItem>
-                </SelectContent>
-              </Select>
-              {isEditingSelfAdmin && (
-                <p className="text-xs text-muted-foreground">
-                  O administrador nao pode alterar o proprio nivel de acesso.
-                </p>
-              )}
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="permission-mode">Modelo de Permissao</Label>
-              <Select
-                value={isEditingSelfAdmin || formData.role === "admin" ? "padrao" : formData.permissionMode}
-                onValueChange={(value: "padrao" | "personalizado") =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    permissionMode: value,
-                    modulePermissions:
-                      value === "padrao"
-                        ? getDefaultModulePermissions(prev.role)
-                        : normalizeModulePermissions(prev.modulePermissions, prev.role),
-                  }))
-                }
-                disabled={isEditingSelfAdmin || formData.role === "admin"}
-              >
-                <SelectTrigger id="permission-mode">
-                  <SelectValue placeholder="Escolha o modelo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="padrao">Permissao predefinida</SelectItem>
-                  <SelectItem value="personalizado">Permissao personalizada</SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                O admin sempre possui acesso total. Para os demais usuarios voce pode manter o padrao da funcao ou personalizar modulo por modulo.
-              </p>
-            </div>
-            <div className="grid gap-3 rounded-lg border border-border p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-foreground">Modulos liberados</p>
-                  <p className="text-xs text-muted-foreground">Controle o que este usuario pode acessar na leftbar e nas paginas.</p>
-                </div>
-                {formData.permissionMode === "personalizado" && formData.role !== "admin" && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        modulePermissions: getDefaultModulePermissions(prev.role),
-                      }))
-                    }
-                  >
-                    Reaplicar padrao
-                  </Button>
-                )}
-              </div>
-              <div className="grid gap-3 md:grid-cols-2">
-                {MODULE_KEYS.map((moduleKey) => {
-                  const checked =
-                    formData.role === "admin"
-                      ? true
-                      : normalizeModulePermissions(formData.modulePermissions, formData.role)[moduleKey]
-                  return (
-                    <div key={moduleKey} className="flex items-center justify-between rounded-md bg-secondary/30 px-3 py-2">
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{moduleLabels[moduleKey]}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {checked ? "Acesso liberado" : "Acesso bloqueado"}
-                        </p>
-                      </div>
-                      <Switch
-                        checked={checked}
-                        disabled={
-                          formData.role === "admin" ||
-                          isEditingSelfAdmin ||
-                          formData.permissionMode !== "personalizado"
-                        }
-                        onCheckedChange={(nextChecked) =>
-                          setFormData((prev) => ({
-                            ...prev,
-                            modulePermissions: {
-                              ...normalizeModulePermissions(prev.modulePermissions, prev.role),
-                              [moduleKey]: nextChecked,
-                            },
-                          }))
-                        }
-                      />
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-            {!editingUser && (
-              <>
-                <div className="grid gap-2">
-                  <Label htmlFor="senha">Senha</Label>
-                  <Input id="senha" type="password" value={formData.senha} onChange={(event) => setFormData({ ...formData, senha: event.target.value })} placeholder="Minimo de 8 caracteres" />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="confirmarSenha">Confirmar Senha</Label>
-                  <Input id="confirmarSenha" type="password" value={formData.confirmarSenha} onChange={(event) => setFormData({ ...formData, confirmarSenha: event.target.value })} placeholder="Repita a senha" />
-                </div>
-              </>
-            )}
-            <div className="grid gap-2">
-              <Label htmlFor="avatar">Iniciais do Avatar (opcional)</Label>
-              <Input id="avatar" value={formData.avatar} onChange={(event) => setFormData({ ...formData, avatar: event.target.value })} placeholder="Ex: JC" maxLength={2} />
-            </div>
-            <div className="flex items-center justify-between">
-              <Label htmlFor="ativo">Usuario Ativo</Label>
-              <Switch id="ativo" checked={formData.ativo} onCheckedChange={(checked) => setFormData({ ...formData, ativo: checked })} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)} disabled={isSubmitting}>Cancelar</Button>
-            <Button
-              onClick={handleSubmit}
-              pending={isSubmitting}
-              disabled={
-                isSubmitting ||
-                !formData.nome ||
-                !formData.email ||
-                (!editingUser && (!formData.senha || !formData.confirmarSenha))
-              }
-            >
-              {editingUser ? "Salvar" : "Criar"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {isDialogOpen && (
+        <LazyUserFormDialog
+          open={isDialogOpen}
+          editingUser={editingUser}
+          isEditingSelfAdmin={isEditingSelfAdmin}
+          isSubmitting={isSubmitting}
+          formData={formData}
+          onOpenChange={setIsDialogOpen}
+          onFormDataChange={setFormData}
+          onSubmit={handleSubmit}
+        />
+      )}
     </>
   )
 }

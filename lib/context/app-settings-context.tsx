@@ -200,8 +200,8 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
       new Intl.NumberFormat(appearance.idioma, {
         style: 'currency',
         currency: appearance.formatoMoeda,
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
       }).format(value),
     [appearance.formatoMoeda, appearance.idioma]
   )

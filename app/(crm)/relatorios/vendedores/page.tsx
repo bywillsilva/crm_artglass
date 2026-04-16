@@ -1,18 +1,7 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useMemo, useState } from 'react'
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { CRMHeader } from '@/components/crm/header'
 import { DateRangeFilter } from '@/components/crm/date-range-filter'
@@ -33,7 +22,43 @@ import { useSession } from '@/lib/hooks/use-api'
 import { createDefaultDateFilter, isWithinDateFilter } from '@/lib/utils/date-filter'
 import { Pencil } from 'lucide-react'
 
-const chartColors = ['#0f766e', '#2563eb', '#f59e0b', '#dc2626', '#7c3aed', '#059669']
+const VendorPerformanceCharts = dynamic(
+  () =>
+    import('@/components/crm/reports/vendor-performance-charts').then(
+      (mod) => mod.VendorPerformanceCharts
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <Card className="border-border bg-card">
+            <CardContent className="h-[388px] animate-pulse" />
+          </Card>
+          <Card className="border-border bg-card">
+            <CardContent className="h-[388px] animate-pulse" />
+          </Card>
+        </div>
+        <Card className="border-border bg-card">
+          <CardContent className="h-[388px] animate-pulse" />
+        </Card>
+      </div>
+    ),
+  }
+)
+
+function parseBrazilianDecimal(value: string) {
+  const trimmed = String(value || '').trim()
+  if (!trimmed) return 0
+
+  const normalized = trimmed
+    .replace(/\s+/g, '')
+    .replace(/\.(?=\d{3}(?:\D|$))/g, '')
+    .replace(',', '.')
+
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : 0
+}
 
 export default function RelatorioVendedoresPage() {
   const { state, updateUsuario } = useCRM()
@@ -44,8 +69,14 @@ export default function RelatorioVendedoresPage() {
   const [metaInput, setMetaInput] = useState('')
   const hasPerformanceAccess = hasModuleAccess(user, 'performance')
 
-  const vendedores = state.usuarios.filter((usuario) => usuario.role === 'vendedor' || usuario.role === 'gerente')
-  const orcamentistas = state.usuarios.filter((usuario) => usuario.role === 'orcamentista')
+  const vendedores = useMemo(
+    () => state.usuarios.filter((usuario) => usuario.role === 'vendedor' || usuario.role === 'gerente'),
+    [state.usuarios]
+  )
+  const orcamentistas = useMemo(
+    () => state.usuarios.filter((usuario) => usuario.role === 'orcamentista'),
+    [state.usuarios]
+  )
   const propostasFiltradas = useMemo(
     () =>
       state.propostas.filter((proposta) =>
@@ -58,76 +89,131 @@ export default function RelatorioVendedoresPage() {
     return <ModuleAccessState module="performance" />
   }
 
-  const performance = vendedores
-    .map((vendedor) => {
-      const propostas = propostasFiltradas.filter((proposta) => proposta.responsavelId === vendedor.id)
-      const fechadas = propostas.filter((proposta) => proposta.status === 'fechado')
-      const perdidas = propostas.filter((proposta) => proposta.status === 'perdido')
-      const abertas = propostas.length - fechadas.length - perdidas.length
-      const clientes = new Set(propostas.map((proposta) => proposta.clienteId))
-      const receita = fechadas.reduce((acc, proposta) => acc + proposta.valor, 0)
-      const ticketMedio = fechadas.length > 0 ? receita / fechadas.length : 0
-      const taxaConversao = propostas.length > 0 ? (fechadas.length / propostas.length) * 100 : 0
+  const {
+    performance,
+    revenueChartData,
+    proposalMixData,
+    budgetPerformance,
+    budgetChartData,
+    totalReceita,
+    totalFechadas,
+    mediaConversao,
+  } = useMemo(() => {
+    const propostasPorResponsavel = new Map<string, typeof propostasFiltradas>()
+    const propostasPorOrcamentista = new Map<string, typeof propostasFiltradas>()
+
+    for (const proposta of propostasFiltradas) {
+      const responsavelKey = proposta.responsavelId || ''
+      const orcamentistaKey = proposta.orcamentistaId || ''
+      const byResponsavel = propostasPorResponsavel.get(responsavelKey) || []
+      byResponsavel.push(proposta)
+      propostasPorResponsavel.set(responsavelKey, byResponsavel)
+
+      const byOrcamentista = propostasPorOrcamentista.get(orcamentistaKey) || []
+      byOrcamentista.push(proposta)
+      propostasPorOrcamentista.set(orcamentistaKey, byOrcamentista)
+    }
+
+    const performanceData = vendedores
+      .map((vendedor) => {
+        const propostas = propostasPorResponsavel.get(vendedor.id) || []
+        let fechadas = 0
+        let perdidas = 0
+        let receita = 0
+        const clientes = new Set<string>()
+
+        for (const proposta of propostas) {
+          clientes.add(proposta.clienteId)
+          if (proposta.status === 'fechado') {
+            fechadas += 1
+            receita += proposta.valor
+          } else if (proposta.status === 'perdido') {
+            perdidas += 1
+          }
+        }
+
+        const abertas = propostas.length - fechadas - perdidas
+        const ticketMedio = fechadas > 0 ? receita / fechadas : 0
+        const taxaConversao = propostas.length > 0 ? (fechadas / propostas.length) * 100 : 0
+
+        return {
+          id: vendedor.id,
+          nome: vendedor.nome,
+          avatar: vendedor.avatar,
+          metaVendas: Number(vendedor.metaVendas || 0),
+          clientes: clientes.size,
+          propostas: propostas.length,
+          abertas,
+          fechadas,
+          perdidas,
+          receita,
+          ticketMedio,
+          taxaConversao,
+        }
+      })
+      .sort((a, b) => b.receita - a.receita)
+
+    const budgetData = orcamentistas.map((orcamentista) => {
+      const propostas = propostasPorOrcamentista.get(orcamentista.id) || []
+      let emAndamento = 0
+      let aprovadasSemRetificacao = 0
+      let comRetificacao = 0
+      let aguardandoAprovacao = 0
+
+      for (const proposta of propostas) {
+        if (['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)) {
+          emAndamento += 1
+        }
+        if (
+          ['enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'perdido'].includes(proposta.status) &&
+          Number(proposta.retificacoesCount || 0) === 0
+        ) {
+          aprovadasSemRetificacao += 1
+        }
+        if (Number(proposta.retificacoesCount || 0) > 0) {
+          comRetificacao += 1
+        }
+        if (proposta.status === 'aguardando_aprovacao') {
+          aguardandoAprovacao += 1
+        }
+      }
 
       return {
-        id: vendedor.id,
-        nome: vendedor.nome,
-        avatar: vendedor.avatar,
-        metaVendas: Number(vendedor.metaVendas || 0),
-        clientes: clientes.size,
-        propostas: propostas.length,
-        abertas,
-        fechadas: fechadas.length,
-        perdidas: perdidas.length,
-        receita,
-        ticketMedio,
-        taxaConversao,
+        id: orcamentista.id,
+        nome: orcamentista.nome,
+        recebidas: propostas.length,
+        emAndamento,
+        aprovadasSemRetificacao,
+        comRetificacao,
+        aguardandoAprovacao,
       }
     })
-    .sort((a, b) => b.receita - a.receita)
-
-  const revenueChartData = performance.map((item) => ({
-    name: item.nome.split(' ')[0],
-    receita: item.receita,
-    conversao: Number(item.taxaConversao.toFixed(1)),
-  }))
-
-  const proposalMixData = performance.map((item) => ({
-    name: item.nome.split(' ')[0],
-    value: item.propostas,
-  }))
-
-  const budgetPerformance = orcamentistas.map((orcamentista) => {
-    const propostas = propostasFiltradas.filter((proposta) => proposta.orcamentistaId === orcamentista.id)
-    const recebidas = propostas.length
-    const emAndamento = propostas.filter((proposta) =>
-      ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
-    ).length
-    const aprovadasSemRetificacao = propostas.filter(
-      (proposta) =>
-        ['enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'perdido'].includes(proposta.status) &&
-        Number(proposta.retificacoesCount || 0) === 0
-    ).length
-    const comRetificacao = propostas.filter((proposta) => Number(proposta.retificacoesCount || 0) > 0).length
-    const aguardandoAprovacao = propostas.filter((proposta) => proposta.status === 'aguardando_aprovacao').length
 
     return {
-      id: orcamentista.id,
-      nome: orcamentista.nome,
-      recebidas,
-      emAndamento,
-      aprovadasSemRetificacao,
-      comRetificacao,
-      aguardandoAprovacao,
+      performance: performanceData,
+      revenueChartData: performanceData.map((item) => ({
+        name: item.nome.split(' ')[0],
+        receita: item.receita,
+        conversao: Number(item.taxaConversao.toFixed(1)),
+      })),
+      proposalMixData: performanceData.map((item) => ({
+        name: item.nome.split(' ')[0],
+        value: item.propostas,
+      })),
+      budgetPerformance: budgetData,
+      budgetChartData: budgetData.map((item) => ({
+        name: item.nome.split(' ')[0],
+        recebidas: item.recebidas,
+        aprovadas: item.aprovadasSemRetificacao,
+        retificadas: item.comRetificacao,
+      })),
+      totalReceita: performanceData.reduce((acc, item) => acc + item.receita, 0),
+      totalFechadas: performanceData.reduce((acc, item) => acc + item.fechadas, 0),
+      mediaConversao:
+        performanceData.reduce((acc, item) => acc + item.taxaConversao, 0) /
+        Math.max(performanceData.length, 1),
     }
-  })
-
-  const budgetChartData = budgetPerformance.map((item) => ({
-    name: item.nome.split(' ')[0],
-    recebidas: item.recebidas,
-    aprovadas: item.aprovadasSemRetificacao,
-    retificadas: item.comRetificacao,
-  }))
+  }, [orcamentistas, propostasFiltradas, vendedores])
 
   const handleOpenMetaDialog = (userId: string, currentMeta: number) => {
     setEditingMetaUserId(userId)
@@ -141,7 +227,7 @@ export default function RelatorioVendedoresPage() {
 
     await updateUsuario({
       ...usuario,
-      metaVendas: Number(metaInput || 0),
+      metaVendas: parseBrazilianDecimal(metaInput),
     })
 
     setEditingMetaUserId(null)
@@ -162,91 +248,24 @@ export default function RelatorioVendedoresPage() {
           <MetricCard title="Vendedores Ativos" value={performance.length} />
           <MetricCard
             title="Receita Total"
-            value={formatCurrency(performance.reduce((acc, item) => acc + item.receita, 0))}
+            value={formatCurrency(totalReceita)}
           />
           <MetricCard
             title="Propostas Fechadas"
-            value={performance.reduce((acc, item) => acc + item.fechadas, 0)}
+            value={totalFechadas}
           />
           <MetricCard
             title="Taxa Media"
-            value={`${(
-              performance.reduce((acc, item) => acc + item.taxaConversao, 0) /
-              Math.max(performance.length, 1)
-            ).toFixed(1)}%`}
+            value={`${mediaConversao.toFixed(1)}%`}
           />
         </div>
 
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-          <Card className="border-border bg-card">
-            <CardHeader>
-              <CardTitle>Receita por Vendedor</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={320}>
-                <BarChart data={revenueChartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#243041" vertical={false} />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} />
-                  <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `R$${Math.round(value / 1000)}k`} />
-                  <Tooltip formatter={(value: number) => [formatCurrency(value), 'Receita']} />
-                  <Bar dataKey="receita" radius={[8, 8, 0, 0]}>
-                    {revenueChartData.map((entry, index) => (
-                      <Cell key={entry.name} fill={chartColors[index % chartColors.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border bg-card">
-            <CardHeader>
-              <CardTitle>Volume de Propostas por Vendedor</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={320}>
-                <PieChart>
-                  <Pie
-                    data={proposalMixData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={110}
-                    label={({ name, percent }) => `${name} ${((percent || 0) * 100).toFixed(0)}%`}
-                    labelLine={false}
-                  >
-                    {proposalMixData.map((entry, index) => (
-                      <Cell key={entry.name} fill={chartColors[index % chartColors.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value: number) => [`${value} propostas`, 'Volume']} />
-                </PieChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid grid-cols-1 gap-6">
-          <Card className="border-border bg-card">
-            <CardHeader>
-              <CardTitle>Performance de Orcamentistas</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={320}>
-                <BarChart data={budgetChartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#243041" vertical={false} />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} />
-                  <YAxis axisLine={false} tickLine={false} allowDecimals={false} />
-                  <Tooltip />
-                  <Bar dataKey="recebidas" fill="#2563eb" radius={[6, 6, 0, 0]} />
-                  <Bar dataKey="aprovadas" fill="#10b981" radius={[6, 6, 0, 0]} />
-                  <Bar dataKey="retificadas" fill="#f59e0b" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        </div>
+        <VendorPerformanceCharts
+          formatCurrency={formatCurrency}
+          revenueChartData={revenueChartData}
+          proposalMixData={proposalMixData}
+          budgetChartData={budgetChartData}
+        />
 
         <Card className="border-border bg-card">
           <CardHeader>
@@ -378,12 +397,11 @@ export default function RelatorioVendedoresPage() {
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground">Meta</label>
               <Input
-                type="number"
-                min="0"
-                step="0.01"
+                type="text"
+                inputMode="decimal"
                 value={metaInput}
                 onChange={(event) => setMetaInput(event.target.value)}
-                placeholder="0.00"
+                placeholder="0,00"
               />
             </div>
             <div className="flex justify-end gap-3">

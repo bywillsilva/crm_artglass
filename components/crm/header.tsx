@@ -79,10 +79,17 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
   const { state } = useCRM()
   const { notifications } = useAppSettings()
   const { user } = useSession()
-  const { readNotificationIds, isLoading: isLoadingReadNotifications, mutate: mutateReadNotifications } =
-    useReadNotifications(Boolean(user?.id))
+  const [notificationMenuOpen, setNotificationMenuOpen] = useState(false)
+  const [shouldLoadProposalNotifications, setShouldLoadProposalNotifications] = useState(false)
+  const {
+    readNotificationIds,
+    isLoading: isLoadingReadNotifications,
+    mutate: mutateReadNotifications,
+  } = useReadNotifications(Boolean(user?.id) && notifications.propostas && shouldLoadProposalNotifications)
   const { interacoes } = useInteracoes(
-    notifications.propostas && user ? { tipo: 'proposta', limit: 20 } : null
+    notifications.propostas && user && shouldLoadProposalNotifications
+      ? { tipo: 'proposta', limit: 12 }
+      : null
   )
   const [commandOpen, setCommandOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -200,6 +207,34 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
     (acc, items) => acc + items.length,
     0
   )
+
+  useEffect(() => {
+    if (!notifications.propostas || !user?.id || shouldLoadProposalNotifications) {
+      return
+    }
+
+    let timeoutId: number | null = null
+    let idleId: number | null = null
+    const requestIdle = window.requestIdleCallback?.bind(window)
+    const cancelIdle = window.cancelIdleCallback?.bind(window)
+    const enableNotifications = () => setShouldLoadProposalNotifications(true)
+
+    if (requestIdle) {
+      idleId = requestIdle(enableNotifications, { timeout: 2500 })
+    } else {
+      timeoutId = window.setTimeout(enableNotifications, 2500)
+    }
+
+    return () => {
+      if (idleId !== null && cancelIdle) {
+        cancelIdle(idleId)
+      }
+
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
+    }
+  }, [notifications.propostas, shouldLoadProposalNotifications, user?.id])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -338,7 +373,15 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
             </Button>
           )}
 
-          <DropdownMenu>
+          <DropdownMenu
+            open={notificationMenuOpen}
+            onOpenChange={(open) => {
+              setNotificationMenuOpen(open)
+              if (open) {
+                setShouldLoadProposalNotifications(true)
+              }
+            }}
+          >
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="relative">
                 <Bell className="h-5 w-5" />

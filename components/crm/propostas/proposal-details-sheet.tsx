@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { mutate } from 'swr'
 import {
   CalendarClock,
@@ -47,10 +47,54 @@ export function ProposalDetailsSheet({
   const [editingComment, setEditingComment] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  const syncProposalSnapshot = async (proposalSnapshot: any) => {
+    if (!propostaId || !proposalSnapshot) return
+
+    const anexos = Array.isArray(proposalSnapshot.anexos) ? proposalSnapshot.anexos : []
+    const comentarios = Array.isArray(proposalSnapshot.comentarios) ? proposalSnapshot.comentarios : []
+    const proposalPatch = {
+      ...proposalSnapshot,
+      anexos,
+      comentarios,
+      anexosCount: anexos.length,
+      anexos_count: anexos.length,
+      comentariosCount: comentarios.length,
+      comentarios_count: comentarios.length,
+    }
+
+    await mutate(`/api/propostas/${propostaId}`, proposalPatch, { revalidate: false })
+    await mutate(
+      '/api/crm/bootstrap',
+      (current?: Record<string, unknown> | null) => {
+        if (!current || typeof current !== 'object') {
+          return current
+        }
+
+        const propostas = Array.isArray(current.propostas) ? current.propostas : []
+        return {
+          ...current,
+          propostas: propostas.map((item: any) =>
+            item?.id === propostaId ? { ...item, ...proposalPatch } : item
+          ),
+        }
+      },
+      { revalidate: false }
+    )
+  }
+
   const refreshProposalData = async () => {
-    await mutateProposta()
+    const refreshed = await mutateProposta()
+    await syncProposalSnapshot(refreshed)
     void mutate((key) => typeof key === 'string' && key.startsWith('/api/propostas'))
   }
+
+  useEffect(() => {
+    if (!open || !propostaId || !proposta) {
+      return
+    }
+
+    void syncProposalSnapshot(proposta)
+  }, [open, proposta, propostaId])
 
   const handleCreateComment = async () => {
     if (!propostaId || !newComment.trim()) return
@@ -302,7 +346,7 @@ export function ProposalDetailsSheet({
               </div>
             </ScrollArea>
 
-            <div className="flex h-[calc(100vh-9rem)] flex-col rounded-xl border border-border bg-card">
+            <div className="flex h-[calc(100vh-9rem)] min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card">
               <div className="flex items-center gap-2 border-b border-border px-4 py-3">
                 <MessageSquare className="h-4 w-4 text-muted-foreground" />
                 <div>
@@ -313,7 +357,7 @@ export function ProposalDetailsSheet({
                 </div>
               </div>
 
-              <ScrollArea className="flex-1 px-4 py-4">
+              <ScrollArea className="min-h-0 flex-1 px-4 py-4">
                 <div className="space-y-4">
                   {proposta.comentarios?.length ? (
                     proposta.comentarios.map((item) => {
@@ -323,14 +367,14 @@ export function ProposalDetailsSheet({
                         item.usuarioId === user?.id
 
                       return (
-                        <div key={item.id} className="rounded-xl border border-border bg-secondary/20 p-4">
+                        <div key={item.id} className="min-w-0 overflow-hidden rounded-xl border border-border bg-secondary/20 p-4">
                           <div className="mb-2 flex items-start justify-between gap-3">
-                            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                            <div className="min-w-0 flex items-center gap-2 text-sm font-medium text-foreground">
                               <UserCircle2 className="h-4 w-4 text-muted-foreground" />
-                              {item.usuarioNome || 'Usuario'}
+                              <span className="truncate">{item.usuarioNome || 'Usuario'}</span>
                             </div>
                             {canManageComment && (
-                              <div className="flex items-center gap-1">
+                              <div className="shrink-0 flex items-center gap-1">
                                 <Button
                                   type="button"
                                   variant="ghost"
@@ -386,7 +430,11 @@ export function ProposalDetailsSheet({
                               </div>
                             </div>
                           ) : (
-                            <p className="text-sm leading-6 text-foreground">{item.comentario}</p>
+                            <div className="max-h-56 overflow-y-auto pr-1">
+                              <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
+                                {item.comentario}
+                              </p>
+                            </div>
                           )}
 
                           <p className="mt-3 text-xs text-muted-foreground">

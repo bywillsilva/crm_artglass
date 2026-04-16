@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
-import { useTarefas, useClientes, useUsuarios, createTarefa, updateTarefa, updateTarefaStatus, deleteTarefa, useSession } from '@/lib/hooks/use-api'
+import { createTarefa, updateTarefa, updateTarefaStatus, deleteTarefa, useSession } from '@/lib/hooks/use-api'
 import { useAppSettings } from '@/lib/context/app-settings-context'
+import { useCRM } from '@/lib/context/crm-context'
 import { CRMHeader } from '@/components/crm/header'
 import { ModuleAccessState } from '@/components/crm/module-access-state'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -34,12 +35,13 @@ import { Cliente, Tarefa, Usuario } from '@/lib/data/types'
 import { formatDateTimeLocalInputValue } from '@/lib/utils/date-time'
 
 export default function TarefasPage() {
-  const { tarefas } = useTarefas()
-  const { clientes } = useClientes()
-  const { usuarios } = useUsuarios()
+  const { state, lookups } = useCRM()
   const { appearance, general, formatDateTime, formatDate } = useAppSettings()
   const { user } = useSession()
   const hasTarefasAccess = hasModuleAccess(user, 'tarefas')
+  const tarefas = state.tarefas
+  const clientes = state.clientes
+  const usuarios = state.usuarios
 
   const [showAddForm, setShowAddForm] = useState(false)
   const [showEditForm, setShowEditForm] = useState(false)
@@ -58,27 +60,82 @@ export default function TarefasPage() {
   const [isCreatingTask, setIsCreatingTask] = useState(false)
   const [isSavingTask, setIsSavingTask] = useState(false)
 
-  const tarefasHoje = tarefas.filter((tarefa: Tarefa) => {
+  const clienteSearchTerm = clienteSearch.trim().toLowerCase()
+
+  const {
+    tarefasHoje,
+    tarefasAtrasadas,
+    tarefasFuturas,
+    tarefasPendentes,
+    tarefasOrdenadasDesc,
+    tarefasFuturasOrdenadas,
+    tarefasPorDia,
+    filteredClientes,
+  } = useMemo(() => {
     const hoje = new Date()
-    return isSameDay(new Date(tarefa.dataHora), hoje) && tarefa.status !== 'concluida'
-  })
+    const fimDeHoje = new Date(hoje)
+    fimDeHoje.setHours(23, 59, 59, 999)
 
-  const tarefasAtrasadas = tarefas.filter(
-    (tarefa: Tarefa) => new Date(tarefa.dataHora) < new Date() && tarefa.status === 'pendente'
-  )
+    const hojeItems: Tarefa[] = []
+    const atrasadasItems: Tarefa[] = []
+    const futurasItems: Tarefa[] = []
+    const pendentesItems: Tarefa[] = []
+    const tarefasDiaMap = new Map<string, Tarefa[]>()
 
-  const tarefasFuturas = tarefas.filter((tarefa: Tarefa) => {
-    const hoje = new Date()
-    hoje.setHours(23, 59, 59, 999)
-    return new Date(tarefa.dataHora) > hoje && tarefa.status !== 'concluida'
-  })
+    for (const tarefa of tarefas) {
+      const dataHora = new Date(tarefa.dataHora)
 
-  const tarefasPendentes = tarefas.filter((tarefa: Tarefa) => tarefa.status === 'pendente')
+      if (tarefa.status === 'pendente') {
+        pendentesItems.push(tarefa)
+      }
+
+      if (isSameDay(dataHora, hoje) && tarefa.status !== 'concluida') {
+        hojeItems.push(tarefa)
+      }
+
+      if (dataHora < hoje && tarefa.status === 'pendente') {
+        atrasadasItems.push(tarefa)
+      }
+
+      if (dataHora > fimDeHoje && tarefa.status !== 'concluida') {
+        futurasItems.push(tarefa)
+      }
+
+      const dayKey = format(dataHora, 'yyyy-MM-dd')
+      const grouped = tarefasDiaMap.get(dayKey)
+      if (grouped) {
+        grouped.push(tarefa)
+      } else {
+        tarefasDiaMap.set(dayKey, [tarefa])
+      }
+    }
+
+    const orderedDesc = [...tarefas].sort(
+      (a, b) => new Date(b.dataHora).getTime() - new Date(a.dataHora).getTime()
+    )
+    const futurasOrdenadas = [...futurasItems].sort(
+      (a, b) => new Date(a.dataHora).getTime() - new Date(b.dataHora).getTime()
+    )
+    const clientesFiltrados = clienteSearchTerm
+      ? clientes.filter((cliente: Cliente) => cliente.nome.toLowerCase().includes(clienteSearchTerm))
+      : clientes
+
+    return {
+      tarefasHoje: hojeItems,
+      tarefasAtrasadas: atrasadasItems,
+      tarefasFuturas: futurasItems,
+      tarefasPendentes: pendentesItems,
+      tarefasOrdenadasDesc: orderedDesc,
+      tarefasFuturasOrdenadas: futurasOrdenadas,
+      tarefasPorDia: tarefasDiaMap,
+      filteredClientes: clientesFiltrados,
+    }
+  }, [clienteSearchTerm, clientes, tarefas])
 
   const tarefasSelecionadas = useMemo(() => {
     if (!selectedDate) return []
-    return tarefas.filter((tarefa: Tarefa) => isSameDay(new Date(tarefa.dataHora), selectedDate))
-  }, [selectedDate, tarefas])
+    return tarefasPorDia.get(format(selectedDate, 'yyyy-MM-dd')) || []
+  }, [selectedDate, tarefasPorDia])
 
   if (!hasTarefasAccess) {
     return <ModuleAccessState module="tarefas" />
@@ -172,8 +229,8 @@ export default function TarefasPage() {
   }
 
   const renderTarefaItem = (tarefa: Tarefa) => {
-    const cliente = clientes.find((item: Cliente) => item.id === tarefa.clienteId)
-    const responsavel = usuarios.find((item: Usuario) => item.id === tarefa.responsavelId)
+    const cliente = lookups.clientesById.get(tarefa.clienteId)
+    const responsavel = lookups.usuariosById.get(tarefa.responsavelId)
     const canEdit = user?.role === 'admin' || tarefa.responsavelId === user?.id
 
     return (
@@ -226,15 +283,9 @@ export default function TarefasPage() {
     )
   }
 
-  const filteredClientes = clientes.filter((cliente: Cliente) =>
-    cliente.nome.toLowerCase().includes(clienteSearch.toLowerCase())
-  )
-
   const monthStart = startOfMonth(currentMonth)
   const monthEnd = endOfMonth(currentMonth)
   const days = eachDayOfInterval({ start: monthStart, end: monthEnd })
-
-  const getTarefasDia = (day: Date) => tarefas.filter((tarefa: Tarefa) => isSameDay(new Date(tarefa.dataHora), day))
 
   return (
     <>
@@ -270,7 +321,7 @@ export default function TarefasPage() {
               </TabsContent>
 
               <TabsContent value="futuras">
-                <Card className="bg-card border-border"><CardContent className="p-4">{tarefasFuturas.length === 0 ? <p className="text-center text-muted-foreground py-8">Nenhuma tarefa futura</p> : <div className="space-y-3">{tarefasFuturas.sort((a: Tarefa, b: Tarefa) => new Date(a.dataHora).getTime() - new Date(b.dataHora).getTime()).map(renderTarefaItem)}</div>}</CardContent></Card>
+                <Card className="bg-card border-border"><CardContent className="p-4">{tarefasFuturas.length === 0 ? <p className="text-center text-muted-foreground py-8">Nenhuma tarefa futura</p> : <div className="space-y-3">{tarefasFuturasOrdenadas.map(renderTarefaItem)}</div>}</CardContent></Card>
               </TabsContent>
 
               <TabsContent value="pendentes">
@@ -278,7 +329,7 @@ export default function TarefasPage() {
               </TabsContent>
 
               <TabsContent value="todas">
-                <Card className="bg-card border-border"><CardContent className="p-4"><div className="space-y-3">{tarefas.sort((a: Tarefa, b: Tarefa) => new Date(b.dataHora).getTime() - new Date(a.dataHora).getTime()).map(renderTarefaItem)}</div></CardContent></Card>
+                <Card className="bg-card border-border"><CardContent className="p-4"><div className="space-y-3">{tarefasOrdenadasDesc.map(renderTarefaItem)}</div></CardContent></Card>
               </TabsContent>
 
               {selectedDate && (
@@ -326,7 +377,7 @@ export default function TarefasPage() {
                   {Array.from({ length: monthStart.getDay() }).map((_, index) => <div key={`pad-${index}`} />)}
 
                   {days.map((day) => {
-                    const tarefasDia = getTarefasDia(day)
+                    const tarefasDia = tarefasPorDia.get(format(day, 'yyyy-MM-dd')) || []
                     const hasAtrasadas = tarefasDia.some((tarefa: Tarefa) => tarefa.status === 'pendente' && new Date(tarefa.dataHora) < new Date())
                     const isSelected = selectedDate ? isSameDay(day, selectedDate) : false
 

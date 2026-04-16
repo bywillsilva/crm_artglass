@@ -1,19 +1,53 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { query } from '@/lib/db/mysql'
+import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
 import { ensureUserManagementSchema } from '@/lib/server/proposal-workflow'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
+import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
+
+const USUARIO_DETAIL_CACHE_TTL_MS = Math.max(
+  Number(process.env.USUARIO_DETAIL_CACHE_TTL_MS || 30_000),
+  1000
+)
+
+function parseNullableNumber(value: unknown, fallback = 0) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : fallback
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return fallback
+
+    const normalized = trimmed
+      .replace(/\s+/g, '')
+      .replace(/\.(?=\d{3}(?:\D|$))/g, '')
+      .replace(',', '.')
+
+    const parsed = Number(normalized)
+    return Number.isFinite(parsed) ? parsed : fallback
+  }
+
+  return fallback
+}
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
+  const cacheKey = `usuario:detail:${id}`
+
   try {
     await ensureUserManagementSchema()
 
-    const { id } = await params
+    const cachedUsuario = getRuntimeCache<any>(cacheKey)
+    if (cachedUsuario !== undefined) {
+      return NextResponse.json(cachedUsuario)
+    }
+
     const [usuario] = await query<any[]>(
       'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, created_at FROM usuarios WHERE id = ?',
       [id]
@@ -23,9 +57,18 @@ export async function GET(
       return NextResponse.json({ error: 'Usuario nao encontrado' }, { status: 404 })
     }
 
+    setRuntimeCache(cacheKey, usuario, USUARIO_DETAIL_CACHE_TTL_MS)
     return NextResponse.json(usuario)
   } catch (error) {
     console.error('Erro ao buscar usuario:', error)
+
+    if (isTransientDatabaseError(error)) {
+      const cachedUsuario = getRuntimeCache<any>(cacheKey)
+      if (cachedUsuario) {
+        return NextResponse.json(cachedUsuario, { status: 200 })
+      }
+    }
+
     return NextResponse.json({ error: 'Erro ao buscar usuario' }, { status: 500 })
   }
 }
@@ -84,7 +127,7 @@ export async function PUT(
       iniciais,
       nextRole,
       data.ativo,
-      Number(data.metaVendas ?? data.meta_vendas ?? 0),
+      parseNullableNumber(data.metaVendas ?? data.meta_vendas, 0),
     ]
 
     sql += ', module_permissions = ?'

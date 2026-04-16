@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
-import { query } from '@/lib/db/mysql'
-import { getServerSession } from '@/lib/auth/session'
+import { isTransientDatabaseError, query } from '@/lib/db/mysql'
+import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { deleteStoredFiles, saveProposalFiles } from '@/lib/server/proposal-files'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
-import { invalidateRuntimeCache } from '@/lib/server/runtime-cache'
+import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import {
   canOrcamentistaAccessProposal,
   ensureCrmRuntimeSchema,
@@ -17,6 +17,11 @@ import {
   syncProposalAutomation,
   type ProposalWorkflowStatus,
 } from '@/lib/server/proposal-workflow'
+
+const PROPOSTA_DETAIL_CACHE_TTL_MS = Math.max(
+  Number(process.env.PROPOSTA_DETAIL_CACHE_TTL_MS || 30_000),
+  1000
+)
 
 type ProposalPayload = {
   titulo?: string
@@ -43,6 +48,12 @@ type ProposalPayload = {
   anexos: File[]
 }
 
+type ProposalAttachmentRecord = {
+  id: string
+  nome_original: string | null
+  tipo_mime: string | null
+}
+
 type SellerWorkflowAction =
   | 'enviado_ao_cliente'
   | 'em_retificacao'
@@ -55,11 +66,20 @@ function isPdfFile(file: File) {
   return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
 }
 
+function isPdfAttachmentRecord(anexo: ProposalAttachmentRecord) {
+  return (
+    anexo.tipo_mime === 'application/pdf' ||
+    String(anexo.nome_original || '').toLowerCase().endsWith('.pdf')
+  )
+}
+
 const SELLER_VISIBLE_STATUSES: ProposalWorkflowStatus[] = [
   'enviar_ao_cliente',
   'enviado_ao_cliente',
   'follow_up_1_dia',
+  'aguardando_follow_up_3_dias',
   'follow_up_3_dias',
+  'aguardando_follow_up_7_dias',
   'follow_up_7_dias',
   'stand_by',
   'fechado',
@@ -70,7 +90,9 @@ const SELLER_ALLOWED_TRANSITIONS: Partial<Record<ProposalWorkflowStatus, Proposa
   enviar_ao_cliente: ['enviado_ao_cliente'],
   enviado_ao_cliente: ['follow_up_1_dia', 'em_retificacao', 'perdido', 'fechado'],
   follow_up_1_dia: ['aguardando_follow_up_3_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  aguardando_follow_up_3_dias: ['follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
   follow_up_3_dias: ['aguardando_follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  aguardando_follow_up_7_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by'],
   follow_up_7_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by'],
   stand_by: ['stand_by', 'enviar_ao_cliente', 'enviado_ao_cliente', 'em_retificacao', 'fechado', 'perdido'],
 }
@@ -89,7 +111,9 @@ const WORKFLOW_ALLOWED_TRANSITIONS: Partial<Record<ProposalWorkflowStatus, Propo
   enviar_ao_cliente: ['enviado_ao_cliente', 'aguardando_aprovacao', 'em_retificacao', 'em_orcamento'],
   enviado_ao_cliente: ['follow_up_1_dia', 'fechado', 'perdido', 'em_retificacao'],
   follow_up_1_dia: ['follow_up_3_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  aguardando_follow_up_3_dias: ['follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
   follow_up_3_dias: ['follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  aguardando_follow_up_7_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by'],
   follow_up_7_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by'],
   stand_by: ['enviado_ao_cliente', 'em_retificacao', 'fechado', 'perdido'],
   fechado: ['enviado_ao_cliente', 'em_retificacao'],
@@ -118,7 +142,13 @@ function parseNullableNumber(value: unknown) {
   if (typeof value === 'string') {
     const trimmed = value.trim()
     if (!trimmed) return null
-    const parsed = Number(trimmed.replace(',', '.'))
+
+    const normalized = trimmed
+      .replace(/\s+/g, '')
+      .replace(/\.(?=\d{3}(?:\D|$))/g, '')
+      .replace(',', '.')
+
+    const parsed = Number(normalized)
     return Number.isFinite(parsed) ? parsed : null
   }
 
@@ -162,7 +192,9 @@ function isSellerWorkflowActionAllowed(
     enviar_ao_cliente: ['enviado_ao_cliente'],
     enviado_ao_cliente: ['fechado', 'perdido', 'em_retificacao', 'outra_justificativa'],
     follow_up_1_dia: ['fechado', 'perdido', 'em_retificacao', 'stand_by', 'outra_justificativa'],
+    aguardando_follow_up_3_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by', 'outra_justificativa'],
     follow_up_3_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by', 'outra_justificativa'],
+    aguardando_follow_up_7_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by'],
     follow_up_7_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by'],
     stand_by: ['fechado', 'perdido', 'em_retificacao', 'enviado_ao_cliente'],
   }
@@ -205,9 +237,7 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
       clienteTelefone: String(formData.get('clienteTelefone') || '') || null,
       clienteEmail: String(formData.get('clienteEmail') || '') || null,
       clienteEndereco: String(formData.get('clienteEndereco') || '') || null,
-      clienteValorFechado: formData.get('clienteValorFechado')
-        ? Number(formData.get('clienteValorFechado'))
-        : undefined,
+      clienteValorFechado: parseNullableNumber(formData.get('clienteValorFechado')),
       anexos: formData
         .getAll('anexos')
         .filter((value): value is File => value instanceof File && value.size > 0),
@@ -242,21 +272,7 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
 }
 
 async function getAuthenticatedUser() {
-  const session = await getServerSession()
-  if (!session) {
-    return null
-  }
-
-  const [user] = await query<any[]>(
-    'SELECT id, role, ativo FROM usuarios WHERE id = ? LIMIT 1',
-    [session.userId]
-  )
-
-  if (!user || !user.ativo) {
-    return null
-  }
-
-  return user
+  return getAuthenticatedServerUser()
 }
 
 async function getProposal(id: string) {
@@ -271,6 +287,15 @@ async function getProposal(id: string) {
   )
 
   return proposta
+}
+
+async function getProposalAttachments(id: string) {
+  return query<ProposalAttachmentRecord[]>(
+    `SELECT id, nome_original, tipo_mime
+     FROM proposta_anexos
+     WHERE proposta_id = ?`,
+    [id]
+  )
 }
 
 function canViewProposal(user: any, proposta: any) {
@@ -343,7 +368,11 @@ async function persistProposalComment(propostaId: string, usuarioId: string, com
   )
 }
 
-function formatWorkflowComment(action: SellerWorkflowAction | null, comentario: string | null) {
+function formatWorkflowComment(
+  action: SellerWorkflowAction | null,
+  nextStatus: ProposalWorkflowStatus,
+  comentario: string | null
+) {
   const cleaned = comentario?.trim()
   if (!cleaned) {
     return null
@@ -359,6 +388,15 @@ function formatWorkflowComment(action: SellerWorkflowAction | null, comentario: 
     case 'stand_by':
       return `Stand-by\n${cleaned}`
     default:
+      if (nextStatus === 'em_retificacao') {
+        return `Retificacao\n${cleaned}`
+      }
+      if (nextStatus === 'perdido') {
+        return `Perdido\n${cleaned}`
+      }
+      if (nextStatus === 'stand_by') {
+        return `Stand-by\n${cleaned}`
+      }
       return cleaned
   }
 }
@@ -367,6 +405,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
+
   try {
     await ensureBaseSchema()
 
@@ -375,7 +415,12 @@ export async function GET(
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
 
-    const { id } = await params
+    const cacheKey = `proposta:detail:${user.id}:${user.role}:${id}`
+    const cachedProposta = getRuntimeCache<any>(cacheKey)
+    if (cachedProposta !== undefined) {
+      return NextResponse.json(cachedProposta)
+    }
+
     const proposta = await getProposal(id)
 
     if (!proposta) {
@@ -404,13 +449,30 @@ export async function GET(
       [id]
     )
 
-    return NextResponse.json({
+    const payload = {
       ...proposta,
       anexos,
       comentarios,
-    })
+    }
+
+    setRuntimeCache(cacheKey, payload, PROPOSTA_DETAIL_CACHE_TTL_MS)
+    return NextResponse.json(payload)
   } catch (error) {
     console.error('Erro ao buscar proposta:', error)
+
+    if (isTransientDatabaseError(error)) {
+      const user = await getAuthenticatedUser().catch(() => null)
+      if (!user) {
+        return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+      }
+
+      const cacheKey = `proposta:detail:${user.id}:${user.role}:${id}`
+      const cachedProposta = getRuntimeCache<any>(cacheKey)
+      if (cachedProposta) {
+        return NextResponse.json(cachedProposta, { status: 200 })
+      }
+    }
+
     return NextResponse.json({ error: 'Erro ao buscar proposta' }, { status: 500 })
   }
 }
@@ -451,10 +513,18 @@ export async function PUT(
       user.role === 'vendedor' && workflowAction
         ? resolveSellerWorkflowStatus(previousStatus, workflowAction)
         : normalizeProposalStatus(data.status ?? propostaAtual.status)
+    const mustValidateApprovalRequirements =
+      ['orcamentista', 'admin', 'gerente'].includes(user.role) &&
+      previousStatus !== 'aguardando_aprovacao' &&
+      nextStatus === 'aguardando_aprovacao'
+    const anexosAtuaisPromise =
+      mustValidateApprovalRequirements
+        ? getProposalAttachments(id)
+        : Promise.resolve([] as ProposalAttachmentRecord[])
     const isStatusChange = nextStatus !== previousStatus
     const justificationText = normalizeNullableText(data.justificativa)
     const rawCommentText = normalizeNullableText(data.comentario) ?? justificationText
-    const commentText = formatWorkflowComment(workflowAction, rawCommentText)
+    const commentText = formatWorkflowComment(workflowAction, nextStatus, rawCommentText)
     const requiresFollowUpComment =
       isStatusChange &&
       ((previousStatus === 'enviado_ao_cliente' && nextStatus === 'follow_up_1_dia') ||
@@ -560,12 +630,11 @@ export async function PUT(
       )
     }
 
-    if (
-      user.role === 'orcamentista' &&
-      previousStatus !== 'aguardando_aprovacao' &&
-      nextStatus === 'aguardando_aprovacao' &&
-      !data.anexos.some(isPdfFile)
-    ) {
+    const anexosAtuais = await anexosAtuaisPromise
+    const hasExistingProposalPdf = anexosAtuais.some(isPdfAttachmentRecord)
+    const hasNewProposalPdf = data.anexos.some(isPdfFile)
+
+    if (mustValidateApprovalRequirements && !hasExistingProposalPdf && !hasNewProposalPdf) {
       return NextResponse.json(
         { error: 'Anexe obrigatoriamente a proposta em PDF antes de enviar para aprovacao.' },
         { status: 400 }

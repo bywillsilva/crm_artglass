@@ -1,11 +1,22 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowRightLeft, CheckCircle2, Clock3, MessageSquare, Paperclip, Pencil } from 'lucide-react'
+import {
+  AlertTriangle,
+  ArrowRightLeft,
+  Check,
+  CheckCircle2,
+  Clock3,
+  Eye,
+  MessageSquare,
+  Paperclip,
+  Pencil,
+  RefreshCw,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
-import { useSession } from '@/lib/hooks/use-api'
+import { useProposta, useSession } from '@/lib/hooks/use-api'
 import {
   getProposalCardVisualState,
   getProposalTaskStage,
@@ -82,6 +93,12 @@ const SELLER_COLUMNS: StatusProposta[] = [
   'perdido',
 ]
 
+function resolveKanbanDisplayStatus(status: StatusProposta): StatusProposta {
+  if (status === 'aguardando_follow_up_3_dias') return 'follow_up_3_dias'
+  if (status === 'aguardando_follow_up_7_dias') return 'follow_up_7_dias'
+  return status
+}
+
 const SELLER_ACTION_LABELS: Record<SellerMoveAction, string> = {
   enviado_ao_cliente: 'Enviado ao cliente',
   em_retificacao: 'Enviar para retificacao',
@@ -89,6 +106,25 @@ const SELLER_ACTION_LABELS: Record<SellerMoveAction, string> = {
   perdido: 'Perdido',
   stand_by: 'Stand-by',
   outra_justificativa: 'Outra justificativa',
+}
+
+function getAdminCommercialStatusOptions(status: StatusProposta): StatusProposta[] {
+  switch (status) {
+    case 'enviar_ao_cliente':
+      return ['enviado_ao_cliente', 'aguardando_aprovacao', 'em_retificacao', 'em_orcamento']
+    case 'enviado_ao_cliente':
+      return ['follow_up_1_dia', 'fechado', 'perdido', 'em_retificacao']
+    case 'follow_up_1_dia':
+      return ['follow_up_3_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by']
+    case 'follow_up_3_dias':
+      return ['follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by']
+    case 'follow_up_7_dias':
+      return ['fechado', 'perdido', 'em_retificacao', 'stand_by']
+    case 'stand_by':
+      return ['enviado_ao_cliente', 'em_retificacao', 'fechado', 'perdido']
+    default:
+      return []
+  }
 }
 
 type DragPointerType = 'mouse' | 'touch' | 'pen'
@@ -142,8 +178,10 @@ function getSellerActionOptions(status: StatusProposta): SellerMoveAction[] {
     case 'enviado_ao_cliente':
       return ['fechado', 'perdido', 'em_retificacao', 'outra_justificativa']
     case 'follow_up_1_dia':
+    case 'aguardando_follow_up_3_dias':
     case 'follow_up_3_dias':
       return ['fechado', 'perdido', 'em_retificacao', 'stand_by', 'outra_justificativa']
+    case 'aguardando_follow_up_7_dias':
     case 'follow_up_7_dias':
       return ['fechado', 'perdido', 'em_retificacao', 'stand_by']
     case 'stand_by':
@@ -175,6 +213,10 @@ function isPdfFile(file: File) {
   return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
 }
 
+function isPdfAttachment(anexo: { tipoMime?: string; nome?: string }) {
+  return anexo.tipoMime === 'application/pdf' || String(anexo.nome || '').toLowerCase().endsWith('.pdf')
+}
+
 function parseProposalNumericInput(value: string) {
   const trimmed = value.trim()
   if (!trimmed) return null
@@ -194,6 +236,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const { user } = useSession()
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
   const [sellerAction, setSellerAction] = useState<SellerMoveAction | ''>('')
+  const [adminMoveStatus, setAdminMoveStatus] = useState<StatusProposta | ''>('')
   const [moveComment, setMoveComment] = useState('')
   const [followUpTime, setFollowUpTime] = useState('')
   const [moveValue, setMoveValue] = useState('')
@@ -315,7 +358,9 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       )
     }
     return source.filter(
-      (proposta) => proposta.responsavelId === user?.id && SELLER_COLUMNS.includes(proposta.status)
+      (proposta) =>
+        proposta.responsavelId === user?.id &&
+        SELLER_COLUMNS.includes(resolveKanbanDisplayStatus(proposta.status))
     )
   }, [propostasBase, user?.id, user?.role])
 
@@ -337,8 +382,9 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     >
 
     for (const proposta of propostasVisiveis) {
-      if (proposta.status in grouped) {
-        grouped[proposta.status].push(proposta)
+      const displayStatus = resolveKanbanDisplayStatus(proposta.status)
+      if (displayStatus in grouped) {
+        grouped[displayStatus].push(proposta)
       }
     }
 
@@ -385,7 +431,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
 
   const getCardState = (proposta: Proposta) => {
     const task = getProposalAutoTask(proposta.id, getProposalTaskStage(proposta.status))
-    return getProposalCardVisualState(proposta.status, task, formatDateTime)
+    return getProposalCardVisualState(resolveKanbanDisplayStatus(proposta.status), task, formatDateTime)
   }
 
   const clearTouchPendingDrag = (releasePointer = false) => {
@@ -442,8 +488,13 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
 
   const requestMove = (propostaId: string, targetStatus: StatusProposta) => {
     const proposta = propostasById.get(propostaId)
-    const canOpenSameStatusSellerAction = user?.role === 'vendedor' && proposta?.status === targetStatus
-    if (!proposta || (proposta.status === targetStatus && !canOpenSameStatusSellerAction)) {
+    const isCommercialCard = proposta ? SELLER_COLUMNS.includes(resolveKanbanDisplayStatus(proposta.status)) : false
+    const canOpenSameStatusGuidedAction =
+      proposta?.status === targetStatus &&
+      isCommercialCard &&
+      ['vendedor', 'admin', 'gerente'].includes(user?.role || '')
+
+    if (!proposta || (proposta.status === targetStatus && !canOpenSameStatusGuidedAction)) {
       return
     }
 
@@ -455,8 +506,9 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         ? 'enviado_ao_cliente'
         : ''
     )
+    setAdminMoveStatus('')
     setMoveComment('')
-    setMoveValue(proposta.valor > 0 && user?.role === 'vendedor' ? String(proposta.valor) : '')
+    setMoveValue(proposta.valor > 0 ? String(proposta.valor) : '')
     setMoveFiles([])
     setFollowUpTime(
       ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias'].includes(targetStatus)
@@ -640,15 +692,15 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         return effectiveSellerAction as StatusProposta
       }
 
-      if (proposta.status === 'follow_up_1_dia' && pendingMove.targetStatus === 'follow_up_3_dias') {
+      if (proposta.status === 'follow_up_1_dia' && resolvedTargetStatus === 'follow_up_3_dias') {
         return 'aguardando_follow_up_3_dias'
       }
 
-      if (proposta.status === 'follow_up_3_dias' && pendingMove.targetStatus === 'follow_up_7_dias') {
+      if (proposta.status === 'follow_up_3_dias' && resolvedTargetStatus === 'follow_up_7_dias') {
         return 'aguardando_follow_up_7_dias'
       }
 
-      return pendingMove.targetStatus
+      return resolvedTargetStatus
     })()
     const parsedMoveValue = parseProposalNumericInput(moveValue)
     const nextValue =
@@ -666,7 +718,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     try {
       await updateProposta({
         ...proposta,
-        status: isSellerMove ? proposta.status : currentPendingMove.targetStatus,
+        status: isSellerMove ? proposta.status : resolvedTargetStatus,
         valor: nextValue,
         comentario: requiresMoveComment ? moveComment : null,
         justificativa: requiresMoveComment ? moveComment : null,
@@ -683,6 +735,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       toast.success('Proposta atualizada com sucesso.')
       setPendingMove(null)
       setSellerAction('')
+      setAdminMoveStatus('')
       setMoveComment('')
       setFollowUpTime('')
       setMoveValue('')
@@ -712,32 +765,94 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const pendingMoveProposal = pendingMove
     ? propostasById.get(pendingMove.propostaId) || null
     : null
+  const pendingMoveDisplayStatus = pendingMoveProposal
+    ? resolveKanbanDisplayStatus(pendingMoveProposal.status)
+    : null
   const isSellerMove = user?.role === 'vendedor' && Boolean(pendingMoveProposal)
+  const isAdminCommercialMove =
+    Boolean(pendingMoveProposal) &&
+    (user?.role === 'admin' || user?.role === 'gerente') &&
+    Boolean(pendingMoveDisplayStatus && SELLER_COLUMNS.includes(pendingMoveDisplayStatus)) &&
+    pendingMove?.targetStatus === pendingMoveProposal?.status
   const sellerActionOptions = pendingMoveProposal ? getSellerActionOptions(pendingMoveProposal.status) : []
+  const adminCommercialOptions = pendingMoveProposal
+    ? getAdminCommercialStatusOptions(pendingMoveDisplayStatus || pendingMoveProposal.status)
+    : []
   const selectedSellerAction = isSellerMove ? sellerAction : ''
-  const sellerCanOnlyConfirmSend = pendingMoveProposal?.status === 'enviar_ao_cliente'
+  const sellerCanOnlyConfirmSend = isSellerMove && pendingMoveProposal?.status === 'enviar_ao_cliente'
   const effectiveSellerAction =
     sellerCanOnlyConfirmSend && isSellerMove
       ? ('enviado_ao_cliente' as SellerMoveAction)
       : (selectedSellerAction as SellerMoveAction | '')
   const shouldShowSellerActionSelect = isSellerMove && !sellerCanOnlyConfirmSend
+  const resolvedAdminMoveStatus = isAdminCommercialMove ? adminMoveStatus : pendingMove?.targetStatus || ''
+  const resolvedTargetStatus = (() => {
+    if (isSellerMove && effectiveSellerAction && pendingMoveProposal) {
+      if (effectiveSellerAction === 'outra_justificativa') {
+        if (pendingMoveProposal.status === 'enviado_ao_cliente') return 'follow_up_1_dia' as StatusProposta
+        if (pendingMoveProposal.status === 'follow_up_1_dia') return 'follow_up_3_dias' as StatusProposta
+        if (pendingMoveProposal.status === 'follow_up_3_dias') return 'follow_up_7_dias' as StatusProposta
+      }
+
+      return effectiveSellerAction as StatusProposta
+    }
+
+    return resolvedAdminMoveStatus as StatusProposta
+  })()
+  const approvalValidationProposalId =
+    pendingMove &&
+    ['orcamentista', 'admin', 'gerente'].includes(user?.role || '') &&
+    resolvedTargetStatus === 'aguardando_aprovacao'
+      ? pendingMove.propostaId
+      : null
+  const {
+    proposta: approvalValidationProposalData,
+    isLoading: isLoadingApprovalValidationProposal,
+  } = useProposta(approvalValidationProposalId)
   const requiresMoveComment =
     effectiveSellerAction === 'em_retificacao' ||
     effectiveSellerAction === 'outra_justificativa' ||
     effectiveSellerAction === 'perdido' ||
-    effectiveSellerAction === 'stand_by'
+    effectiveSellerAction === 'stand_by' ||
+    (!isSellerMove &&
+      ['em_retificacao', 'perdido', 'stand_by'].includes(resolvedTargetStatus || ''))
   const requiresFollowUpTime =
-    effectiveSellerAction === 'outra_justificativa' &&
-    ['enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias'].includes(
-      pendingMoveProposal?.status || ''
-    )
-  const requiresBudgetValue = false
-  const requiresAttachment =
-    user?.role === 'orcamentista' &&
-    pendingMove?.targetStatus === 'aguardando_aprovacao'
+    (effectiveSellerAction === 'outra_justificativa' &&
+      ['enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias'].includes(
+        pendingMoveProposal?.status || ''
+      )) ||
+    (!isSellerMove &&
+      ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias'].includes(resolvedTargetStatus || ''))
+  const approvalValidationActive =
+    ['orcamentista', 'admin', 'gerente'].includes(user?.role || '') &&
+    resolvedTargetStatus === 'aguardando_aprovacao'
+  const approvalTargetProposal = approvalValidationProposalData || pendingMoveProposal
+  const hasExistingProposalPdf = approvalTargetProposal
+    ? Array.isArray(approvalTargetProposal.anexos)
+      ? approvalTargetProposal.anexos.some(isPdfAttachment)
+      : false
+    : false
+  const parsedMoveValue = parseProposalNumericInput(moveValue)
+  const approvalValue =
+    parsedMoveValue ?? (approvalTargetProposal?.valor && approvalTargetProposal.valor > 0
+      ? approvalTargetProposal.valor
+      : 0)
+  const requiresBudgetValue = approvalValidationActive && approvalValue <= 0
+  const requiresAttachment = approvalValidationActive && !hasExistingProposalPdf
   const hasRequiredPdfAttachment = !requiresAttachment || moveFiles.some(isPdfFile)
-  const requiresClosedClientData = effectiveSellerAction === 'fechado'
-  const hasInvalidMoveValue = moveValue.trim() !== '' && parseProposalNumericInput(moveValue) === null
+  const approvalRequirementsReady = !approvalValidationActive || !isLoadingApprovalValidationProposal
+  const approvalRequirementsMessage = approvalValidationActive
+    ? requiresBudgetValue && requiresAttachment
+      ? 'Para enviar esta proposta para aprovacao, informe o valor do orcamento e anexe a proposta em PDF.'
+      : requiresBudgetValue
+        ? 'Para enviar esta proposta para aprovacao, informe o valor do orcamento.'
+        : requiresAttachment
+          ? 'Para enviar esta proposta para aprovacao, anexe a proposta em PDF.'
+          : 'Esta proposta ja tem os dados obrigatorios para seguir para aprovacao.'
+    : null
+  const requiresClosedClientData =
+    effectiveSellerAction === 'fechado' || (!isSellerMove && resolvedTargetStatus === 'fechado')
+  const hasInvalidMoveValue = moveValue.trim() !== '' && parsedMoveValue === null
   const isSchedulingFollowUp = requiresFollowUpTime
   const pendingMoveTargetLabel = pendingMove ? statusPropostaLabels[pendingMove.targetStatus] : ''
   const touchMoveProposal = touchMovePropostaId ? propostasById.get(touchMovePropostaId) || null : null
@@ -871,34 +986,45 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="text-sm font-semibold text-foreground">
-                              {lookups.clientesById.get(proposta.clienteId)?.nome || 'Cliente'}
+                              {lookups.clientesById.get(proposta.clienteId)?.nome || proposta.clienteNome || 'Cliente'}
                             </p>
                             <p className="mt-1 text-lg font-bold text-foreground">
                               {formatCurrency(proposta.valor)}
                             </p>
                           </div>
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1 rounded-full border border-border/70 bg-background/70 px-1 py-1">
                             {isTouchDevice && user?.role !== 'vendedor' ? (
                               <Button
                                 variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
+                                size="icon-sm"
+                                className="rounded-full text-muted-foreground hover:text-foreground"
+                                title="Mover card"
+                                aria-label="Mover card"
                                 onClick={() => openTouchMovePicker(proposta.id)}
                               >
                                 <ArrowRightLeft className="h-4 w-4" />
                               </Button>
                             ) : null}
-                            <Button variant="ghost" size="sm" className="h-8 px-2 text-xs" onClick={() => setDetailsPropostaId(proposta.id)}>
-                              Ver detalhes
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className="rounded-full text-muted-foreground hover:text-foreground"
+                              title="Ver detalhes"
+                              aria-label="Ver detalhes"
+                              onClick={() => setDetailsPropostaId(proposta.id)}
+                            >
+                              <Eye className="h-4 w-4" />
                             </Button>
                             {user?.role === 'vendedor' && proposta.status === 'enviar_ao_cliente' ? (
                               <Button
                                 variant="ghost"
-                                size="sm"
-                                className="h-8 px-2 text-xs"
+                                size="icon-sm"
+                                className="rounded-full text-emerald-500 hover:text-emerald-400"
+                                title="Confirmar envio ao cliente"
+                                aria-label="Confirmar envio ao cliente"
                                 onClick={() => requestMove(proposta.id, proposta.status)}
                               >
-                                OK
+                                <Check className="h-4 w-4" />
                               </Button>
                             ) : null}
                             {user?.role === 'vendedor' &&
@@ -906,15 +1032,37 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                             getSellerActionOptions(proposta.status).length > 0 ? (
                               <Button
                                 variant="ghost"
-                                size="sm"
-                                className="h-8 px-2 text-xs"
+                                size="icon-sm"
+                                className="rounded-full text-amber-500 hover:text-amber-400"
+                                title="Atualizar status"
+                                aria-label="Atualizar status"
                                 onClick={() => requestMove(proposta.id, proposta.status)}
                               >
-                                Atualizar status
+                                <RefreshCw className="h-4 w-4" />
+                              </Button>
+                            ) : null}
+                            {(user?.role === 'admin' || user?.role === 'gerente') &&
+                            SELLER_COLUMNS.includes(resolveKanbanDisplayStatus(proposta.status)) ? (
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className="rounded-full text-amber-500 hover:text-amber-400"
+                                title="Atualizar status"
+                                aria-label="Atualizar status"
+                                onClick={() => requestMove(proposta.id, proposta.status)}
+                              >
+                                <RefreshCw className="h-4 w-4" />
                               </Button>
                             ) : null}
                             {user?.role !== 'vendedor' ? (
-                              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingPropostaId(proposta.id)}>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                className="rounded-full text-muted-foreground hover:text-foreground"
+                                title="Editar proposta"
+                                aria-label="Editar proposta"
+                                onClick={() => setEditingPropostaId(proposta.id)}
+                              >
                                 <Pencil className="h-4 w-4" />
                               </Button>
                             ) : null}
@@ -933,11 +1081,11 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                         <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
                           <span className="flex items-center gap-1">
                             <Paperclip className="h-3 w-3" />
-                            {proposta.anexosCount ?? proposta.anexos?.length ?? 0}
+                            {proposta.anexos?.length ?? proposta.anexosCount ?? 0}
                           </span>
                           <span className="flex items-center gap-1">
                             <MessageSquare className="h-3 w-3" />
-                            {proposta.comentariosCount ?? proposta.comentarios?.length ?? 0}
+                            {proposta.comentarios?.length ?? proposta.comentariosCount ?? 0}
                           </span>
                         </div>
 
@@ -992,7 +1140,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-foreground">
-                  {lookups.clientesById.get(draggedTouchProposal.clienteId)?.nome || 'Cliente'}
+                    {lookups.clientesById.get(draggedTouchProposal.clienteId)?.nome || draggedTouchProposal.clienteNome || 'Cliente'}
                 </p>
                 <p className="mt-1 text-lg font-bold text-foreground">
                   {formatCurrency(draggedTouchProposal.valor)}
@@ -1063,6 +1211,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
           if (!open) {
             setPendingMove(null)
             setSellerAction('')
+            setAdminMoveStatus('')
             setMoveComment('')
             setFollowUpTime('')
             setMoveValue('')
@@ -1075,7 +1224,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
             <DialogTitle>
               {sellerCanOnlyConfirmSend
                 ? 'Confirmar envio ao cliente'
-                : isSellerMove
+                : isSellerMove || isAdminCommercialMove
                 ? 'Atualizar status da proposta'
                 : isSchedulingFollowUp
                   ? `Agendar ${pendingMoveTargetLabel}`
@@ -1083,7 +1232,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {isSellerMove && pendingMoveProposal ? (
+            {(isSellerMove || isAdminCommercialMove) && pendingMoveProposal ? (
               <div className="space-y-3 rounded-xl border border-border bg-secondary/20 p-4">
                 {shouldShowSellerActionSelect ? (
                   <>
@@ -1098,6 +1247,27 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                         {sellerActionOptions.map((option) => (
                           <SelectItem key={option} value={option}>
                             {SELLER_ACTION_LABELS[option]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </>
+                ) : isAdminCommercialMove ? (
+                  <>
+                    <p className="text-sm font-medium text-foreground">
+                      Escolha o novo status desta proposta nesta etapa comercial.
+                    </p>
+                    <Select
+                      value={adminMoveStatus}
+                      onValueChange={(value) => setAdminMoveStatus(value as StatusProposta)}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Selecione o novo status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {adminCommercialOptions.map((statusOption) => (
+                          <SelectItem key={statusOption} value={statusOption}>
+                            {statusPropostaLabels[statusOption]}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -1133,6 +1303,15 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                 </div>
               </div>
             )}
+            {approvalValidationActive ? (
+              <div className="space-y-2 rounded-xl border border-border bg-secondary/20 p-4">
+                <p className="text-sm font-medium text-foreground">
+                  {isLoadingApprovalValidationProposal
+                    ? 'Validando os requisitos desta proposta para envio a aprovacao...'
+                    : approvalRequirementsMessage}
+                </p>
+              </div>
+            ) : null}
             {requiresBudgetValue && (
               <div className="space-y-3 rounded-xl border border-border bg-secondary/20 p-4">
                 <p className="text-sm font-medium text-foreground">
@@ -1141,9 +1320,8 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                 <div className="max-w-xs space-y-2">
                   <label className="text-sm font-medium text-foreground">Valor do orçamento</label>
                   <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
+                    type="text"
+                    inputMode="decimal"
                     value={moveValue}
                     onChange={(event) => setMoveValue(event.target.value)}
                     placeholder="0,00"
@@ -1154,7 +1332,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
             {requiresAttachment && (
               <div className="space-y-3 rounded-xl border border-border bg-secondary/20 p-4">
                 <p className="text-sm font-medium text-foreground">
-                  Anexe obrigatoriamente a proposta em PDF antes de enviar para aprovacao.
+                  Anexe obrigatoriamente a proposta em PDF antes de enviar para aprovacao quando esta proposta ainda nao tiver anexo.
                 </p>
                 <Input
                   type="file"
@@ -1251,8 +1429,10 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                 onClick={() => void confirmMove()}
                 pending={isSubmittingMove}
                 disabled={
-                    isSubmittingMove ||
+                  isSubmittingMove ||
+                    !approvalRequirementsReady ||
                     (isSellerMove && !effectiveSellerAction) ||
+                    (isAdminCommercialMove && !resolvedTargetStatus) ||
                     hasInvalidMoveValue ||
                     (requiresBudgetValue && (parseProposalNumericInput(moveValue) ?? 0) <= 0) ||
                     !hasRequiredPdfAttachment ||

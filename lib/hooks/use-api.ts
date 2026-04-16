@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import useSWR, { mutate } from 'swr'
+import useSWR, { mutate, useSWRConfig } from 'swr'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
 import {
   formatDateOnlyLocalValue,
@@ -39,7 +39,7 @@ const READ_ONLY_SWR_OPTIONS = {
   revalidateOnReconnect: false,
   revalidateOnFocus: false,
   revalidateIfStale: false,
-  dedupingInterval: 15000,
+  dedupingInterval: 30000,
 } as const
 
 const REALTIME_REVALIDATE_PREFIXES = [
@@ -52,6 +52,16 @@ const REALTIME_REVALIDATE_PREFIXES = [
   '/api/dashboard',
   '/api/configuracoes',
 ] as const
+
+const MODULE_REALTIME_PREFIXES: Record<string, readonly string[]> = {
+  clientes: ['/api/crm/bootstrap', '/api/clientes', '/api/dashboard'],
+  propostas: ['/api/crm/bootstrap', '/api/propostas', '/api/dashboard'],
+  tarefas: ['/api/crm/bootstrap', '/api/tarefas', '/api/dashboard'],
+  usuarios: ['/api/crm/bootstrap', '/api/usuarios'],
+  interacoes: ['/api/interacoes'],
+  configuracoes: ['/api/configuracoes'],
+  global: REALTIME_REVALIDATE_PREFIXES,
+}
 
 function toNumber(value: unknown) {
   const parsed = Number(value)
@@ -275,7 +285,7 @@ function normalizeProposta(row: JsonRecord): Proposta {
           usuarioId: anexo.usuario_id ?? anexo.usuarioId ?? '',
           criadoEm: toDate(anexo.created_at ?? anexo.criadoEm ?? row.created_at),
         }))
-      : [],
+      : undefined,
     comentarios: Array.isArray(row.comentarios)
       ? row.comentarios.map((comentario: JsonRecord) => ({
           id: comentario.id,
@@ -285,7 +295,7 @@ function normalizeProposta(row: JsonRecord): Proposta {
           comentario: comentario.comentario ?? '',
           criadoEm: toDate(comentario.created_at ?? comentario.criadoEm ?? row.created_at),
         }))
-      : [],
+      : undefined,
     followUpBaseAt:
       row.followUpBaseAt ?? row.follow_up_base_at
         ? toDate(row.followUpBaseAt ?? row.follow_up_base_at)
@@ -386,7 +396,7 @@ function mutateBootstrapCollection(
   updater: (items: JsonRecord[]) => JsonRecord[]
 ) {
   return mutate(
-    '/api/crm/bootstrap',
+    (key) => typeof key === 'string' && key.startsWith('/api/crm/bootstrap'),
     (current?: JsonRecord | null) => {
       if (!current || typeof current !== 'object') {
         return current
@@ -429,6 +439,26 @@ export function revalidateRealtimeData() {
   })
 }
 
+function revalidateRealtimeModules(modules: string[]) {
+  const prefixes = new Set<string>()
+
+  for (const moduleName of modules) {
+    const modulePrefixes = MODULE_REALTIME_PREFIXES[moduleName] || MODULE_REALTIME_PREFIXES.global
+    for (const prefix of modulePrefixes) {
+      prefixes.add(prefix)
+    }
+  }
+
+  if (prefixes.size === 0) {
+    revalidateRealtimeData()
+    return
+  }
+
+  for (const prefix of prefixes) {
+    mutate((key) => typeof key === 'string' && key.startsWith(prefix))
+  }
+}
+
 function updateCachedEntity(current: any, id: string, patch: JsonRecord) {
   if (!current) {
     return current
@@ -465,6 +495,163 @@ function mutateEntityByPrefix(prefix: string, id: string, patch: JsonRecord) {
   )
 }
 
+function prependCachedEntity(current: any, entity: JsonRecord) {
+  if (!Array.isArray(current)) {
+    return current
+  }
+
+  const entityId = entity?.id
+  if (!entityId) {
+    return [entity, ...current]
+  }
+
+  return [entity, ...current.filter((item) => item?.id !== entityId)]
+}
+
+function removeCachedEntity(current: any, id: string) {
+  if (!Array.isArray(current)) {
+    return current
+  }
+
+  return current.filter((item) => item?.id !== id)
+}
+
+function prependEntityToKey(key: string, entity: JsonRecord) {
+  return mutate(key, (current) => prependCachedEntity(current, entity), { revalidate: false })
+}
+
+function mergeCachedEntities(current: any, incoming: JsonRecord[]) {
+  if (!Array.isArray(current) || incoming.length === 0) {
+    return current
+  }
+
+  const incomingById = new Map(
+    incoming
+      .filter((item) => item?.id)
+      .map((item) => [String(item.id), item] as const)
+  )
+
+  const merged = current.map((item) => {
+    if (!item?.id) {
+      return item
+    }
+
+    const next = incomingById.get(String(item.id))
+    if (!next) {
+      return item
+    }
+
+    incomingById.delete(String(item.id))
+    return { ...item, ...next }
+  })
+
+  for (const entity of incomingById.values()) {
+    merged.unshift(entity)
+  }
+
+  return merged
+}
+
+function removeEntityFromPrefix(prefix: string, id: string) {
+  return mutate(
+    (key) => typeof key === 'string' && key.startsWith(prefix),
+    (current) => removeCachedEntity(current, id),
+    { revalidate: false }
+  )
+}
+
+function getBootstrapCollectionFromCache(
+  cache: ReturnType<typeof useSWRConfig>['cache'],
+  collection: BootstrapCollectionKey
+) {
+  const candidates = Array.from(cache.keys()).filter(
+    (key): key is string => typeof key === 'string' && key.startsWith('/api/crm/bootstrap')
+  )
+
+  const prioritizedKeys = [
+    '/api/crm/bootstrap',
+    ...candidates.filter((key) => key !== '/api/crm/bootstrap'),
+  ]
+
+  for (const key of prioritizedKeys) {
+    const bootstrap = cache.get(key) as JsonRecord | undefined
+    const items = bootstrap?.[collection]
+    if (Array.isArray(items)) {
+      return items
+    }
+  }
+
+  return undefined
+}
+
+function mergeBootstrapCollection(collection: BootstrapCollectionKey, incoming: JsonRecord[]) {
+  return mutate(
+    (key) => typeof key === 'string' && key.startsWith('/api/crm/bootstrap'),
+    (current?: JsonRecord | null) => {
+      if (!current || typeof current !== 'object') {
+        return current
+      }
+
+      const items = Array.isArray(current[collection]) ? (current[collection] as JsonRecord[]) : []
+      return {
+        ...current,
+        [collection]: mergeCachedEntities(items, incoming),
+      }
+    },
+    { revalidate: false }
+  )
+}
+
+async function syncIncrementalModule(
+  moduleName: string,
+  changedAt: string | undefined,
+  previousChangedAt: string | undefined
+) {
+  if (!previousChangedAt || !changedAt || changedAt <= previousChangedAt) {
+    revalidateRealtimeModules([moduleName])
+    return
+  }
+
+  const endpointByModule: Partial<Record<string, string>> = {
+    clientes: '/api/clientes',
+    tarefas: '/api/tarefas',
+    propostas: '/api/propostas',
+  }
+
+  const collectionByModule: Partial<Record<string, BootstrapCollectionKey>> = {
+    clientes: 'clientes',
+    tarefas: 'tarefas',
+    propostas: 'propostas',
+  }
+
+  const endpoint = endpointByModule[moduleName]
+  const collection = collectionByModule[moduleName]
+
+  if (!endpoint || !collection) {
+    revalidateRealtimeModules([moduleName])
+    return
+  }
+
+  try {
+    const result = await requestJson<JsonRecord[]>(
+      `${endpoint}?updated_since=${encodeURIComponent(previousChangedAt)}`
+    )
+
+    if (!Array.isArray(result) || result.length === 0) {
+      return
+    }
+
+    await mutate(
+      (key) => typeof key === 'string' && key.startsWith(endpoint),
+      (current) => mergeCachedEntities(current, result),
+      { revalidate: false }
+    )
+    await mergeBootstrapCollection(collection, result)
+  } catch {
+    revalidateRealtimeModules([moduleName])
+  }
+}
+
 // Hook para Dashboard
 export function useDashboard(filter?: DateFilterValue) {
   const queryString = filter ? getDateFilterQueryParams(filter) : ''
@@ -481,10 +668,14 @@ export function useDashboard(filter?: DateFilterValue) {
   }
 }
 
-export function useCrmBootstrap() {
-  const { data, error, isLoading, mutate: localMutate } = useSWR('/api/crm/bootstrap', fetcher, {
+export function useCrmBootstrap(sections?: BootstrapCollectionKey[]) {
+  const key =
+    sections && sections.length > 0
+      ? `/api/crm/bootstrap?sections=${sections.join(',')}`
+      : '/api/crm/bootstrap'
+  const { data, error, isLoading, mutate: localMutate } = useSWR(key, fetcher, {
     ...READ_ONLY_SWR_OPTIONS,
-    dedupingInterval: 30000,
+    dedupingInterval: 45000,
   })
 
   const clientes = useMemo(() => (data?.clientes || []).map(normalizeCliente), [data?.clientes])
@@ -505,13 +696,21 @@ export function useCrmBootstrap() {
 
 // Hook para Clientes
 export function useClientes(params?: { status?: string; responsavel?: string; search?: string }) {
+  const { cache } = useSWRConfig()
   const searchParams = new URLSearchParams()
   if (params?.status) searchParams.set('status', params.status)
   if (params?.responsavel) searchParams.set('responsavel', params.responsavel)
   if (params?.search) searchParams.set('search', params.search)
+  if ((params as JsonRecord | undefined)?.updatedSince) {
+    searchParams.set('updated_since', String((params as JsonRecord).updatedSince))
+  }
 
   const url = `/api/clientes${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
-  const { data, error, isLoading } = useSWR(url, fetcher, READ_ONLY_SWR_OPTIONS)
+  const fallbackData = !searchParams.toString() ? getBootstrapCollectionFromCache(cache, 'clientes') : undefined
+  const { data, error, isLoading } = useSWR(url, fetcher, {
+    ...READ_ONLY_SWR_OPTIONS,
+    fallbackData,
+  })
   const clientes = useMemo(() => (data || []).map(normalizeCliente), [data])
 
   return {
@@ -537,14 +736,22 @@ export function useCliente(id: string | null) {
 
 // Hook para Tarefas
 export function useTarefas(params?: { status?: string; tipo?: string; responsavel?: string; clienteId?: string }) {
+  const { cache } = useSWRConfig()
   const searchParams = new URLSearchParams()
   if (params?.status) searchParams.set('status', params.status)
   if (params?.tipo) searchParams.set('tipo', params.tipo)
   if (params?.responsavel) searchParams.set('responsavel', params.responsavel)
   if (params?.clienteId) searchParams.set('cliente_id', params.clienteId)
+  if ((params as JsonRecord | undefined)?.updatedSince) {
+    searchParams.set('updated_since', String((params as JsonRecord).updatedSince))
+  }
 
   const url = `/api/tarefas${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
-  const { data, error, isLoading } = useSWR(url, fetcher, READ_ONLY_SWR_OPTIONS)
+  const fallbackData = !searchParams.toString() ? getBootstrapCollectionFromCache(cache, 'tarefas') : undefined
+  const { data, error, isLoading } = useSWR(url, fetcher, {
+    ...READ_ONLY_SWR_OPTIONS,
+    fallbackData,
+  })
   const tarefas = useMemo(() => (data || []).map(normalizeTarefa), [data])
 
   return {
@@ -557,12 +764,20 @@ export function useTarefas(params?: { status?: string; tipo?: string; responsave
 
 // Hook para Propostas
 export function usePropostas(params?: { status?: string; clienteId?: string }) {
+  const { cache } = useSWRConfig()
   const searchParams = new URLSearchParams()
   if (params?.status) searchParams.set('status', params.status)
   if (params?.clienteId) searchParams.set('cliente_id', params.clienteId)
+  if ((params as JsonRecord | undefined)?.updatedSince) {
+    searchParams.set('updated_since', String((params as JsonRecord).updatedSince))
+  }
 
   const url = `/api/propostas${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
-  const { data, error, isLoading } = useSWR(url, fetcher, READ_ONLY_SWR_OPTIONS)
+  const fallbackData = !searchParams.toString() ? getBootstrapCollectionFromCache(cache, 'propostas') : undefined
+  const { data, error, isLoading } = useSWR(url, fetcher, {
+    ...READ_ONLY_SWR_OPTIONS,
+    fallbackData,
+  })
   const propostas = useMemo(() => (data || []).map(normalizeProposta), [data])
 
   return {
@@ -588,12 +803,17 @@ export function useProposta(id: string | null) {
 
 // Hook para Usuarios
 export function useUsuarios(params?: { role?: string; ativo?: string }) {
+  const { cache } = useSWRConfig()
   const searchParams = new URLSearchParams()
   if (params?.role) searchParams.set('role', params.role)
   if (params?.ativo) searchParams.set('ativo', params.ativo)
 
   const url = `/api/usuarios${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
-  const { data, error, isLoading } = useSWR(url, fetcher, READ_ONLY_SWR_OPTIONS)
+  const fallbackData = !searchParams.toString() ? getBootstrapCollectionFromCache(cache, 'usuarios') : undefined
+  const { data, error, isLoading } = useSWR(url, fetcher, {
+    ...READ_ONLY_SWR_OPTIONS,
+    fallbackData,
+  })
   const usuarios = useMemo(() => (data || []).map(normalizeUsuario), [data])
 
   return {
@@ -660,7 +880,7 @@ export function useSession() {
     fetcher,
     {
       ...READ_ONLY_SWR_OPTIONS,
-      dedupingInterval: 60000,
+      dedupingInterval: 120000,
     }
   )
   const user = useMemo(() => {
@@ -691,7 +911,7 @@ export function useReadNotifications(enabled = true) {
     fetcher,
     {
       ...READ_ONLY_SWR_OPTIONS,
-      dedupingInterval: 60000,
+      dedupingInterval: 120000,
     }
   )
 
@@ -705,6 +925,8 @@ export function useReadNotifications(enabled = true) {
 
 export function useRealtimeSync(enabled = true) {
   const lastVersionRef = useRef<number | null>(null)
+  const lastModuleVersionsRef = useRef<Record<string, number>>({})
+  const lastModuleChangedAtRef = useRef<Record<string, string>>({})
   const [isVisible, setIsVisible] = useState(
     typeof document === 'undefined' ? true : document.visibilityState === 'visible'
   )
@@ -746,31 +968,62 @@ export function useRealtimeSync(enabled = true) {
     fetcher,
     {
       ...READ_ONLY_SWR_OPTIONS,
-      refreshInterval: 30000,
+      refreshInterval: 10000,
       revalidateOnFocus: false,
-      dedupingInterval: 30000,
+      dedupingInterval: 10000,
     }
   )
 
   useEffect(() => {
     const version = Number(data?.version || 0)
+    const nextModuleVersions =
+      data?.versions && typeof data.versions === 'object' ? (data.versions as Record<string, number>) : {}
+    const nextModuleChangedAt =
+      data?.changedAt && typeof data.changedAt === 'object' ? (data.changedAt as Record<string, string>) : {}
     if (!Number.isFinite(version)) {
       return
     }
 
     if (lastVersionRef.current === null) {
       lastVersionRef.current = version
+      lastModuleVersionsRef.current = nextModuleVersions
+      lastModuleChangedAtRef.current = nextModuleChangedAt
       return
     }
 
     if (version > lastVersionRef.current) {
+      const changedModules = Object.entries(nextModuleVersions)
+        .filter(([moduleName, moduleVersion]) => {
+          const parsedVersion = Number(moduleVersion || 0)
+          if (!Number.isFinite(parsedVersion)) {
+            return false
+          }
+
+          const previousVersion = Number(lastModuleVersionsRef.current[moduleName] || 0)
+          return parsedVersion > previousVersion
+        })
+        .map(([moduleName]) => moduleName)
+
       lastVersionRef.current = version
-      revalidateRealtimeData()
+      lastModuleVersionsRef.current = nextModuleVersions
+      const previousChangedAt = lastModuleChangedAtRef.current
+      lastModuleChangedAtRef.current = nextModuleChangedAt
+      if (changedModules.length > 0) {
+        void Promise.all(
+          changedModules.map((moduleName) =>
+            syncIncrementalModule(moduleName, nextModuleChangedAt[moduleName], previousChangedAt[moduleName])
+          )
+        )
+      } else {
+        revalidateRealtimeData()
+      }
       return
     }
 
     lastVersionRef.current = version
-  }, [data?.version])
+    lastModuleVersionsRef.current = nextModuleVersions
+    lastModuleChangedAtRef.current = nextModuleChangedAt
+  }, [data?.changedAt, data?.version, data?.versions])
 }
 
 // Funcoes de mutacao (CRUD)
@@ -799,8 +1052,8 @@ export async function createCliente(data: Partial<Cliente> & JsonRecord) {
   })
 
   await prependBootstrapEntity('clientes', created as JsonRecord)
-  mutateByPrefix('/api/clientes')
-  mutateByPrefix('/api/propostas')
+  await prependEntityToKey('/api/clientes', created as JsonRecord)
+  await mutate(`/api/clientes/${(created as JsonRecord).id}`, created as JsonRecord, { revalidate: false })
   mutate('/api/dashboard')
   mutateByPrefix('/api/interacoes')
   return created
@@ -854,11 +1107,12 @@ export async function updateCliente(id: string, data: Partial<Cliente> & JsonRec
 
     await mutateEntityByPrefix('/api/clientes', id, updated as JsonRecord)
     await patchBootstrapEntity('clientes', id, updated as JsonRecord)
-    mutateByPrefix('/api/clientes')
+    await mutate(`/api/clientes/${id}`, updated as JsonRecord, { revalidate: false })
     mutate('/api/dashboard')
     mutateByPrefix('/api/interacoes')
     return updated
   } catch (error) {
+    mutate(`/api/clientes/${id}`)
     mutate('/api/crm/bootstrap')
     throw error
   }
@@ -867,9 +1121,8 @@ export async function updateCliente(id: string, data: Partial<Cliente> & JsonRec
 export async function deleteCliente(id: string) {
   await removeBootstrapEntity('clientes', id)
   const deleted = await requestJson(`/api/clientes/${id}`, { method: 'DELETE' })
-  mutateByPrefix('/api/clientes')
-  mutateByPrefix('/api/tarefas')
-  mutateByPrefix('/api/propostas')
+  await removeEntityFromPrefix('/api/clientes', id)
+  await mutate(`/api/clientes/${id}`, undefined, { revalidate: false })
   mutateByPrefix('/api/interacoes')
   mutate('/api/dashboard')
   return deleted
@@ -893,7 +1146,8 @@ export async function createTarefa(data: Partial<Tarefa> & JsonRecord) {
   })
 
   await prependBootstrapEntity('tarefas', created as JsonRecord)
-  mutateByPrefix('/api/tarefas')
+  await prependEntityToKey('/api/tarefas', created as JsonRecord)
+  await mutate(`/api/tarefas/${(created as JsonRecord).id}`, created as JsonRecord, { revalidate: false })
   mutate('/api/dashboard')
   mutateByPrefix('/api/interacoes')
   return created
@@ -934,12 +1188,12 @@ export async function updateTarefa(id: string, data: Partial<Tarefa> & JsonRecor
 
     await mutateEntityByPrefix('/api/tarefas', id, updated as JsonRecord)
     await patchBootstrapEntity('tarefas', id, updated as JsonRecord)
-    mutateByPrefix('/api/tarefas')
+    await mutate(`/api/tarefas/${id}`, updated as JsonRecord, { revalidate: false })
     mutate('/api/dashboard')
     mutateByPrefix('/api/interacoes')
     return updated
   } catch (error) {
-    mutateByPrefix('/api/tarefas')
+    mutate(`/api/tarefas/${id}`)
     mutate('/api/crm/bootstrap')
     mutate('/api/dashboard')
     throw error
@@ -959,12 +1213,12 @@ export async function updateTarefaStatus(id: string, status: StatusTarefa) {
 
     await mutateEntityByPrefix('/api/tarefas', id, updated as JsonRecord)
     await patchBootstrapEntity('tarefas', id, updated as JsonRecord)
-    mutateByPrefix('/api/tarefas')
+    await mutate(`/api/tarefas/${id}`, updated as JsonRecord, { revalidate: false })
     mutate('/api/dashboard')
     mutateByPrefix('/api/interacoes')
     return updated
   } catch (error) {
-    mutateByPrefix('/api/tarefas')
+    mutate(`/api/tarefas/${id}`)
     mutate('/api/crm/bootstrap')
     mutate('/api/dashboard')
     throw error
@@ -974,7 +1228,8 @@ export async function updateTarefaStatus(id: string, status: StatusTarefa) {
 export async function deleteTarefa(id: string) {
   await removeBootstrapEntity('tarefas', id)
   const deleted = await requestJson(`/api/tarefas/${id}`, { method: 'DELETE' })
-  mutateByPrefix('/api/tarefas')
+  await removeEntityFromPrefix('/api/tarefas', id)
+  await mutate(`/api/tarefas/${id}`, undefined, { revalidate: false })
   mutate('/api/dashboard')
   return deleted
 }
@@ -1011,8 +1266,7 @@ export async function createProposta(data: Partial<Proposta> & JsonRecord) {
   })
 
   await prependBootstrapEntity('propostas', created as JsonRecord)
-  mutateByPrefix('/api/propostas')
-  mutateByPrefix('/api/clientes')
+  await prependEntityToKey('/api/propostas', created as JsonRecord)
   mutate('/api/dashboard')
   mutateByPrefix('/api/interacoes')
   return created
@@ -1086,14 +1340,12 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     await mutate(`/api/propostas/${id}`, updated as JsonRecord, { revalidate: false })
     await mutateEntityByPrefix('/api/propostas', id, updated as JsonRecord)
     await patchBootstrapEntity('propostas', id, updated as JsonRecord)
-    mutateByPrefix('/api/clientes')
     mutate('/api/dashboard')
     mutateByPrefix('/api/interacoes')
     return updated
   } catch (error) {
     mutate(`/api/propostas/${id}`)
     mutateByPrefix('/api/propostas')
-    mutateByPrefix('/api/clientes')
     mutate('/api/crm/bootstrap')
     mutate('/api/dashboard')
     throw error
@@ -1107,8 +1359,7 @@ export async function updatePropostaStatus(id: string, status: StatusProposta) {
 export async function deleteProposta(id: string) {
   await removeBootstrapEntity('propostas', id)
   const deleted = await requestJson(`/api/propostas/${id}`, { method: 'DELETE' })
-  mutateByPrefix('/api/propostas')
-  mutateByPrefix('/api/clientes')
+  await removeEntityFromPrefix('/api/propostas', id)
   mutate('/api/dashboard')
   return deleted
 }
@@ -1121,7 +1372,8 @@ export async function createUsuario(data: Partial<Usuario> & JsonRecord) {
   })
 
   await prependBootstrapEntity('usuarios', created as JsonRecord)
-  mutateByPrefix('/api/usuarios')
+  await prependEntityToKey('/api/usuarios', created as JsonRecord)
+  await mutate(`/api/usuarios/${(created as JsonRecord).id}`, created as JsonRecord, { revalidate: false })
   return created
 }
 
@@ -1137,9 +1389,10 @@ export async function updateUsuario(id: string, data: Partial<Usuario> & JsonRec
 
     await mutateEntityByPrefix('/api/usuarios', id, updated as JsonRecord)
     await patchBootstrapEntity('usuarios', id, updated as JsonRecord)
-    mutateByPrefix('/api/usuarios')
+    await mutate(`/api/usuarios/${id}`, updated as JsonRecord, { revalidate: false })
     return updated
   } catch (error) {
+    mutate(`/api/usuarios/${id}`)
     mutate('/api/crm/bootstrap')
     throw error
   }
@@ -1148,7 +1401,8 @@ export async function updateUsuario(id: string, data: Partial<Usuario> & JsonRec
 export async function deleteUsuario(id: string) {
   await removeBootstrapEntity('usuarios', id)
   const deleted = await requestJson(`/api/usuarios/${id}`, { method: 'DELETE' })
-  mutateByPrefix('/api/usuarios')
+  await removeEntityFromPrefix('/api/usuarios', id)
+  await mutate(`/api/usuarios/${id}`, undefined, { revalidate: false })
   return deleted
 }
 

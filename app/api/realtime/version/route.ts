@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { getServerSession } from '@/lib/auth/session'
-import { getLatestRealtimeVersion } from '@/lib/server/realtime-events'
+import {
+  getLatestRealtimeVersion,
+  getLatestRealtimeVersionsByModule,
+} from '@/lib/server/realtime-events'
 
 export async function GET() {
   try {
@@ -9,10 +12,17 @@ export async function GET() {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
 
-    const version = await getLatestRealtimeVersion()
-    return NextResponse.json({ version })
+    const [version, moduleRealtime] = await Promise.all([
+      getLatestRealtimeVersion(),
+      getLatestRealtimeVersionsByModule(),
+    ])
+    return NextResponse.json({
+      version,
+      versions: moduleRealtime.versions,
+      changedAt: moduleRealtime.changedAt,
+    })
   } catch (error) {
     console.error('Erro ao buscar versao de sincronizacao:', error)
-    return NextResponse.json({ version: 0, degraded: true })
+    return NextResponse.json({ version: 0, versions: {}, changedAt: {}, degraded: true })
   }
 }

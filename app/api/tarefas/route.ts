@@ -1,48 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { query } from '@/lib/db/mysql'
+import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
-import { getServerSession } from '@/lib/auth/session'
+import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
+import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import {
   ensureCrmRuntimeSchema,
   formatDateTime,
 } from '@/lib/server/proposal-workflow'
 
-async function getAuthenticatedUser() {
-  const session = await getServerSession()
-  if (!session) {
-    return null
-  }
-
-  const [user] = await query<any[]>(
-    'SELECT id, role, ativo FROM usuarios WHERE id = ? LIMIT 1',
-    [session.userId]
-  )
-
-  if (!user || !user.ativo) {
-    return null
-  }
-
-  return user
-}
+const TAREFAS_CACHE_TTL_MS = Math.max(Number(process.env.TAREFAS_CACHE_TTL_MS || 30_000), 1000)
 
 export async function GET(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams
+  const status = searchParams.get('status')
+  const tipo = searchParams.get('tipo')
+  const clienteId = searchParams.get('cliente_id')
+  const updatedSince = searchParams.get('updated_since')
+
   try {
     await ensureCrmRuntimeSchema()
 
-    const user = await getAuthenticatedUser()
+    const user = await getAuthenticatedServerUser()
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
 
-    const searchParams = request.nextUrl.searchParams
-    const status = searchParams.get('status')
-    const tipo = searchParams.get('tipo')
     const responsavel =
       user.role === 'admin' || user.role === 'gerente'
         ? searchParams.get('responsavel')
         : user.id
-    const clienteId = searchParams.get('cliente_id')
+    const cacheKey = `tarefas:list:${user.id}:${user.role}:${status || 'todos'}:${tipo || 'todos'}:${responsavel || 'todos'}:${clienteId || ''}:${updatedSince || ''}`
+    const cachedTarefas = getRuntimeCache<any[]>(cacheKey)
+    if (cachedTarefas !== undefined) {
+      return NextResponse.json(cachedTarefas)
+    }
 
     let sql = `
       SELECT t.*, c.nome as cliente_nome, u.nome as responsavel_nome
@@ -73,12 +65,33 @@ export async function GET(request: NextRequest) {
       params.push(clienteId)
     }
 
+    if (updatedSince) {
+      sql += ' AND t.updated_at >= ?'
+      params.push(updatedSince)
+    }
+
     sql += ' ORDER BY t.data_hora ASC'
 
     const tarefas = await query(sql, params)
+    setRuntimeCache(cacheKey, tarefas, TAREFAS_CACHE_TTL_MS)
     return NextResponse.json(tarefas)
   } catch (error) {
     console.error('Erro ao buscar tarefas:', error)
+
+    if (isTransientDatabaseError(error)) {
+      const user = await getAuthenticatedServerUser().catch(() => null)
+      if (!user) {
+        return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+      }
+
+      const responsavel =
+        user.role === 'admin' || user.role === 'gerente'
+          ? searchParams.get('responsavel')
+          : user.id
+      const cacheKey = `tarefas:list:${user.id}:${user.role}:${status || 'todos'}:${tipo || 'todos'}:${responsavel || 'todos'}:${clienteId || ''}:${updatedSince || ''}`
+      return NextResponse.json(getRuntimeCache<any[]>(cacheKey) || [], { status: 200 })
+    }
+
     return NextResponse.json({ error: 'Erro ao buscar tarefas' }, { status: 500 })
   }
 }
@@ -87,7 +100,7 @@ export async function POST(request: NextRequest) {
   try {
     await ensureCrmRuntimeSchema()
 
-    const user = await getAuthenticatedUser()
+    const user = await getAuthenticatedServerUser()
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }

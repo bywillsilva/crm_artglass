@@ -53,6 +53,19 @@ function formatCpf(value: string) {
   return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`
 }
 
+function parseBrazilianDecimal(value: string | undefined) {
+  const trimmed = String(value || '').trim()
+  if (!trimmed) return 0
+
+  const normalized = trimmed
+    .replace(/\s+/g, '')
+    .replace(/\.(?=\d{3}(?:\D|$))/g, '')
+    .replace(',', '.')
+
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : NaN
+}
+
 function getClientFormDefaults(cliente?: Cliente) {
   if (cliente) {
       return {
@@ -132,7 +145,7 @@ const clienteSchema = z.object({
     .string()
     .optional()
     .refine(
-      (value) => !value || (!Number.isNaN(Number(value)) && Number(value) >= 0),
+      (value) => !value || (!Number.isNaN(parseBrazilianDecimal(value)) && parseBrazilianDecimal(value) >= 0),
       'Valor deve ser positivo'
     ),
 })
@@ -184,7 +197,7 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
       endereco: normalizeOptionalText(data.endereco),
       observacoes: normalizeOptionalText(data.observacoes),
       origem: data.origem === 'nao_informado' ? '' : normalizeOptionalText(data.origem),
-      valorEstimado: Number(data.valorEstimado || 0),
+      valorEstimado: parseBrazilianDecimal(data.valorEstimado),
       status: cliente?.status ?? 'lead_novo',
     }
 
@@ -411,10 +424,9 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
                     <FormLabel>Valor Pretendido</FormLabel>
                     <FormControl>
                       <Input
-                        type="number"
-                        placeholder="0"
-                        min="0"
-                        step="0.01"
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0,00"
                         value={field.value ?? ''}
                         onChange={(e) => field.onChange(e.target.value)}
                       />

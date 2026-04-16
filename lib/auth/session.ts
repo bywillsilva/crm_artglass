@@ -26,6 +26,16 @@ const AUTH_USER_STALE_GRACE_MS = Math.max(
   Number(process.env.AUTH_USER_STALE_GRACE_MS || 120_000),
   AUTH_USER_CACHE_MS
 )
+const TRANSIENT_DB_ERROR_CODES = new Set([
+  'ETIMEDOUT',
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'EPIPE',
+  'PROTOCOL_CONNECTION_LOST',
+  'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR',
+  'PROTOCOL_ENQUEUE_AFTER_QUIT',
+  'DB_UNAVAILABLE',
+])
 
 type AuthenticatedUserCacheEntry = {
   value: AuthenticatedServerUser | null
@@ -156,6 +166,21 @@ export async function getAuthenticatedServerUser() {
     const staleCachedUser = readCachedAuthenticatedUser(session.userId, AUTH_USER_STALE_GRACE_MS)
     if (staleCachedUser !== undefined) {
       return staleCachedUser
+    }
+
+    const errorCode =
+      typeof error === 'object' && error && 'code' in error ? String((error as any).code) : ''
+
+    if (TRANSIENT_DB_ERROR_CODES.has(errorCode)) {
+      return {
+        id: session.userId,
+        nome: undefined,
+        email: undefined,
+        avatar: undefined,
+        role: session.role,
+        ativo: true,
+        modulePermissions: null,
+      } satisfies AuthenticatedServerUser
     }
 
     throw error

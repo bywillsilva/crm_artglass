@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
-import { query } from '@/lib/db/mysql'
+import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
+import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { ensureCrmRuntimeSchema, formatDateTime } from '@/lib/server/proposal-workflow'
+
+const CLIENTE_DETAIL_CACHE_TTL_MS = Math.max(
+  Number(process.env.CLIENTE_DETAIL_CACHE_TTL_MS || 30_000),
+  1000
+)
 
 function hasOwn(data: Record<string, unknown>, key: string) {
   return Object.prototype.hasOwnProperty.call(data, key)
@@ -26,7 +32,13 @@ function parseNullableNumber(value: unknown, fallback = 0) {
   if (typeof value === 'string') {
     const trimmed = value.trim()
     if (!trimmed) return fallback
-    const parsed = Number(trimmed.replace(',', '.'))
+
+    const normalized = trimmed
+      .replace(/\s+/g, '')
+      .replace(/\.(?=\d{3}(?:\D|$))/g, '')
+      .replace(',', '.')
+
+    const parsed = Number(normalized)
     return Number.isFinite(parsed) ? parsed : fallback
   }
 
@@ -37,9 +49,16 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params
+  const cacheKey = `cliente:detail:${id}`
+
   try {
     await ensureCrmRuntimeSchema()
-    const { id } = await params
+    const cachedCliente = getRuntimeCache<any>(cacheKey)
+    if (cachedCliente !== undefined) {
+      return NextResponse.json(cachedCliente)
+    }
+
     const [cliente] = await query<any[]>(
       `SELECT c.*
        FROM clientes c
@@ -51,9 +70,18 @@ export async function GET(
       return NextResponse.json({ error: 'Cliente nao encontrado' }, { status: 404 })
     }
 
+    setRuntimeCache(cacheKey, cliente, CLIENTE_DETAIL_CACHE_TTL_MS)
     return NextResponse.json(cliente)
   } catch (error) {
     console.error('Erro ao buscar cliente:', error)
+
+    if (isTransientDatabaseError(error)) {
+      const cachedCliente = getRuntimeCache<any>(cacheKey)
+      if (cachedCliente) {
+        return NextResponse.json(cachedCliente, { status: 200 })
+      }
+    }
+
     return NextResponse.json({ error: 'Erro ao buscar cliente' }, { status: 500 })
   }
 }
@@ -175,6 +203,9 @@ export async function PUT(
     })
 
     const [cliente] = await query<any[]>('SELECT * FROM clientes WHERE id = ?', [id])
+    invalidateRuntimeCache('clientes:list:')
+    invalidateRuntimeCache(`cliente:detail:${id}`)
+    invalidateRuntimeCache('crm-bootstrap:')
     return NextResponse.json(cliente)
   } catch (error) {
     console.error('Erro ao atualizar cliente:', error)
@@ -197,6 +228,10 @@ export async function DELETE(
 
     const { id } = await params
     await query('DELETE FROM clientes WHERE id = ?', [id])
+
+    invalidateRuntimeCache('clientes:list:')
+    invalidateRuntimeCache(`cliente:detail:${id}`)
+    invalidateRuntimeCache('crm-bootstrap:')
 
     await publishRealtimeEvent({
       actorUserId: user.id,

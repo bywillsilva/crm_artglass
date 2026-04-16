@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { query } from '@/lib/db/mysql'
+import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { formatDateTime } from '@/lib/server/proposal-workflow'
@@ -9,12 +9,14 @@ import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/
 const INTERACOES_CACHE_TTL_MS = Math.max(Number(process.env.INTERACOES_CACHE_TTL_MS || 10_000), 1000)
 
 export async function GET(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams
+  const clienteId = searchParams.get('cliente_id')
+  const tipo = searchParams.get('tipo')
+  const limitParam = searchParams.get('limit')
+  const limit = limitParam ? Math.min(Math.max(Number(limitParam) || 0, 1), 200) : null
+  const cacheKey = `interacoes:${clienteId || 'all'}:${tipo || 'all'}:${limit || 'all'}`
+
   try {
-    const searchParams = request.nextUrl.searchParams
-    const clienteId = searchParams.get('cliente_id')
-    const tipo = searchParams.get('tipo')
-    const limitParam = searchParams.get('limit')
-    const limit = limitParam ? Math.min(Math.max(Number(limitParam) || 0, 1), 200) : null
     const whereClauses: string[] = []
     const params: unknown[] = []
 
@@ -41,7 +43,6 @@ export async function GET(request: NextRequest) {
       params.push(limit)
     }
 
-    const cacheKey = `interacoes:${clienteId || 'all'}:${tipo || 'all'}:${limit || 'all'}`
     const cachedInteracoes = getRuntimeCache<any[]>(cacheKey)
     if (cachedInteracoes !== undefined) {
       return NextResponse.json(cachedInteracoes)
@@ -52,6 +53,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(interacoes)
   } catch (error) {
     console.error('Erro ao buscar interacoes:', error)
+
+    if (isTransientDatabaseError(error)) {
+      return NextResponse.json(getRuntimeCache<any[]>(cacheKey) || [], { status: 200 })
+    }
+
     return NextResponse.json([])
   }
 }

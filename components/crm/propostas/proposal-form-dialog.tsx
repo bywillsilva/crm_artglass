@@ -45,7 +45,6 @@ const statusesWithoutRequiredValue: StatusProposta[] = [
   'novo_cliente',
   'em_orcamento',
   'em_retificacao',
-  'aguardando_aprovacao',
 ]
 
 const statusesRequiringOrcamentista: StatusProposta[] = [
@@ -220,7 +219,7 @@ export function ProposalFormDialog({
   const orcamentistas = state.usuarios.filter(
     (usuario) => usuario.ativo && usuario.role === 'orcamentista'
   )
-  const currentWorkflowStatus = (proposta?.status || status) as StatusProposta
+  const currentWorkflowStatus = (propostaSource?.status || status) as StatusProposta
 
   const editStatusOptions = useMemo(() => {
     if (isAdmin) {
@@ -250,8 +249,8 @@ export function ProposalFormDialog({
   const hasRequiredValue = !valorObrigatorio || (parsedValor ?? 0) > 0
   const requiresProposalPdf =
     status === 'aguardando_aprovacao' &&
-    (!isEditing || proposta?.status !== 'aguardando_aprovacao')
-  const hasExistingProposalPdf = Boolean(proposta?.anexos?.some(isPdfAttachment))
+    (!isEditing || propostaSource?.status !== 'aguardando_aprovacao')
+  const hasExistingProposalPdf = Boolean(propostaSource?.anexos?.some(isPdfAttachment))
   const hasNewProposalPdf = files.some(isPdfFile)
   const hasRequiredProposalPdf = !requiresProposalPdf || hasExistingProposalPdf || hasNewProposalPdf
 
@@ -529,10 +528,10 @@ export function ProposalFormDialog({
                       ))}
                     </div>
                   )}
-                  {isEditing && proposta?.anexos?.length ? (
-                    <div className="mt-4 space-y-2 border-t border-border pt-3">
-                      <p className="text-sm font-medium text-foreground">Arquivos ja enviados</p>
-                      {proposta.anexos.map((anexo) => (
+                    {isEditing && propostaSource?.anexos?.length ? (
+                      <div className="mt-4 space-y-2 border-t border-border pt-3">
+                        <p className="text-sm font-medium text-foreground">Arquivos ja enviados</p>
+                      {propostaSource.anexos.map((anexo) => (
                         <a
                           key={anexo.id}
                           href={anexo.url}

@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react'
+import { usePathname } from 'next/navigation'
 import {
   createCliente,
   createInteracao,
@@ -80,8 +81,22 @@ const CRMContext = createContext<CRMContextType | null>(null)
 
 export function CRMProvider({ children }: { children: ReactNode }) {
   const { general } = useAppSettings()
+  const pathname = usePathname()
   useRealtimeSync(true)
-  const { clientes, usuarios, tarefas, propostas } = useCrmBootstrap()
+  const bootstrapSections = useMemo(() => {
+    const isClienteDetailsPage = /^\/clientes\/[^/]+/.test(pathname)
+
+    if (isClienteDetailsPage) return ['clientes', 'usuarios', 'tarefas', 'propostas'] as const
+    if (pathname.startsWith('/clientes')) return ['clientes', 'usuarios'] as const
+    if (pathname.startsWith('/funil')) return ['propostas', 'usuarios'] as const
+    if (pathname.startsWith('/propostas')) return ['propostas', 'clientes', 'usuarios'] as const
+    if (pathname.startsWith('/tarefas')) return ['tarefas', 'clientes', 'usuarios'] as const
+    if (pathname.startsWith('/usuarios')) return ['usuarios'] as const
+    if (pathname.startsWith('/relatorios/vendedores')) return ['propostas', 'usuarios'] as const
+    if (pathname.startsWith('/relatorios')) return ['clientes', 'propostas', 'usuarios'] as const
+    return ['usuarios'] as const
+  }, [pathname])
+  const { clientes, usuarios, tarefas, propostas } = useCrmBootstrap([...bootstrapSections])
   const interacoes: Interacao[] = []
 
   const state = useMemo<CRMState>(

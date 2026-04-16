@@ -4,11 +4,15 @@ const MYSQL_TIMEZONE = process.env.MYSQL_TIMEZONE || '-03:00'
 const MYSQL_PORT = Math.max(Number(process.env.MYSQL_PORT || 3306), 1)
 const MYSQL_SSL_ENABLED = /^(1|true|required)$/i.test(process.env.MYSQL_SSL || '')
 const MYSQL_CONNECTION_LIMIT = Math.max(Number(process.env.MYSQL_CONNECTION_LIMIT || 12), 1)
-const MYSQL_CONNECT_TIMEOUT = Math.max(Number(process.env.MYSQL_CONNECT_TIMEOUT_MS || 8000), 1000)
-const MYSQL_ACQUIRE_RETRIES = Math.max(Number(process.env.MYSQL_ACQUIRE_RETRIES || 2), 0)
+const MYSQL_CONNECT_TIMEOUT = Math.max(Number(process.env.MYSQL_CONNECT_TIMEOUT_MS || 3000), 1000)
+const MYSQL_ACQUIRE_RETRIES = Math.max(Number(process.env.MYSQL_ACQUIRE_RETRIES || 0), 0)
 const MYSQL_ACQUIRE_RETRY_DELAY_MS = Math.max(
   Number(process.env.MYSQL_ACQUIRE_RETRY_DELAY_MS || 250),
   50
+)
+const MYSQL_FAILURE_COOLDOWN_MS = Math.max(
+  Number(process.env.MYSQL_FAILURE_COOLDOWN_MS || 15000),
+  1000
 )
 const RETRYABLE_CONNECTION_CODES = new Set([
   'ETIMEDOUT',
@@ -23,6 +27,9 @@ const RETRYABLE_CONNECTION_CODES = new Set([
 type PoolConnectionWithSessionFlag = mysql.PoolConnection & {
   __crmTimeZoneReady?: boolean
 }
+
+let unavailableUntil = 0
+let lastConnectionError: unknown = null
 
 // Pool de conexoes para melhor performance
 const pool = mysql.createPool({
@@ -49,6 +56,24 @@ function isRetryableConnectionError(error: unknown) {
   return RETRYABLE_CONNECTION_CODES.has(code)
 }
 
+export function isTransientDatabaseError(error: unknown) {
+  const code = typeof error === 'object' && error && 'code' in error ? String((error as any).code) : ''
+  return code === 'DB_UNAVAILABLE' || RETRYABLE_CONNECTION_CODES.has(code)
+}
+
+function createDatabaseUnavailableError(error?: unknown) {
+  const message =
+    error instanceof Error && error.message
+      ? error.message
+      : 'Banco temporariamente indisponivel'
+
+  const wrapped = new Error(message)
+  ;(wrapped as Error & { code?: string }).code =
+    (typeof error === 'object' && error && 'code' in error ? String((error as any).code) : '') ||
+    'DB_UNAVAILABLE'
+  return wrapped
+}
+
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -72,7 +97,21 @@ function releaseConnectionSafely(connection?: PoolConnectionWithSessionFlag | nu
   }
 }
 
+function destroyConnectionSafely(connection?: PoolConnectionWithSessionFlag | null) {
+  if (!connection) return
+
+  try {
+    connection.destroy()
+  } catch {
+    // Ignora falhas ao destruir conexoes ja encerradas.
+  }
+}
+
 async function acquireConnection() {
+  if (Date.now() < unavailableUntil) {
+    throw createDatabaseUnavailableError(lastConnectionError)
+  }
+
   let lastError: unknown = null
 
   for (let attempt = 0; attempt <= MYSQL_ACQUIRE_RETRIES; attempt += 1) {
@@ -80,20 +119,28 @@ async function acquireConnection() {
 
     try {
       connection = (await pool.getConnection()) as PoolConnectionWithSessionFlag
-      return await prepareConnection(connection)
+      const preparedConnection = await prepareConnection(connection)
+      unavailableUntil = 0
+      lastConnectionError = null
+      return preparedConnection
     } catch (error) {
       releaseConnectionSafely(connection)
       lastError = error
 
+      if (isRetryableConnectionError(error)) {
+        unavailableUntil = Date.now() + MYSQL_FAILURE_COOLDOWN_MS
+        lastConnectionError = error
+      }
+
       if (!isRetryableConnectionError(error) || attempt === MYSQL_ACQUIRE_RETRIES) {
-        throw error
+        throw createDatabaseUnavailableError(error)
       }
 
       await wait(MYSQL_ACQUIRE_RETRY_DELAY_MS * (attempt + 1))
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error('Nao foi possivel obter conexao com o banco')
+  throw createDatabaseUnavailableError(lastError)
 }
 
 export async function query<T>(sql: string, params?: any[]): Promise<T> {
@@ -102,6 +149,14 @@ export async function query<T>(sql: string, params?: any[]): Promise<T> {
   try {
     const [results] = await connection.execute(sql, params)
     return results as T
+  } catch (error) {
+    if (isRetryableConnectionError(error)) {
+      unavailableUntil = Date.now() + MYSQL_FAILURE_COOLDOWN_MS
+      lastConnectionError = error
+      destroyConnectionSafely(connection)
+    }
+
+    throw createDatabaseUnavailableError(error)
   } finally {
     releaseConnectionSafely(connection)
   }

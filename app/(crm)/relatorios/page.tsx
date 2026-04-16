@@ -1,5 +1,6 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useMemo, useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { useCRM } from '@/lib/context/crm-context'
@@ -9,24 +10,17 @@ import { CRMHeader } from '@/components/crm/header'
 import { DateRangeFilter } from '@/components/crm/date-range-filter'
 import { ModuleAccessState } from '@/components/crm/module-access-state'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  ResponsiveContainer,
-  Tooltip,
-  Cell,
-  PieChart,
-  Pie,
-  LineChart,
-  Line,
-  CartesianGrid,
-  Legend,
-} from 'recharts'
+import { Skeleton } from '@/components/ui/skeleton'
 import { DollarSign, Users, Target, Percent } from 'lucide-react'
 import { statusPropostaLabels, type Proposta, type StatusProposta } from '@/lib/data/types'
 import { createDefaultDateFilter, isWithinDateFilter, type DateFilterValue } from '@/lib/utils/date-filter'
+
+const GeneralReportCharts = dynamic(
+  () => import('@/components/crm/reports/general-report-charts').then((mod) => mod.GeneralReportCharts),
+  {
+    loading: () => <ReportChartsSkeleton />,
+  }
+)
 
 const funnelStatuses: { status: StatusProposta; color: string }[] = [
   { status: 'novo_cliente', color: '#0ea5e9' },
@@ -67,9 +61,19 @@ export default function RelatoriosPage() {
     return <ModuleAccessState module="relatorios" />
   }
 
-  const totalClientes = clientesFiltrados.length
-  const totalLeads = propostasFiltradas.filter((proposta) =>
-    [
+  const {
+    totalClientes,
+    totalLeads,
+    vendasFechadasCount,
+    totalReceita,
+    taxaConversaoGeral,
+    ticketMedio,
+    funilData,
+    vendedoresData,
+    origensData,
+    evolucaoData,
+  } = useMemo(() => {
+    const leadStatuses = new Set<StatusProposta>([
       'novo_cliente',
       'em_orcamento',
       'aguardando_aprovacao',
@@ -80,95 +84,127 @@ export default function RelatoriosPage() {
       'follow_up_7_dias',
       'stand_by',
       'em_retificacao',
-    ].includes(proposta.status)
-  ).length
-  const vendasFechadas = propostasFiltradas.filter((proposta) => proposta.status === 'fechado')
-  const totalReceita = vendasFechadas.reduce((acc, proposta) => acc + proposta.valor, 0)
-  const taxaConversaoGeral =
-    propostasFiltradas.length > 0 ? ((vendasFechadas.length / propostasFiltradas.length) * 100).toFixed(1) : '0'
+    ])
+    const proposalCounts = new Map<StatusProposta, { count: number; valor: number }>()
+    const sellerMap = new Map<
+      string,
+      { name: string; clientes: Set<string>; vendas: number; receita: number }
+    >()
+    const origemMap = new Map<string, number>()
+    let totalLeadsLocal = 0
+    let vendasFechadasLocal = 0
+    let totalReceitaLocal = 0
 
-  const funilData = funnelStatuses.map((stage) => {
-    const propostasEtapa = propostasFiltradas.filter((proposta) => proposta.status === stage.status)
+    for (const cliente of clientesFiltrados) {
+      const origem = cliente.origem || 'Nao informado'
+      origemMap.set(origem, (origemMap.get(origem) || 0) + 1)
+    }
+
+    for (const usuario of state.usuarios) {
+      if (usuario.role === 'vendedor' || usuario.role === 'gerente') {
+        sellerMap.set(usuario.id, {
+          name: usuario.nome.split(' ')[0],
+          clientes: new Set<string>(),
+          vendas: 0,
+          receita: 0,
+        })
+      }
+    }
+
+    for (const proposta of propostasFiltradas) {
+      const current = proposalCounts.get(proposta.status) || { count: 0, valor: 0 }
+      current.count += 1
+      current.valor += proposta.valor
+      proposalCounts.set(proposta.status, current)
+
+      if (leadStatuses.has(proposta.status)) {
+        totalLeadsLocal += 1
+      }
+
+      const seller = proposta.responsavelId ? sellerMap.get(proposta.responsavelId) : undefined
+      if (seller) {
+        seller.clientes.add(proposta.clienteId)
+        if (proposta.status === 'fechado') {
+          seller.vendas += 1
+          seller.receita += proposta.valor
+        }
+      }
+
+      if (proposta.status === 'fechado') {
+        vendasFechadasLocal += 1
+        totalReceitaLocal += proposta.valor
+      }
+    }
 
     return {
-      name: statusPropostaLabels[stage.status],
-      count: propostasEtapa.length,
-      valor: propostasEtapa.reduce((acc, proposta) => acc + proposta.valor, 0),
-      color: stage.color,
+      totalClientes: clientesFiltrados.length,
+      totalLeads: totalLeadsLocal,
+      vendasFechadasCount: vendasFechadasLocal,
+      totalReceita: totalReceitaLocal,
+      taxaConversaoGeral:
+        propostasFiltradas.length > 0
+          ? ((vendasFechadasLocal / propostasFiltradas.length) * 100).toFixed(1)
+          : '0',
+      ticketMedio: vendasFechadasLocal > 0 ? totalReceitaLocal / vendasFechadasLocal : 0,
+      funilData: funnelStatuses.map((stage) => {
+        const data = proposalCounts.get(stage.status) || { count: 0, valor: 0 }
+        return {
+          name: statusPropostaLabels[stage.status],
+          count: data.count,
+          valor: data.valor,
+          color: stage.color,
+        }
+      }),
+      vendedoresData: Array.from(sellerMap.values())
+        .map((seller) => ({
+          name: seller.name,
+          clientes: seller.clientes.size,
+          vendas: seller.vendas,
+          receita: seller.receita,
+        }))
+        .sort((a, b) => b.receita - a.receita),
+      origensData: Array.from(origemMap.entries()).map(([name, value]) => ({ name, value })),
+      evolucaoData: buildEvolutionData(propostasFiltradas, dateFilter, appearance.idioma),
     }
-  })
+  }, [appearance.idioma, clientesFiltrados, dateFilter, propostasFiltradas, state.usuarios])
 
-  const vendedoresData = state.usuarios
-    .filter((usuario) => usuario.role === 'vendedor' || usuario.role === 'gerente')
-    .map((vendedor) => {
-      const clientes = new Set(
-        propostasFiltradas
-          .filter((proposta) => proposta.responsavelId === vendedor.id)
-          .map((proposta) => proposta.clienteId)
-      )
-      const propostasFechadas = propostasFiltradas.filter(
-        (proposta) => proposta.status === 'fechado' && proposta.responsavelId === vendedor.id
-      )
-
-      return {
-        name: vendedor.nome.split(' ')[0],
-        clientes: clientes.size,
-        vendas: propostasFechadas.length,
-        receita: propostasFechadas.reduce((acc, proposta) => acc + proposta.valor, 0),
-      }
-    })
-    .sort((a, b) => b.receita - a.receita)
-
-  const origensData = clientesFiltrados.reduce(
-    (acc, cliente) => {
-      const origem = cliente.origem || 'Nao informado'
-      const existente = acc.find((item) => item.name === origem)
-      if (existente) {
-        existente.value += 1
-      } else {
-        acc.push({ name: origem, value: 1 })
-      }
-      return acc
-    },
-    [] as { name: string; value: number }[]
+  const stats = useMemo(
+    () => [
+      {
+        title: 'Clientes',
+        value: totalClientes,
+        description: `${totalLeads} leads em proposta`,
+        icon: Users,
+        color: 'text-blue-400',
+        bgColor: 'bg-blue-500/10',
+      },
+      {
+        title: 'Receita Total',
+        value: formatCurrency(totalReceita),
+        description: `${vendasFechadasCount} vendas`,
+        icon: DollarSign,
+        color: 'text-emerald-400',
+        bgColor: 'bg-emerald-500/10',
+      },
+      {
+        title: 'Taxa de Conversao',
+        value: `${taxaConversaoGeral}%`,
+        description: 'Propostas -> Fechamentos',
+        icon: Percent,
+        color: 'text-amber-400',
+        bgColor: 'bg-amber-500/10',
+      },
+      {
+        title: 'Ticket Medio',
+        value: formatCurrency(ticketMedio),
+        description: 'Por fechamento',
+        icon: Target,
+        color: 'text-purple-400',
+        bgColor: 'bg-purple-500/10',
+      },
+    ],
+    [formatCurrency, taxaConversaoGeral, ticketMedio, totalClientes, totalLeads, totalReceita, vendasFechadasCount]
   )
-
-  const evolucaoData = buildEvolutionData(propostasFiltradas, dateFilter, appearance.idioma)
-
-  const stats = [
-    {
-      title: 'Clientes',
-      value: totalClientes,
-      description: `${totalLeads} leads em proposta`,
-      icon: Users,
-      color: 'text-blue-400',
-      bgColor: 'bg-blue-500/10',
-    },
-    {
-      title: 'Receita Total',
-      value: formatCurrency(totalReceita),
-      description: `${vendasFechadas.length} vendas`,
-      icon: DollarSign,
-      color: 'text-emerald-400',
-      bgColor: 'bg-emerald-500/10',
-    },
-    {
-      title: 'Taxa de Conversao',
-      value: `${taxaConversaoGeral}%`,
-      description: 'Propostas -> Fechamentos',
-      icon: Percent,
-      color: 'text-amber-400',
-      bgColor: 'bg-amber-500/10',
-    },
-    {
-      title: 'Ticket Medio',
-      value: formatCurrency(vendasFechadas.length > 0 ? totalReceita / vendasFechadas.length : 0),
-      description: 'Por fechamento',
-      icon: Target,
-      color: 'text-purple-400',
-      bgColor: 'bg-purple-500/10',
-    },
-  ]
 
   const colors = ['#3b82f6', '#10b981', '#f59e0b', '#a855f7', '#06b6d4', '#ef4444']
 
@@ -198,133 +234,15 @@ export default function RelatoriosPage() {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card className="bg-card border-border">
-            <CardHeader>
-              <CardTitle className="text-lg">Funil de Vendas</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={360}>
-                <BarChart data={funilData} layout="vertical">
-                  <XAxis type="number" hide />
-                  <YAxis
-                    dataKey="name"
-                    type="category"
-                    width={220}
-                    axisLine={false}
-                    tickLine={false}
-                    tick={<WrappedYAxisTick />}
-                  />
-                  <Tooltip />
-                  <Bar dataKey="count" radius={[0, 4, 4, 0]}>
-                    {funilData.map((entry, index) => (
-                      <Cell key={`${entry.name}-${index}`} fill={entry.color} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-card border-border">
-            <CardHeader>
-              <CardTitle className="text-lg">Origem dos Leads</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={origensData}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={100}
-                    dataKey="value"
-                    label={({ name, percent }) => `${name} (${((percent || 0) * 100).toFixed(0)}%)`}
-                    labelLine={false}
-                  >
-                    {origensData.map((entry, index) => (
-                      <Cell key={`${entry.name}-${index}`} fill={colors[index % colors.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-card border-border">
-            <CardHeader>
-              <CardTitle className="text-lg">Evolucao Mensal</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={evolucaoData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                  <XAxis dataKey="mes" axisLine={false} tickLine={false} />
-                  <YAxis axisLine={false} tickLine={false} />
-                  <Tooltip />
-                  <Legend />
-                  <Line type="monotone" dataKey="leads" name="Leads" stroke="#3b82f6" strokeWidth={2} />
-                  <Line type="monotone" dataKey="vendas" name="Fechamentos" stroke="#10b981" strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-card border-border">
-            <CardHeader>
-              <CardTitle className="text-lg">Performance por Vendedor</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={vendedoresData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} />
-                  <YAxis axisLine={false} tickLine={false} />
-                  <Tooltip />
-                  <Bar dataKey="vendas" name="Fechamentos" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        </div>
+        <GeneralReportCharts
+          funilData={funilData}
+          origensData={origensData}
+          evolucaoData={evolucaoData}
+          vendedoresData={vendedoresData}
+          colors={colors}
+        />
       </div>
     </>
-  )
-}
-
-function WrappedYAxisTick(props: any) {
-  const { x, y, payload } = props
-  const words = String(payload?.value || '').split(' ')
-  const lines: string[] = []
-
-  words.forEach((word) => {
-    const currentLine = lines[lines.length - 1]
-    if (!currentLine || `${currentLine} ${word}`.trim().length > 18) {
-      lines.push(word)
-      return
-    }
-
-    lines[lines.length - 1] = `${currentLine} ${word}`
-  })
-
-  return (
-    <g transform={`translate(${x},${y})`}>
-      <text
-        x={0}
-        y={0}
-        dy={4}
-        textAnchor="end"
-        fill="currentColor"
-        className="fill-muted-foreground text-xs"
-      >
-        {lines.map((line, index) => (
-          <tspan key={`${line}-${index}`} x={0} dy={index === 0 ? 0 : 14}>
-            {line}
-          </tspan>
-        ))}
-      </text>
-    </g>
   )
 }
 
@@ -372,4 +290,21 @@ function buildEvolutionData(propostas: Proposta[], filter: DateFilterValue, loca
   })
 
   return buckets.map(({ year, month, ...item }) => item)
+}
+
+function ReportChartsSkeleton() {
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <Card key={index} className="bg-card border-border">
+          <CardHeader>
+            <Skeleton className="h-6 w-40" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-[300px] w-full" />
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  )
 }

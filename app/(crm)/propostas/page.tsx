@@ -1,5 +1,6 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
@@ -8,8 +9,6 @@ import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useSession } from '@/lib/hooks/use-api'
 import { CRMHeader } from '@/components/crm/header'
 import { ModuleAccessState } from '@/components/crm/module-access-state'
-import { ProposalFormDialog } from '@/components/crm/propostas/proposal-form-dialog'
-import { ProposalDetailsSheet } from '@/components/crm/propostas/proposal-details-sheet'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -30,6 +29,20 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Eye, MoreHorizontal, Pencil, X, Clock, DollarSign, TrendingUp } from 'lucide-react'
 import { statusPropostaColors, statusPropostaLabels, type StatusProposta } from '@/lib/data/types'
+
+const ProposalFormDialog = dynamic(
+  () => import('@/components/crm/propostas/proposal-form-dialog').then((mod) => mod.ProposalFormDialog),
+  {
+    ssr: false,
+  }
+)
+
+const ProposalDetailsSheet = dynamic(
+  () => import('@/components/crm/propostas/proposal-details-sheet').then((mod) => mod.ProposalDetailsSheet),
+  {
+    ssr: false,
+  }
+)
 
 const openStatuses: StatusProposta[] = [
   'novo_cliente',
@@ -62,9 +75,30 @@ export default function PropostasPage() {
   const [detailsPropostaId, setDetailsPropostaId] = useState<string | null>(null)
   const hasPropostasAccess = hasModuleAccess(user, 'propostas')
 
-  const propostasEmAndamento = state.propostas.filter((proposta) => openStatuses.includes(proposta.status))
-  const propostasFechadas = state.propostas.filter((proposta) => proposta.status === 'fechado')
-  const propostasPerdidas = state.propostas.filter((proposta) => proposta.status === 'perdido')
+  const propostasOrdenadas = useMemo(
+    () =>
+      state.propostas
+        .slice()
+        .sort((a, b) => new Date(b.dataEnvio).getTime() - new Date(a.dataEnvio).getTime()),
+    [state.propostas]
+  )
+
+  const propostasPorTab = useMemo(() => {
+    const abertas = propostasOrdenadas.filter((proposta) => openStatuses.includes(proposta.status))
+    const fechadas = propostasOrdenadas.filter((proposta) => proposta.status === 'fechado')
+    const perdidas = propostasOrdenadas.filter((proposta) => proposta.status === 'perdido')
+
+    return {
+      todas: propostasOrdenadas,
+      abertas,
+      fechadas,
+      perdidas,
+    }
+  }, [propostasOrdenadas])
+
+  const propostasEmAndamento = propostasPorTab.abertas
+  const propostasFechadas = propostasPorTab.fechadas
+  const propostasPerdidas = propostasPorTab.perdidas
 
   const totalEmAndamento = propostasEmAndamento.reduce((acc, proposta) => acc + proposta.valor, 0)
   const totalFechado = propostasFechadas.reduce((acc, proposta) => acc + proposta.valor, 0)
@@ -214,9 +248,14 @@ export default function PropostasPage() {
         <Tabs defaultValue="todas">
           <TabsList className="mb-4">
             {tabs.map((tab) => {
-              const count = tab.statuses
-                ? state.propostas.filter((proposta) => tab.statuses?.includes(proposta.status)).length
-                : state.propostas.length
+              const count =
+                tab.key === 'todas'
+                  ? propostasPorTab.todas.length
+                  : tab.key === 'abertas'
+                    ? propostasPorTab.abertas.length
+                    : tab.key === 'fechadas'
+                      ? propostasPorTab.fechadas.length
+                      : propostasPorTab.perdidas.length
               return (
                 <TabsTrigger key={tab.key} value={tab.key}>
                   {tab.label} ({count})
@@ -226,9 +265,14 @@ export default function PropostasPage() {
           </TabsList>
 
           {tabs.map((tab) => {
-            const propostas = tab.statuses
-              ? state.propostas.filter((proposta) => tab.statuses?.includes(proposta.status))
-              : state.propostas
+            const propostas =
+              tab.key === 'todas'
+                ? propostasPorTab.todas
+                : tab.key === 'abertas'
+                  ? propostasPorTab.abertas
+                  : tab.key === 'fechadas'
+                    ? propostasPorTab.fechadas
+                    : propostasPorTab.perdidas
 
             return (
               <TabsContent key={tab.key} value={tab.key}>
@@ -254,10 +298,7 @@ export default function PropostasPage() {
                           </TableCell>
                         </TableRow>
                       ) : (
-                        propostas
-                          .slice()
-                          .sort((a, b) => new Date(b.dataEnvio).getTime() - new Date(a.dataEnvio).getTime())
-                          .map(renderPropostaRow)
+                        propostas.map(renderPropostaRow)
                       )}
                     </TableBody>
                   </Table>
@@ -268,17 +309,23 @@ export default function PropostasPage() {
         </Tabs>
       </div>
 
-      <ProposalFormDialog open={showCreateDialog} onOpenChange={setShowCreateDialog} />
-      <ProposalFormDialog
-        open={Boolean(editingPropostaId)}
-        onOpenChange={(open) => !open && setEditingPropostaId(null)}
-        propostaId={editingPropostaId}
-      />
-      <ProposalDetailsSheet
-        open={Boolean(detailsPropostaId)}
-        onOpenChange={(open) => !open && setDetailsPropostaId(null)}
-        propostaId={detailsPropostaId}
-      />
+      {showCreateDialog ? (
+        <ProposalFormDialog open={showCreateDialog} onOpenChange={setShowCreateDialog} />
+      ) : null}
+      {editingPropostaId ? (
+        <ProposalFormDialog
+          open={Boolean(editingPropostaId)}
+          onOpenChange={(open) => !open && setEditingPropostaId(null)}
+          propostaId={editingPropostaId}
+        />
+      ) : null}
+      {detailsPropostaId ? (
+        <ProposalDetailsSheet
+          open={Boolean(detailsPropostaId)}
+          onOpenChange={(open) => !open && setDetailsPropostaId(null)}
+          propostaId={detailsPropostaId}
+        />
+      ) : null}
     </>
   )
 }

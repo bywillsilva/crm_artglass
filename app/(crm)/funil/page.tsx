@@ -6,7 +6,6 @@ import { hasModuleAccess } from '@/lib/auth/module-access'
 import { CRMHeader } from '@/components/crm/header'
 import { DateRangeFilter } from '@/components/crm/date-range-filter'
 import { ModuleAccessState } from '@/components/crm/module-access-state'
-import { ProposalFormDialog } from '@/components/crm/propostas/proposal-form-dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCRM } from '@/lib/context/crm-context'
 import { useSession } from '@/lib/hooks/use-api'
@@ -17,6 +16,13 @@ const KanbanBoard = dynamic(
   {
     ssr: false,
     loading: () => <FunilBoardSkeleton />,
+  }
+)
+
+const ProposalFormDialog = dynamic(
+  () => import('@/components/crm/propostas/proposal-form-dialog').then((mod) => mod.ProposalFormDialog),
+  {
+    ssr: false,
   }
 )
 
@@ -50,7 +56,9 @@ export default function FunilPage() {
         <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
         <KanbanBoard propostas={propostasFiltradas} />
       </div>
-      <ProposalFormDialog open={showCreateDialog} onOpenChange={setShowCreateDialog} />
+      {showCreateDialog ? (
+        <ProposalFormDialog open={showCreateDialog} onOpenChange={setShowCreateDialog} />
+      ) : null}
     </>
   )
 }

@@ -906,7 +906,7 @@ export function requiresOrcamentistaAssignment(status: ProposalWorkflowStatus) {
 }
 
 export function requiresPositiveProposalValue(status: ProposalWorkflowStatus) {
-  return !['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(status)
+  return !['novo_cliente', 'em_orcamento', 'em_retificacao'].includes(status)
 }
 
 export function canOrcamentistaAccessProposal(proposta: {

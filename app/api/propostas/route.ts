@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
-import { query } from '@/lib/db/mysql'
-import { getServerSession } from '@/lib/auth/session'
+import { isTransientDatabaseError, query } from '@/lib/db/mysql'
+import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { saveProposalFiles } from '@/lib/server/proposal-files'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
-import { invalidateRuntimeCache } from '@/lib/server/runtime-cache'
+import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import {
   ensureCrmRuntimeSchema,
   getNextProposalNumber,
@@ -16,6 +16,8 @@ import {
   syncDueFollowUpStatuses,
   type ProposalWorkflowStatus,
 } from '@/lib/server/proposal-workflow'
+
+const PROPOSTAS_CACHE_TTL_MS = Math.max(Number(process.env.PROPOSTAS_CACHE_TTL_MS || 30_000), 1000)
 
 type ProposalPayload = {
   clienteId: string
@@ -183,21 +185,7 @@ async function ensureBaseSchema() {
 }
 
 async function getAuthenticatedUser() {
-  const session = await getServerSession()
-  if (!session) {
-    return null
-  }
-
-  const [user] = await query<any[]>(
-    'SELECT id, role, ativo FROM usuarios WHERE id = ? LIMIT 1',
-    [session.userId]
-  )
-
-  if (!user || !user.ativo) {
-    return null
-  }
-
-  return user
+  return getAuthenticatedServerUser()
 }
 
 async function validateResponsavel(responsavelId: string | null, sessionUser: any) {
@@ -272,6 +260,11 @@ async function findReusableSeedProposal(clienteId: string) {
 }
 
 export async function GET(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams
+  const status = searchParams.get('status')
+  const clienteId = searchParams.get('cliente_id')
+  const updatedSince = searchParams.get('updated_since')
+
   try {
     await ensureBaseSchema()
 
@@ -280,9 +273,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
 
-    const searchParams = request.nextUrl.searchParams
-    const status = searchParams.get('status')
-    const clienteId = searchParams.get('cliente_id')
+    const cacheKey = `propostas:list:${user.id}:${user.role}:${status || 'todos'}:${clienteId || ''}:${updatedSince || ''}`
+    const cachedPropostas = getRuntimeCache<any[]>(cacheKey)
+    if (cachedPropostas !== undefined) {
+      return NextResponse.json(cachedPropostas)
+    }
 
     let sql = `
       SELECT
@@ -320,6 +315,11 @@ export async function GET(request: NextRequest) {
       params.push(clienteId)
     }
 
+    if (updatedSince) {
+      sql += ' AND p.updated_at >= ?'
+      params.push(updatedSince)
+    }
+
     if (user.role === 'vendedor') {
       sql += ` AND p.responsavel_id = ?
                AND p.status IN ('enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'perdido')`
@@ -333,9 +333,21 @@ export async function GET(request: NextRequest) {
     sql += ' ORDER BY p.created_at DESC'
 
     const propostas = await query(sql, params)
+    setRuntimeCache(cacheKey, propostas, PROPOSTAS_CACHE_TTL_MS)
     return NextResponse.json(propostas)
   } catch (error) {
     console.error('Erro ao buscar propostas:', error)
+
+    if (isTransientDatabaseError(error)) {
+      const user = await getAuthenticatedUser().catch(() => null)
+      if (!user) {
+        return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+      }
+
+      const cacheKey = `propostas:list:${user.id}:${user.role}:${status || 'todos'}:${clienteId || ''}`
+      return NextResponse.json(getRuntimeCache<any[]>(cacheKey) || [], { status: 200 })
+    }
+
     return NextResponse.json({ error: 'Erro ao buscar propostas' }, { status: 500 })
   }
 }

@@ -1,5 +1,6 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import {
@@ -12,17 +13,6 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react'
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
 import { updateTarefaStatus, useDashboard, useSession } from '@/lib/hooks/use-api'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { CRMHeader } from '@/components/crm/header'
@@ -35,6 +25,13 @@ import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { statusPropostaLabels, type StatusProposta } from '@/lib/data/types'
 import { createDefaultDateFilter } from '@/lib/utils/date-filter'
+
+const DashboardCharts = dynamic(
+  () => import('@/components/crm/dashboard/dashboard-charts').then((mod) => mod.DashboardCharts),
+  {
+    loading: () => <DashboardChartsSkeleton />,
+  }
+)
 
 const funnelStatuses: StatusProposta[] = [
   'novo_cliente',
@@ -162,56 +159,11 @@ export function DashboardContent() {
           <StatsCard title="Vendas Fechadas no Periodo" value={formatCurrency(stats?.vendasMes || 0)} icon={DollarSign} color="text-amber-400" bgColor="bg-amber-500/10" />
         </div>
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <Card className="bg-card border-border">
-            <CardHeader>
-              <CardTitle className="text-foreground text-lg">Funil de Propostas</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={360}>
-                <BarChart data={funnelChartData} layout="vertical">
-                  <XAxis type="number" stroke="#666" />
-                  <YAxis type="category" dataKey="name" stroke="#666" width={140} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333' }}
-                    formatter={(value: number) => [`${value} propostas`, 'Quantidade']}
-                  />
-                  <Bar dataKey="value" radius={[0, 4, 4, 0]} isAnimationActive={false}>
-                    {funnelChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-card border-border">
-            <CardHeader>
-              <CardTitle className="text-foreground text-lg">Fechamentos Mensais</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <AreaChart data={salesChartData}>
-                  <XAxis dataKey="name" stroke="#666" />
-                  <YAxis stroke="#666" tickFormatter={(value) => `R$${value / 1000}k`} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333' }}
-                    formatter={(value: number) => [formatCurrency(value), 'Valor']}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="valor"
-                    stroke="#10b981"
-                    fill="#10b98133"
-                    strokeWidth={2}
-                    isAnimationActive={false}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-        </div>
+        <DashboardCharts
+          funnelChartData={funnelChartData}
+          salesChartData={salesChartData}
+          formatCurrency={formatCurrency}
+        />
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <Card className="bg-card border-border">
@@ -387,6 +339,23 @@ function AlertCard({
           <p className="text-xs text-muted-foreground">{count} item(ns)</p>
         </div>
       </div>
+    </div>
+  )
+}
+
+function DashboardChartsSkeleton() {
+  return (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      {Array.from({ length: 2 }).map((_, index) => (
+        <Card key={index} className="bg-card border-border">
+          <CardHeader>
+            <Skeleton className="h-6 w-40" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-[300px] w-full" />
+          </CardContent>
+        </Card>
+      ))}
     </div>
   )
 }

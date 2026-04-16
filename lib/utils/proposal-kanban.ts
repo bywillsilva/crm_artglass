@@ -2,7 +2,9 @@ import type { RoleUsuario, StatusProposta, Tarefa } from '@/lib/data/types'
 
 const FOLLOW_UP_STATUSES: StatusProposta[] = [
   'follow_up_1_dia',
+  'aguardando_follow_up_3_dias',
   'follow_up_3_dias',
+  'aguardando_follow_up_7_dias',
   'follow_up_7_dias',
 ]
 

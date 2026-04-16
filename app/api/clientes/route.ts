@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getConnection, query } from '@/lib/db/mysql'
+import { getConnection, isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
+import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import {
   ensureCrmRuntimeSchema,
   getNextProposalNumber,
   formatDateTime,
 } from '@/lib/server/proposal-workflow'
+
+const CLIENTES_CACHE_TTL_MS = Math.max(Number(process.env.CLIENTES_CACHE_TTL_MS || 30_000), 1000)
 
 function normalizeNullableText(value: unknown) {
   if (typeof value !== 'string') {
@@ -26,7 +29,13 @@ function parseNullableNumber(value: unknown, fallback = 0) {
   if (typeof value === 'string') {
     const trimmed = value.trim()
     if (!trimmed) return fallback
-    const parsed = Number(trimmed.replace(',', '.'))
+
+    const normalized = trimmed
+      .replace(/\s+/g, '')
+      .replace(/\.(?=\d{3}(?:\D|$))/g, '')
+      .replace(',', '.')
+
+    const parsed = Number(normalized)
     return Number.isFinite(parsed) ? parsed : fallback
   }
 
@@ -162,11 +171,18 @@ async function createInitialProposalForClient(
 }
 
 export async function GET(request: NextRequest) {
+  const searchParams = request.nextUrl.searchParams
+  const status = searchParams.get('status')
+  const search = searchParams.get('search')
+  const updatedSince = searchParams.get('updated_since')
+  const cacheKey = `clientes:list:${status || 'todos'}:${search || ''}:${updatedSince || ''}`
+
   try {
     await ensureBaseSchema()
-    const searchParams = request.nextUrl.searchParams
-    const status = searchParams.get('status')
-    const search = searchParams.get('search')
+    const cachedClientes = getRuntimeCache<any[]>(cacheKey)
+    if (cachedClientes !== undefined) {
+      return NextResponse.json(cachedClientes)
+    }
 
     let sql = `
       SELECT c.*
@@ -186,12 +202,23 @@ export async function GET(request: NextRequest) {
       params.push(searchTerm, searchTerm, searchTerm)
     }
 
+    if (updatedSince) {
+      sql += ' AND c.updated_at >= ?'
+      params.push(updatedSince)
+    }
+
     sql += ' ORDER BY c.created_at DESC'
 
     const clientes = await query(sql, params)
+    setRuntimeCache(cacheKey, clientes, CLIENTES_CACHE_TTL_MS)
     return NextResponse.json(clientes)
   } catch (error) {
     console.error('Erro ao buscar clientes:', error)
+
+    if (isTransientDatabaseError(error)) {
+      return NextResponse.json(getRuntimeCache<any[]>(cacheKey) || [], { status: 200 })
+    }
+
     return NextResponse.json({ error: 'Erro ao buscar clientes' }, { status: 500 })
   }
 }
@@ -274,6 +301,10 @@ export async function POST(request: NextRequest) {
     })
 
     await connection.commit()
+
+    invalidateRuntimeCache('clientes:list:')
+    invalidateRuntimeCache('cliente:detail:')
+    invalidateRuntimeCache('crm-bootstrap:')
 
     await publishRealtimeEvent({
       actorUserId: user.id,
