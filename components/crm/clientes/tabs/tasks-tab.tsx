@@ -58,7 +58,10 @@ export function TasksTab({ clienteId }: TasksTabProps) {
   const [isSavingTask, setIsSavingTask] = useState(false)
 
   const tarefas = getTarefasByCliente(clienteId)
-  const visibleTarefas = tarefas.filter((tarefa) => tarefa.responsavelId === user?.id)
+  const canViewAllTasks = user?.role === 'admin' || user?.role === 'gerente'
+  const visibleTarefas = canViewAllTasks
+    ? tarefas
+    : tarefas.filter((tarefa) => tarefa.responsavelId === user?.id)
 
   const handleAddTarefa = async () => {
     if (isCreatingTask || !descricao.trim() || !dataHora || !responsavelId) return
