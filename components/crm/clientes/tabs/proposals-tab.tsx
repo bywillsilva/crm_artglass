@@ -25,6 +25,14 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
   const [detailsPropostaId, setDetailsPropostaId] = useState<string | null>(null)
 
   const propostas = getPropostasByCliente(clienteId)
+  const canEditProposal = (proposta: (typeof propostas)[number]) =>
+    user?.role === 'admin' ||
+    user?.role === 'gerente' ||
+    (
+      user?.role === 'orcamentista' &&
+      (!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
+      ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
+    )
 
   return (
     <>
@@ -89,14 +97,7 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
                     <Button size="sm" variant="ghost" onClick={() => setDetailsPropostaId(proposta.id)}>
                       Ver detalhes
                     </Button>
-                    {(user?.role === 'admin' ||
-                      user?.role === 'gerente' ||
-                      proposta.responsavelId === user?.id ||
-                      (
-                        user?.role === 'orcamentista' &&
-                        (!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
-                        ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
-                      )) && (
+                    {canEditProposal(proposta) && (
                       <Button size="sm" variant="outline" onClick={() => setEditingPropostaId(proposta.id)}>
                         Editar
                       </Button>

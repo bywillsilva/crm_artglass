@@ -126,6 +126,7 @@ export function ProposalFormDialog({
   const propostaSource = proposta || propostaInicial || null
   const isEditing = Boolean(propostaId)
   const isAdmin = user?.role === 'admin' || user?.role === 'gerente'
+  const canEditProposalDirectly = user?.role !== 'vendedor'
   const canEditStatusDirectly = user?.role !== 'vendedor'
 
   const [clienteId, setClienteId] = useState(clienteIdInicial || '')
@@ -271,6 +272,10 @@ export function ProposalFormDialog({
     if (isSubmitting) return
     if (submitHasInvalidValue) {
       toast.error('Informe um valor valido para a proposta.')
+      return
+    }
+    if (isEditing && !canEditProposalDirectly) {
+      toast.error('Vendedores nao podem editar propostas fora do fluxo do funil.')
       return
     }
     if (!clienteId || (!responsavelId && isAdmin) || (orcamentistaObrigatorio && !orcamentistaId) || !submitHasRequiredValue) {

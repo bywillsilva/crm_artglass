@@ -301,7 +301,7 @@ async function getProposalAttachments(id: string) {
 function canViewProposal(user: any, proposta: any) {
   if (user.role === 'admin' || user.role === 'gerente') return true
   if (user.role === 'vendedor') {
-    return proposta.responsavel_id === user.id && isSellerVisibleStatus(normalizeProposalStatus(proposta.status))
+    return proposta.responsavel_id === user.id
   }
   if (user.role === 'orcamentista') {
     return canOrcamentistaAccessProposal(proposta, user.id)

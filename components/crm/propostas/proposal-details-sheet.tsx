@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { mutate } from 'swr'
 import {
+  AlertCircle,
   CalendarClock,
   MessageSquare,
   Paperclip,
@@ -28,6 +29,19 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 
+type ProposalCommentSnapshot = {
+  id: string
+  proposta_id?: string
+  propostaId?: string
+  usuario_id?: string
+  usuarioId?: string
+  usuario_nome?: string
+  usuarioNome?: string
+  comentario: string
+  created_at?: string
+  criadoEm?: string | Date
+}
+
 interface ProposalDetailsSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -41,30 +55,50 @@ export function ProposalDetailsSheet({
 }: ProposalDetailsSheetProps) {
   const { formatCurrency, formatDateTime } = useAppSettings()
   const { user } = useSession()
-  const { proposta, isLoading, mutate: mutateProposta } = useProposta(open && propostaId ? propostaId : null)
+  const {
+    proposta,
+    isLoading,
+    error,
+    mutate: mutateProposta,
+  } = useProposta(open && propostaId ? propostaId : null)
   const [newComment, setNewComment] = useState('')
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [editingComment, setEditingComment] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const detailErrorMessage = useMemo(() => {
+    if (!error) return null
+    if (error instanceof Error && error.message) {
+      return error.message
+    }
+    return 'Nao foi possivel carregar os detalhes desta proposta agora.'
+  }, [error])
 
   const syncProposalSnapshot = async (proposalSnapshot: any) => {
     if (!propostaId || !proposalSnapshot) return
-
-    const anexos = Array.isArray(proposalSnapshot.anexos) ? proposalSnapshot.anexos : []
-    const comentarios = Array.isArray(proposalSnapshot.comentarios) ? proposalSnapshot.comentarios : []
-    const proposalPatch = {
+    const hasAttachmentDetails = Array.isArray(proposalSnapshot.anexos)
+    const hasCommentDetails = Array.isArray(proposalSnapshot.comentarios)
+    const hasDetailedCollections = hasAttachmentDetails || hasCommentDetails
+    const proposalPatch: Record<string, unknown> = {
       ...proposalSnapshot,
-      anexos,
-      comentarios,
-      anexosCount: anexos.length,
-      anexos_count: anexos.length,
-      comentariosCount: comentarios.length,
-      comentarios_count: comentarios.length,
+    }
+
+    if (hasAttachmentDetails) {
+      const anexos = proposalSnapshot.anexos as any[]
+      proposalPatch.anexos = anexos
+      proposalPatch.anexosCount = anexos.length
+      proposalPatch.anexos_count = anexos.length
+    }
+
+    if (hasCommentDetails) {
+      const comentarios = proposalSnapshot.comentarios as any[]
+      proposalPatch.comentarios = comentarios
+      proposalPatch.comentariosCount = comentarios.length
+      proposalPatch.comentarios_count = comentarios.length
     }
 
     await mutate(`/api/propostas/${propostaId}`, proposalPatch, { revalidate: false })
     await mutate(
-      '/api/crm/bootstrap',
+      (key) => typeof key === 'string' && key.startsWith('/api/crm/bootstrap'),
       (current?: Record<string, unknown> | null) => {
         if (!current || typeof current !== 'object') {
           return current
@@ -80,12 +114,93 @@ export function ProposalDetailsSheet({
       },
       { revalidate: false }
     )
+
+    if (hasDetailedCollections) {
+      await mutate(
+        (key) => typeof key === 'string' && key.startsWith('/api/propostas'),
+        (current) => {
+          if (Array.isArray(current)) {
+            return current.map((item: any) => (item?.id === propostaId ? { ...item, ...proposalPatch } : item))
+          }
+
+          if (current && typeof current === 'object' && (current as any).id === propostaId) {
+            return { ...current, ...proposalPatch }
+          }
+
+          return current
+        },
+        { revalidate: false }
+      )
+    }
   }
 
   const refreshProposalData = async () => {
     const refreshed = await mutateProposta()
     await syncProposalSnapshot(refreshed)
     void mutate((key) => typeof key === 'string' && key.startsWith('/api/propostas'))
+  }
+
+  const applyCommentSnapshot = async (
+    updater: (comments: ProposalCommentSnapshot[]) => ProposalCommentSnapshot[]
+  ) => {
+    if (!propostaId) return
+
+    await mutate(
+      `/api/propostas/${propostaId}`,
+      (current?: Record<string, any> | null) => {
+        if (!current || typeof current !== 'object') {
+          return current
+        }
+
+        const currentComments = Array.isArray(current.comentarios)
+          ? (current.comentarios as ProposalCommentSnapshot[])
+          : []
+        const nextComments = updater(currentComments)
+
+        return {
+          ...current,
+          comentarios: nextComments,
+          comentariosCount: nextComments.length,
+          comentarios_count: nextComments.length,
+        }
+      },
+      { revalidate: false }
+    )
+
+    await mutate(
+      (key) => typeof key === 'string' && key.startsWith('/api/crm/bootstrap'),
+      (current?: Record<string, unknown> | null) => {
+        if (!current || typeof current !== 'object') {
+          return current
+        }
+
+        const propostas = Array.isArray(current.propostas) ? current.propostas : []
+        return {
+          ...current,
+          propostas: propostas.map((item: any) => {
+            if (item?.id !== propostaId) {
+              return item
+            }
+
+            const currentCount = Number(
+              item?.comentariosCount ?? item?.comentarios_count ?? item?.comentarios?.length ?? 0
+            )
+            const nextComments = updater(
+              Array.isArray(item?.comentarios) ? (item.comentarios as ProposalCommentSnapshot[]) : []
+            )
+            const nextCount = Array.isArray(item?.comentarios) ? nextComments.length : Math.max(nextComments.length, currentCount)
+
+            return {
+              ...item,
+              ...(Array.isArray(item?.comentarios) ? { comentarios: nextComments } : {}),
+              comentariosCount: nextCount,
+              comentarios_count: nextCount,
+            }
+          }),
+        }
+      },
+      { revalidate: false }
+    )
   }
 
   useEffect(() => {
@@ -112,6 +227,7 @@ export function ProposalDetailsSheet({
       }
 
       setNewComment('')
+      await applyCommentSnapshot((comments) => [data, ...comments.filter((item) => item.id !== data?.id)])
       await refreshProposalData()
       toast.success('Comentario registrado.')
     } catch (error: any) {
@@ -141,6 +257,9 @@ export function ProposalDetailsSheet({
 
       setEditingCommentId(null)
       setEditingComment('')
+      await applyCommentSnapshot((comments) =>
+        comments.map((item) => (item.id === editingCommentId ? { ...item, ...data } : item))
+      )
       await refreshProposalData()
       toast.success('Comentario atualizado.')
     } catch (error: any) {
@@ -172,6 +291,7 @@ export function ProposalDetailsSheet({
         setEditingComment('')
       }
 
+      await applyCommentSnapshot((comments) => comments.filter((item) => item.id !== commentId))
       await refreshProposalData()
       toast.success('Comentario removido.')
     } catch (error: any) {
@@ -217,11 +337,7 @@ export function ProposalDetailsSheet({
           </SheetDescription>
         </SheetHeader>
 
-        {isLoading || !proposta ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-            Carregando detalhes da proposta...
-          </div>
-        ) : (
+        {proposta ? (
           <div className="grid flex-1 gap-6 overflow-hidden px-4 pb-4 lg:grid-cols-[1.05fr_0.95fr]">
             <ScrollArea className="h-[calc(100vh-9rem)] pr-4">
               <div className="space-y-6">
@@ -472,6 +588,24 @@ export function ProposalDetailsSheet({
                 </div>
               </div>
             </div>
+          </div>
+        ) : isLoading ? (
+          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+            Carregando detalhes da proposta...
+          </div>
+        ) : detailErrorMessage ? (
+          <div className="flex flex-1 items-center justify-center px-4">
+            <div className="flex max-w-md items-start gap-3 rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+              <div>
+                <p className="font-medium text-foreground">Nao foi possivel abrir os detalhes agora.</p>
+                <p className="mt-1">{detailErrorMessage}</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+            Nenhum detalhe desta proposta foi encontrado.
           </div>
         )}
       </SheetContent>

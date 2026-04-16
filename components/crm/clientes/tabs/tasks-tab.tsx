@@ -58,6 +58,7 @@ export function TasksTab({ clienteId }: TasksTabProps) {
   const [isSavingTask, setIsSavingTask] = useState(false)
 
   const tarefas = getTarefasByCliente(clienteId)
+  const visibleTarefas = tarefas.filter((tarefa) => tarefa.responsavelId === user?.id)
 
   const handleAddTarefa = async () => {
     if (isCreatingTask || !descricao.trim() || !dataHora || !responsavelId) return
@@ -85,7 +86,7 @@ export function TasksTab({ clienteId }: TasksTabProps) {
     }
   }
 
-  const openEditDialog = (tarefa: typeof tarefas[number]) => {
+  const openEditDialog = (tarefa: typeof visibleTarefas[number]) => {
     setEditingTarefaId(tarefa.id)
     setEditDescricao(tarefa.descricao)
     setEditDataHora(formatDateTimeLocalInputValue(tarefa.dataHora))
@@ -100,7 +101,7 @@ export function TasksTab({ clienteId }: TasksTabProps) {
 
     try {
       await updateTarefa({
-        ...(tarefas.find((tarefa) => tarefa.id === editingTarefaId) as typeof tarefas[number]),
+        ...(visibleTarefas.find((tarefa) => tarefa.id === editingTarefaId) as typeof visibleTarefas[number]),
         descricao: editDescricao,
         titulo: editDescricao,
         dataHora: new Date(editDataHora),
@@ -143,13 +144,13 @@ export function TasksTab({ clienteId }: TasksTabProps) {
           </Button>
         </CardHeader>
         <CardContent>
-          {tarefas.length === 0 ? (
+          {visibleTarefas.length === 0 ? (
             <p className="py-8 text-center text-muted-foreground">
               Nenhuma tarefa registrada
             </p>
           ) : (
             <div className="space-y-3">
-              {tarefas.map((tarefa) => {
+              {visibleTarefas.map((tarefa) => {
                 const responsavel = getUsuario(tarefa.responsavelId)
                 const isAtrasada =
                   tarefa.status === 'pendente' &&

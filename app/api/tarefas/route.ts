@@ -37,9 +37,14 @@ export async function GET(request: NextRequest) {
     }
 
     let sql = `
-      SELECT t.*, c.nome as cliente_nome, u.nome as responsavel_nome
+      SELECT
+        t.*,
+        COALESCE(t.cliente_id, p.cliente_id) as cliente_id_resolvido,
+        c.nome as cliente_nome,
+        u.nome as responsavel_nome
       FROM tarefas t
-      LEFT JOIN clientes c ON t.cliente_id = c.id
+      LEFT JOIN propostas p ON t.proposta_id = p.id
+      LEFT JOIN clientes c ON COALESCE(t.cliente_id, p.cliente_id) = c.id
       LEFT JOIN usuarios u ON t.responsavel_id = u.id
       WHERE 1=1
     `

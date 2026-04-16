@@ -132,9 +132,24 @@ export function CRMProvider({ children }: { children: ReactNode }) {
     }
 
     for (const tarefa of tarefas) {
-      const grouped = tarefasByClienteId.get(tarefa.clienteId) || []
-      grouped.push(tarefa)
-      tarefasByClienteId.set(tarefa.clienteId, grouped)
+      const relatedClienteIds = new Set<string>()
+
+      if (tarefa.clienteId) {
+        relatedClienteIds.add(tarefa.clienteId)
+      }
+
+      if (tarefa.propostaId) {
+        const proposalClientId = propostas.find((proposta: Proposta) => proposta.id === tarefa.propostaId)?.clienteId
+        if (proposalClientId) {
+          relatedClienteIds.add(proposalClientId)
+        }
+      }
+
+      for (const relatedClienteId of relatedClienteIds) {
+        const grouped = tarefasByClienteId.get(relatedClienteId) || []
+        grouped.push(tarefa)
+        tarefasByClienteId.set(relatedClienteId, grouped)
+      }
     }
 
     for (const proposta of propostas) {

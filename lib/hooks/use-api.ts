@@ -244,7 +244,7 @@ function normalizeUsuario(row: JsonRecord): Usuario {
 function normalizeTarefa(row: JsonRecord): Tarefa {
   return {
     id: row.id,
-    clienteId: row.clienteId ?? row.cliente_id ?? '',
+    clienteId: row.clienteId ?? row.cliente_id_resolvido ?? row.cliente_id ?? '',
     titulo: row.titulo ?? row.descricao ?? '',
     descricao: row.descricao ?? row.titulo ?? '',
     dataHora: toDate(row.dataHora ?? row.data_hora),
@@ -584,6 +584,43 @@ function getBootstrapCollectionFromCache(
   return undefined
 }
 
+function getProposalSnapshotFromCache(
+  cache: ReturnType<typeof useSWRConfig>['cache'],
+  id: string
+) {
+  const directKey = `/api/propostas/${id}`
+  const direct = cache.get(directKey)
+  if (direct && typeof direct === 'object') {
+    return direct as JsonRecord
+  }
+
+  const bootstrapItems = getBootstrapCollectionFromCache(cache, 'propostas')
+  if (Array.isArray(bootstrapItems)) {
+    const bootstrapMatch = bootstrapItems.find((item) => String(item?.id ?? '') === id)
+    if (bootstrapMatch && typeof bootstrapMatch === 'object') {
+      return bootstrapMatch as JsonRecord
+    }
+  }
+
+  const proposalCollectionKeys = Array.from(cache.keys()).filter(
+    (key): key is string => typeof key === 'string' && key.startsWith('/api/propostas')
+  )
+
+  for (const key of proposalCollectionKeys) {
+    const cachedValue = cache.get(key)
+    if (!Array.isArray(cachedValue)) {
+      continue
+    }
+
+    const match = cachedValue.find((item) => String(item?.id ?? '') === id)
+    if (match && typeof match === 'object') {
+      return match as JsonRecord
+    }
+  }
+
+  return undefined
+}
+
 function mergeBootstrapCollection(collection: BootstrapCollectionKey, incoming: JsonRecord[]) {
   return mutate(
     (key) => typeof key === 'string' && key.startsWith('/api/crm/bootstrap'),
@@ -789,8 +826,13 @@ export function usePropostas(params?: { status?: string; clienteId?: string }) {
 }
 
 export function useProposta(id: string | null) {
+  const { cache } = useSWRConfig()
   const key = id ? `/api/propostas/${id}` : null
-  const { data, error, isLoading } = useSWR(key, fetcher, READ_ONLY_SWR_OPTIONS)
+  const fallbackData = id ? getProposalSnapshotFromCache(cache, id) : undefined
+  const { data, error, isLoading } = useSWR(key, fetcher, {
+    ...READ_ONLY_SWR_OPTIONS,
+    fallbackData,
+  })
   const proposta = useMemo(() => (data ? normalizeProposta(data) : undefined), [data])
 
   return {

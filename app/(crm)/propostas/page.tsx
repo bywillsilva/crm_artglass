@@ -124,6 +124,14 @@ export default function PropostasPage() {
         (!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
         ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
       )
+    const canEditProposal =
+      user?.role === 'admin' ||
+      user?.role === 'gerente' ||
+      (
+        user?.role === 'orcamentista' &&
+        (!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
+        ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
+      )
 
     return (
       <TableRow key={proposta.id} className="hover:bg-secondary/30">
@@ -157,7 +165,7 @@ export default function PropostasPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              {canManage && (
+              {canEditProposal && (
                 <DropdownMenuItem onClick={() => setEditingPropostaId(proposta.id)}>
                   <Pencil className="mr-2 h-4 w-4" />
                   Editar proposta
