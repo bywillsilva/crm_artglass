@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { DollarSign, Calendar, GripVertical } from 'lucide-react'
+import { Calendar, GripVertical } from 'lucide-react'
 import type { Cliente } from '@/lib/data/types'
 import { cn } from '@/lib/utils'
 
@@ -16,7 +16,7 @@ interface KanbanCardProps {
 }
 
 export function KanbanCard({ cliente, onDragStart, onDragEnd }: KanbanCardProps) {
-  const { formatCurrency, formatDate } = useAppSettings()
+  const { formatDate } = useAppSettings()
   const [isDragging, setIsDragging] = useState(false)
 
   const handleDragStart = (e: React.DragEvent) => {
@@ -60,14 +60,6 @@ export function KanbanCard({ cliente, onDragStart, onDragEnd }: KanbanCardProps)
             >
               {cliente.tipo === 'comercial' ? 'Comercial' : 'Residencial'}
             </Badge>
-
-            {/* Valor */}
-            <div className="flex items-center gap-1 mt-2 text-sm">
-              <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
-              <span className="font-semibold text-emerald-400">
-                {formatCurrency(cliente.valorEstimado)}
-              </span>
-            </div>
 
             {/* Footer */}
             <div className="flex items-center justify-between mt-3 pt-2 border-t border-border">

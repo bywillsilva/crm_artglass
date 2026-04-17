@@ -175,10 +175,15 @@ export async function GET(request: NextRequest) {
   const status = searchParams.get('status')
   const search = searchParams.get('search')
   const updatedSince = searchParams.get('updated_since')
-  const cacheKey = `clientes:list:${status || 'todos'}:${search || ''}:${updatedSince || ''}`
 
   try {
     await ensureBaseSchema()
+    const user = await getAuthenticatedServerUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+    }
+
+    const cacheKey = `clientes:list:${user.role}:${user.id}:${status || 'todos'}:${search || ''}:${updatedSince || ''}`
     const cachedClientes = getRuntimeCache<any[]>(cacheKey)
     if (cachedClientes !== undefined) {
       return NextResponse.json(cachedClientes)
@@ -216,7 +221,11 @@ export async function GET(request: NextRequest) {
     console.error('Erro ao buscar clientes:', error)
 
     if (isTransientDatabaseError(error)) {
-      return NextResponse.json(getRuntimeCache<any[]>(cacheKey) || [], { status: 200 })
+      const user = await getAuthenticatedServerUser().catch(() => null)
+      const cacheKey = user
+        ? `clientes:list:${user.role}:${user.id}:${status || 'todos'}:${search || ''}:${updatedSince || ''}`
+        : null
+      return NextResponse.json((cacheKey && getRuntimeCache<any[]>(cacheKey)) || [], { status: 200 })
     }
 
     return NextResponse.json({ error: 'Erro ao buscar clientes' }, { status: 500 })
@@ -257,7 +266,6 @@ export async function POST(request: NextRequest) {
       cep: normalizeNullableText(data.cep),
       origem: normalizeNullableText(data.origem),
       statusFunil: normalizeNullableText(data.statusFunil ?? data.status) || 'lead_novo',
-      valorPotencial: parseNullableNumber(data.valorPotencial ?? data.valorEstimado, 0),
       observacoes: normalizeNullableText(data.observacoes),
     }
 
@@ -267,8 +275,8 @@ export async function POST(request: NextRequest) {
       await connection.execute(
         `INSERT INTO clientes (
         id, nome, cpf, email, telefone, empresa, cargo, endereco, cidade, estado, cep,
-        origem, status_funil, valor_potencial, observacoes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        origem, status_funil, observacoes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
         [
           id,
           payload.nome,
@@ -280,10 +288,9 @@ export async function POST(request: NextRequest) {
         payload.endereco,
         payload.cidade,
         payload.estado,
-        payload.cep,
+          payload.cep,
           payload.origem,
           payload.statusFunil,
-          payload.valorPotencial,
           payload.observacoes,
         ]
     )

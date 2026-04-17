@@ -79,6 +79,7 @@ export default function UsuariosPage() {
     !!editingUser &&
     editingUser.id === sessionUser?.id &&
     editingUser.role === "admin"
+  const isEditingSelf = !!editingUser && editingUser.id === sessionUser?.id
 
   const handleOpenDialog = (user?: Usuario) => {
     if (user) {
@@ -338,7 +339,7 @@ export default function UsuariosPage() {
                                 <Pencil className="mr-2 h-4 w-4" />
                                 Editar
                               </DropdownMenuItem>
-                              {user.role !== "admin" && (
+                              {user.role !== "admin" && user.id !== sessionUser?.id && (
                                 <DropdownMenuItem onClick={() => handleDelete(user.id)} className="text-destructive">
                                   <Trash2 className="mr-2 h-4 w-4" />
                                   Excluir
@@ -362,6 +363,7 @@ export default function UsuariosPage() {
           open={isDialogOpen}
           editingUser={editingUser}
           isEditingSelfAdmin={isEditingSelfAdmin}
+          isEditingSelf={isEditingSelf}
           isSubmitting={isSubmitting}
           formData={formData}
           onOpenChange={setIsDialogOpen}

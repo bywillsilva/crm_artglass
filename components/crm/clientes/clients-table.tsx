@@ -31,7 +31,7 @@ interface ClientsTableProps {
 
 export function ClientsTable({ onNewClient }: ClientsTableProps) {
   const { state, deleteCliente } = useCRM()
-  const { formatCurrency, formatDate } = useAppSettings()
+  const { formatDate } = useAppSettings()
   const [search, setSearch] = useState('')
   const [editingClient, setEditingClient] = useState<Cliente | null>(null)
 
@@ -43,6 +43,8 @@ export function ClientsTable({ onNewClient }: ClientsTableProps) {
 
     return matchesSearch
   })
+
+  const getOrigemLabel = (origem?: string) => origem?.trim() || 'Nao informado'
 
   return (
     <>
@@ -64,7 +66,6 @@ export function ClientsTable({ onNewClient }: ClientsTableProps) {
             <TableRow className="bg-secondary/50 hover:bg-secondary/50">
               <TableHead className="text-foreground">Cliente</TableHead>
               <TableHead className="text-foreground">Contato</TableHead>
-              <TableHead className="text-foreground">Valor Est.</TableHead>
               <TableHead className="text-foreground">Ultimo Contato</TableHead>
               <TableHead className="w-12 text-foreground"></TableHead>
             </TableRow>
@@ -72,7 +73,7 @@ export function ClientsTable({ onNewClient }: ClientsTableProps) {
           <TableBody>
             {filteredClientes.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
                   Nenhum cliente encontrado
                 </TableCell>
               </TableRow>
@@ -89,7 +90,7 @@ export function ClientsTable({ onNewClient }: ClientsTableProps) {
                           {cliente.nome}
                         </Link>
                         <p className="text-xs text-muted-foreground">
-                          {cliente.tipo === 'comercial' ? 'Comercial' : 'Residencial'} | {cliente.origem}
+                          {cliente.tipo === 'comercial' ? 'Comercial' : 'Residencial'} | {getOrigemLabel(cliente.origem)}
                         </p>
                       </div>
                     </TableCell>
@@ -104,9 +105,6 @@ export function ClientsTable({ onNewClient }: ClientsTableProps) {
                         </a>
                         <p className="text-xs text-muted-foreground">{cliente.email}</p>
                       </div>
-                    </TableCell>
-                    <TableCell className="font-medium">
-                      {formatCurrency(cliente.valorEstimado)}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {formatDate(cliente.ultimoContato)}
@@ -158,12 +156,6 @@ export function ClientsTable({ onNewClient }: ClientsTableProps) {
       <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
         <p>
           Exibindo {filteredClientes.length} de {state.clientes.length} clientes
-        </p>
-        <p>
-          Valor total:{' '}
-          <span className="font-medium text-foreground">
-            {formatCurrency(filteredClientes.reduce((acc, cliente) => acc + cliente.valorEstimado, 0))}
-          </span>
         </p>
       </div>
 

@@ -53,19 +53,6 @@ function formatCpf(value: string) {
   return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`
 }
 
-function parseBrazilianDecimal(value: string | undefined) {
-  const trimmed = String(value || '').trim()
-  if (!trimmed) return 0
-
-  const normalized = trimmed
-    .replace(/\s+/g, '')
-    .replace(/\.(?=\d{3}(?:\D|$))/g, '')
-    .replace(',', '.')
-
-  const parsed = Number(normalized)
-  return Number.isFinite(parsed) ? parsed : NaN
-}
-
 function getClientFormDefaults(cliente?: Cliente) {
   if (cliente) {
       return {
@@ -77,9 +64,8 @@ function getClientFormDefaults(cliente?: Cliente) {
       cargo: cliente.cargo || '',
       endereco: cliente.endereco || '',
       tipo: cliente.tipo,
-      origem: cliente.origem || '',
+      origem: normalizeOrigemOption(cliente.origem),
       observacoes: cliente.observacoes || '',
-      valorEstimado: cliente.valorEstimado > 0 ? String(cliente.valorEstimado) : '',
     }
   }
 
@@ -94,12 +80,32 @@ function getClientFormDefaults(cliente?: Cliente) {
     tipo: 'residencial' as const,
     origem: '',
     observacoes: '',
-    valorEstimado: '',
   }
 }
 
 function normalizeOptionalText(value: string | undefined) {
   return value?.trim() || ''
+}
+
+function normalizeOrigemOption(value: string | undefined) {
+  const trimmed = normalizeOptionalText(value)
+  if (!trimmed) return ''
+
+  const normalizedValue = trimmed
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+
+  const matchedOption = origens.find((origem) => {
+    const normalizedOption = origem
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+
+    return normalizedOption === normalizedValue
+  })
+
+  return matchedOption || trimmed
 }
 
 function RequiredLabel({ children }: { children: string }) {
@@ -141,13 +147,6 @@ const clienteSchema = z.object({
   tipo: z.enum(['residencial', 'comercial']),
   origem: z.string().optional(),
   observacoes: z.string().optional(),
-  valorEstimado: z
-    .string()
-    .optional()
-    .refine(
-      (value) => !value || (!Number.isNaN(parseBrazilianDecimal(value)) && parseBrazilianDecimal(value) >= 0),
-      'Valor deve ser positivo'
-    ),
 })
 
 type ClienteFormData = z.infer<typeof clienteSchema>
@@ -196,8 +195,7 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
       telefone: formatPhone(data.telefone),
       endereco: normalizeOptionalText(data.endereco),
       observacoes: normalizeOptionalText(data.observacoes),
-      origem: data.origem === 'nao_informado' ? '' : normalizeOptionalText(data.origem),
-      valorEstimado: parseBrazilianDecimal(data.valorEstimado),
+      origem: data.origem === 'nao_informado' ? '' : normalizeOrigemOption(data.origem),
       status: cliente?.status ?? 'lead_novo',
     }
 
@@ -411,26 +409,6 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
                         ))}
                       </SelectContent>
                     </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="valorEstimado"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Valor Pretendido</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="text"
-                        inputMode="decimal"
-                        placeholder="0,00"
-                        value={field.value ?? ''}
-                        onChange={(e) => field.onChange(e.target.value)}
-                      />
-                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}

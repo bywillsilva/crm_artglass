@@ -23,6 +23,10 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
+  const [twoFactorToken, setTwoFactorToken] = useState('')
+  const [twoFactorChallengeId, setTwoFactorChallengeId] = useState<string | null>(null)
+  const [twoFactorEmailMask, setTwoFactorEmailMask] = useState('')
+  const [twoFactorDialogOpen, setTwoFactorDialogOpen] = useState(false)
 
   const [registerName, setRegisterName] = useState('')
   const [registerEmail, setRegisterEmail] = useState('')
@@ -80,11 +84,53 @@ export default function LoginPage() {
         throw new Error(data?.error || 'Falha no login')
       }
 
+      if (data?.requiresTwoFactor) {
+        setTwoFactorChallengeId(data.challengeId)
+        setTwoFactorEmailMask(data.emailMask || email)
+        setTwoFactorToken('')
+        setTwoFactorDialogOpen(true)
+        toast.success('Enviamos um codigo de verificacao para o seu e-mail.')
+        return
+      }
+
       toast.success('Login realizado com sucesso!')
       router.push('/dashboard')
       router.refresh()
     } catch (error: any) {
       toast.error(error.message || 'Nao foi possivel entrar')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleVerifyTwoFactor = async () => {
+    if (!twoFactorChallengeId || !twoFactorToken) {
+      toast.error('Informe o codigo de verificacao recebido por e-mail.')
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      const response = await fetch('/api/auth/verify-login-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          challengeId: twoFactorChallengeId,
+          token: twoFactorToken,
+        }),
+      })
+
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data?.error || 'Falha ao validar o codigo')
+      }
+
+      toast.success('Login realizado com sucesso!')
+      setTwoFactorDialogOpen(false)
+      router.push('/dashboard')
+      router.refresh()
+    } catch (error: any) {
+      toast.error(error.message || 'Nao foi possivel validar o codigo')
     } finally {
       setIsLoading(false)
     }
@@ -482,6 +528,36 @@ export default function LoginPage() {
                 Solicitar Novo Token
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={twoFactorDialogOpen} onOpenChange={setTwoFactorDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Verificacao em duas etapas</DialogTitle>
+            <DialogDescription>
+              Digite o codigo enviado para {twoFactorEmailMask || 'o seu e-mail'} para concluir o acesso.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="two-factor-token">Codigo de verificacao</Label>
+              <Input
+                id="two-factor-token"
+                inputMode="numeric"
+                value={twoFactorToken}
+                onChange={(event) => setTwoFactorToken(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="Digite os 6 digitos"
+              />
+            </div>
+            <Button
+              onClick={handleVerifyTwoFactor}
+              className="w-full"
+              disabled={isLoading || twoFactorToken.length < 6}
+            >
+              {isLoading ? 'Validando...' : 'Confirmar acesso'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

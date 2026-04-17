@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import useSWR, { mutate } from 'swr'
 import { useTheme } from 'next-themes'
 import { saveConfiguracao, useSession } from '@/lib/hooks/use-api'
@@ -116,6 +116,7 @@ function parseJson<T>(value: unknown, fallback: T): T {
 }
 
 const toDateValue = parseDateTimeValue
+const SESSION_ACTIVITY_EVENTS = ['pointerdown', 'keydown', 'mousemove', 'scroll', 'touchstart'] as const
 
 const AppSettingsContext = createContext<AppSettingsContextType | null>(null)
 
@@ -138,6 +139,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(
     typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported'
   )
+  const logoutInFlightRef = useRef(false)
 
   useEffect(() => {
     if (!Array.isArray(data)) return
@@ -165,8 +167,66 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
 
     setTheme(nextTheme)
     document.documentElement.lang = appearance.idioma
-    document.title = company.nome ? `${company.nome} - CRM` : 'CRM'
-  }, [appearance, company.nome, setTheme])
+    document.documentElement.dataset.demoMode = general.demoMode ? 'true' : 'false'
+    document.body.dataset.demoMode = general.demoMode ? 'true' : 'false'
+
+    const baseTitle = company.nome ? `${company.nome} - CRM` : 'CRM'
+    document.title = general.demoMode ? `[DEMO] ${baseTitle}` : baseTitle
+  }, [appearance, company.nome, general.demoMode, setTheme])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !user?.id) return
+
+    const timeoutInMinutes = Number(general.sessionTimeout)
+    if (!Number.isFinite(timeoutInMinutes) || timeoutInMinutes <= 0) return
+
+    let timeoutId: number | null = null
+
+    const logoutUser = () => {
+      if (logoutInFlightRef.current) return
+      logoutInFlightRef.current = true
+
+      void fetch('/api/auth/logout', { method: 'POST' })
+        .catch(() => null)
+        .finally(() => {
+          window.location.assign('/login?motivo=sessao-expirada')
+        })
+    }
+
+    const resetTimeout = () => {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
+
+      timeoutId = window.setTimeout(logoutUser, timeoutInMinutes * 60 * 1000)
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        resetTimeout()
+      }
+    }
+
+    resetTimeout()
+    SESSION_ACTIVITY_EVENTS.forEach((eventName) => {
+      window.addEventListener(eventName, resetTimeout, { passive: true })
+    })
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', resetTimeout)
+
+    return () => {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
+
+      SESSION_ACTIVITY_EVENTS.forEach((eventName) => {
+        window.removeEventListener(eventName, resetTimeout)
+      })
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', resetTimeout)
+      logoutInFlightRef.current = false
+    }
+  }, [general.sessionTimeout, user?.id])
 
   const requestNotificationPermission = async () => {
     if (typeof window === 'undefined' || !('Notification' in window)) {

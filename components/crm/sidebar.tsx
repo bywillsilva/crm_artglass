@@ -15,6 +15,7 @@ import {
   UserCog,
   Users,
 } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { hasModuleAccess, type ModuleKey } from '@/lib/auth/module-access'
 import { useAppSettings } from '@/lib/context/app-settings-context'
@@ -35,7 +36,7 @@ const menuItems = [
 export function CRMSidebar() {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
-  const { company } = useAppSettings()
+  const { company, general } = useAppSettings()
   const { user } = useSession()
 
   const visibleMenuItems = menuItems.filter((item) => hasModuleAccess(user, item.module))
@@ -53,9 +54,16 @@ export function CRMSidebar() {
             <Sun className="h-5 w-5 text-primary-foreground" />
           </div>
           {!collapsed && (
-            <span className="text-lg font-semibold text-sidebar-foreground">
-              {company.nome || 'CRM'}
-            </span>
+            <div className="flex flex-col">
+              <span className="text-lg font-semibold text-sidebar-foreground">
+                {company.nome || 'CRM'}
+              </span>
+              {general.demoMode && (
+                <Badge variant="outline" className="mt-1 border-amber-500/40 bg-amber-500/10 text-amber-400">
+                  Modo Demo
+                </Badge>
+              )}
+            </div>
           )}
         </div>
       </div>

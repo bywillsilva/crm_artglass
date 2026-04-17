@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { CRMHeader } from '@/components/crm/header'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -30,10 +30,73 @@ export default function ConfiguracoesPage() {
     canEditCompany,
   } = useAppSettings()
   const [isSaving, setIsSaving] = useState(false)
+  const hasLoadedInitialSettings = useRef(false)
+  const lastSavedSignatureRef = useRef('')
+  const isSavingRef = useRef(false)
+
+  const settingsSignature = useMemo(
+    () =>
+      JSON.stringify({
+        general,
+        notifications,
+        appearance,
+        company: canEditCompany ? company : null,
+      }),
+    [appearance, canEditCompany, company, general, notifications]
+  )
+
+  useEffect(() => {
+    if (isLoading) return
+
+    if (!hasLoadedInitialSettings.current) {
+      hasLoadedInitialSettings.current = true
+      lastSavedSignatureRef.current = settingsSignature
+      return
+    }
+
+    if (!general.autoSave || settingsSignature === lastSavedSignatureRef.current) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      if (isSavingRef.current) return
+
+      isSavingRef.current = true
+      setIsSaving(true)
+
+      void saveAll()
+        .then(async () => {
+          if (notifications.browser) {
+            await requestNotificationPermission()
+          }
+
+          lastSavedSignatureRef.current = settingsSignature
+        })
+        .catch((error: any) => {
+          toast.error(error?.message || 'Nao foi possivel salvar automaticamente as configuracoes.')
+        })
+        .finally(() => {
+          isSavingRef.current = false
+          setIsSaving(false)
+        })
+    }, 900)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [
+    general.autoSave,
+    isLoading,
+    notifications.browser,
+    requestNotificationPermission,
+    saveAll,
+    settingsSignature,
+  ])
 
   const handleSave = async () => {
     if (isSaving) return
 
+    isSavingRef.current = true
     setIsSaving(true)
 
     try {
@@ -43,10 +106,12 @@ export default function ConfiguracoesPage() {
         await requestNotificationPermission()
       }
 
+      lastSavedSignatureRef.current = settingsSignature
       toast.success('Configuracoes salvas com sucesso!')
     } catch (error: any) {
       toast.error(error?.message || 'Nao foi possivel salvar as configuracoes.')
     } finally {
+      isSavingRef.current = false
       setIsSaving(false)
     }
   }

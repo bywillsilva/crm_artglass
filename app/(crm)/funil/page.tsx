@@ -45,11 +45,16 @@ export default function FunilPage() {
     return <ModuleAccessState module="funil" />
   }
 
+  const subtitle =
+    user?.role === 'vendedor'
+      ? 'Acompanhe suas propostas e atualize o status conforme o fluxo comercial'
+      : 'Arraste as propostas entre as etapas do funil'
+
   return (
     <>
       <CRMHeader
         title="Funil de Vendas"
-        subtitle="Arraste as propostas entre as etapas do funil"
+        subtitle={subtitle}
         action={{ label: 'Nova Proposta', onClick: () => setShowCreateDialog(true) }}
       />
       <div className="flex-1 overflow-hidden p-6 space-y-6">

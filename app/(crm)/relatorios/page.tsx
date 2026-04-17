@@ -29,7 +29,9 @@ const funnelStatuses: { status: StatusProposta; color: string }[] = [
   { status: 'enviar_ao_cliente', color: '#2563eb' },
   { status: 'enviado_ao_cliente', color: '#3b82f6' },
   { status: 'follow_up_1_dia', color: '#10b981' },
+  { status: 'aguardando_follow_up_3_dias', color: '#0f766e' },
   { status: 'follow_up_3_dias', color: '#059669' },
+  { status: 'aguardando_follow_up_7_dias', color: '#065f46' },
   { status: 'follow_up_7_dias', color: '#047857' },
   { status: 'stand_by', color: '#71717a' },
   { status: 'em_retificacao', color: '#a855f7' },
@@ -76,15 +78,17 @@ export default function RelatoriosPage() {
     const leadStatuses = new Set<StatusProposta>([
       'novo_cliente',
       'em_orcamento',
-      'aguardando_aprovacao',
-      'enviar_ao_cliente',
-      'enviado_ao_cliente',
-      'follow_up_1_dia',
-      'follow_up_3_dias',
-      'follow_up_7_dias',
-      'stand_by',
-      'em_retificacao',
-    ])
+        'aguardando_aprovacao',
+        'enviar_ao_cliente',
+        'enviado_ao_cliente',
+        'follow_up_1_dia',
+        'aguardando_follow_up_3_dias',
+        'follow_up_3_dias',
+        'aguardando_follow_up_7_dias',
+        'follow_up_7_dias',
+        'stand_by',
+        'em_retificacao',
+      ])
     const proposalCounts = new Map<StatusProposta, { count: number; valor: number }>()
     const sellerMap = new Map<
       string,

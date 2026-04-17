@@ -38,7 +38,7 @@ import {
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useInteracoes, useReadNotifications, useSession } from '@/lib/hooks/use-api'
-import type { Interacao, Tarefa } from '@/lib/data/types'
+import { statusPropostaLabels, type Interacao, type StatusProposta, type Tarefa } from '@/lib/data/types'
 
 interface CRMHeaderProps {
   title: string
@@ -72,6 +72,33 @@ const GROUP_META: Record<
 
 function getReadStorageKey(userId?: string | null) {
   return `crm-read-notifications:${userId || 'anon'}`
+}
+
+function humanizeProposalStatus(status: unknown) {
+  const normalized = String(status || '').trim() as StatusProposta
+  if (normalized && normalized in statusPropostaLabels) {
+    return statusPropostaLabels[normalized]
+  }
+
+  return String(status || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function formatProposalNotificationDescription(interacao: Interacao) {
+  const proposalNumberMatch = interacao.descricao.match(/Proposta\s+([A-Z0-9-]+)/i)
+  const proposalNumber = proposalNumberMatch?.[1] || String(interacao.dados?.proposta_numero || '').trim()
+  const statusLabel = humanizeProposalStatus(interacao.dados?.novo_status)
+
+  if (proposalNumber && statusLabel) {
+    return `${proposalNumber} agora está em ${statusLabel}`
+  }
+
+  if (proposalNumber) {
+    return `A proposta ${proposalNumber} foi atualizada`
+  }
+
+  return interacao.descricao
 }
 
 export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
@@ -110,7 +137,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
   const readNotificationIdsSet = useMemo(() => new Set(readNotificationIds), [readNotificationIds])
 
   const allowedPropostaIds = useMemo(() => {
-    if (user?.role === 'admin') {
+    if (user?.role === 'admin' || user?.role === 'gerente') {
       return new Set(state.propostas.map((proposta) => proposta.id))
     }
 
@@ -120,6 +147,22 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
         .map((proposta) => proposta.id)
     )
   }, [state.propostas, user?.id, user?.role])
+
+  const allowedClienteIds = useMemo(() => {
+    if (user?.role === 'admin' || user?.role === 'gerente') {
+      return new Set(state.clientes.map((cliente) => cliente.id))
+    }
+
+    const proposalClientIds = state.propostas
+      .filter((proposta) => proposta.responsavelId === user?.id)
+      .map((proposta) => proposta.clienteId)
+
+    const directClientIds = state.clientes
+      .filter((cliente) => cliente.responsavelId === user?.id)
+      .map((cliente) => cliente.id)
+
+    return new Set([...proposalClientIds, ...directClientIds])
+  }, [state.clientes, state.propostas, user?.id, user?.role])
 
   const taskNotifications = useMemo<HeaderNotification[]>(() => {
     if (!notifications.tarefas) return []
@@ -144,6 +187,34 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
     })
   }, [notifications.tarefas, state.tarefas, user?.id, user?.role])
 
+  const leadNotifications = useMemo<HeaderNotification[]>(() => {
+    if (!notifications.novosLeads) return []
+
+    const activeLeadStatuses = new Set(['lead_novo', 'em_atendimento', 'orcamento_enviado', 'negociacao'])
+    const clientsWithPendingTask = new Set(
+      state.tarefas
+        .filter((tarefa) => tarefa.status === 'pendente')
+        .map((tarefa) => tarefa.clienteId)
+        .filter(Boolean)
+    )
+
+    return state.clientes
+      .filter((cliente) => activeLeadStatuses.has(cliente.status))
+      .filter((cliente) => user?.role === 'admin' || user?.role === 'gerente' || allowedClienteIds.has(cliente.id))
+      .filter((cliente) => !clientsWithPendingTask.has(cliente.id))
+      .sort((a, b) => b.ultimoContato.getTime() - a.ultimoContato.getTime())
+      .slice(0, 12)
+      .map((cliente) => ({
+        id: `lead-${cliente.id}`,
+        group: 'clientes' as const,
+        title: 'Lead sem proxima acao',
+        description: `${cliente.nome} esta sem tarefa pendente no momento`,
+        href: `/clientes/${cliente.id}`,
+        createdAt: cliente.ultimoContato.getTime(),
+        persistent: true,
+      }))
+  }, [allowedClienteIds, notifications.novosLeads, state.clientes, state.tarefas, user?.role])
+
   const actionNotifications = useMemo<HeaderNotification[]>(() => {
     if (isLoadingReadNotifications) return []
     if (!notifications.propostas) return []
@@ -167,7 +238,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
           id: `interaction-${interacao.id}`,
           group: 'propostas' as const,
           title: 'Atualizacao de status da proposta',
-          description: interacao.descricao,
+          description: formatProposalNotificationDescription(interacao),
           href: '/propostas',
           createdAt: new Date(interacao.criadoEm).getTime(),
           persistent: false,
@@ -200,8 +271,12 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
       groups.tarefas.push(item)
     })
 
+    leadNotifications.forEach((item) => {
+      groups.clientes.push(item)
+    })
+
     return groups
-  }, [actionNotifications, taskNotifications])
+  }, [actionNotifications, leadNotifications, taskNotifications])
 
   const notificationCount = Object.values(groupedNotifications).reduce(
     (acc, items) => acc + items.length,

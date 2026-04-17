@@ -69,7 +69,6 @@ export interface Cliente {
   observacoes: string
   status: StatusFunil
   responsavelId?: string
-  valorEstimado: number
   ultimoContato: Date
   criadoEm: Date
 }

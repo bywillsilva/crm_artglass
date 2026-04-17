@@ -43,6 +43,7 @@ interface UserFormDialogProps {
   open: boolean
   editingUser: Usuario | null
   isEditingSelfAdmin: boolean
+  isEditingSelf: boolean
   isSubmitting: boolean
   formData: UserFormState
   onOpenChange: (open: boolean) => void
@@ -54,6 +55,7 @@ export function UserFormDialog({
   open,
   editingUser,
   isEditingSelfAdmin,
+  isEditingSelf,
   isSubmitting,
   formData,
   onOpenChange,
@@ -245,9 +247,20 @@ export function UserFormDialog({
             <Switch
               id="ativo"
               checked={formData.ativo}
+              disabled={isEditingSelfAdmin}
               onCheckedChange={(checked) => onFormDataChange((prev) => ({ ...prev, ativo: checked }))}
             />
           </div>
+          {isEditingSelfAdmin && (
+            <p className="text-xs text-muted-foreground">
+              O administrador nao pode desativar a propria conta.
+            </p>
+          )}
+          {isEditingSelf && !isEditingSelfAdmin && (
+            <p className="text-xs text-muted-foreground">
+              Para evitar bloqueio acidental, a exclusao do proprio usuario nao fica disponivel nesta tela.
+            </p>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>

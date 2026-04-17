@@ -121,10 +121,9 @@ export default function PropostasPage() {
 
   const renderPropostaRow = (proposta: typeof state.propostas[number]) => {
     const cliente = getCliente(proposta.clienteId)
-    const canManage =
+    const canDeleteProposal =
       user?.role === 'admin' ||
       user?.role === 'gerente' ||
-      proposta.responsavelId === user?.id ||
       (
         user?.role === 'orcamentista' &&
         (!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
@@ -140,19 +139,19 @@ export default function PropostasPage() {
       )
 
     return (
-      <TableRow key={proposta.id} className="hover:bg-secondary/30">
-        <TableCell>
-          {cliente ? (
-            <Link
-              href={`/clientes/${cliente.id}`}
+        <TableRow key={proposta.id} className="hover:bg-secondary/30">
+          <TableCell>
+            {cliente ? (
+              <Link
+                href={`/clientes/${cliente.id}`}
               className="font-medium text-foreground transition-colors hover:text-primary"
             >
-              {cliente.nome}
-            </Link>
-          ) : (
-            <span className="text-muted-foreground">Cliente nao encontrado</span>
-          )}
-        </TableCell>
+                {cliente.nome}
+              </Link>
+            ) : (
+              <span className="text-muted-foreground">{proposta.clienteNome || 'Cliente nao encontrado'}</span>
+            )}
+          </TableCell>
         <TableCell className="font-semibold">{formatCurrency(proposta.valor)}</TableCell>
         <TableCell className="max-w-xs truncate text-muted-foreground">{proposta.descricao || '-'}</TableCell>
         <TableCell>
@@ -181,7 +180,7 @@ export default function PropostasPage() {
                 <Eye className="mr-2 h-4 w-4" />
                 Ver detalhes
               </DropdownMenuItem>
-              {canManage && (
+              {canDeleteProposal && (
                 <DropdownMenuItem onClick={() => deleteProposta(proposta.id)} className="text-destructive">
                   <X className="mr-2 h-4 w-4" />
                   Excluir

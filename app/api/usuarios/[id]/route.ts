@@ -2,15 +2,27 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
+import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { ensureUserManagementSchema } from '@/lib/server/proposal-workflow'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
+import { hasModuleAccess } from '@/lib/auth/module-access'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 
 const USUARIO_DETAIL_CACHE_TTL_MS = Math.max(
   Number(process.env.USUARIO_DETAIL_CACHE_TTL_MS || 30_000),
   1000
 )
+
+function canAccessUsuariosModule(user: { role?: string | null; modulePermissions?: unknown }) {
+  return hasModuleAccess(
+    {
+      role: user.role,
+      modulePermissions: user.modulePermissions as Record<string, boolean> | null | undefined,
+    },
+    'usuarios'
+  )
+}
 
 function parseNullableNumber(value: unknown, fallback = 0) {
   if (typeof value === 'number') {
@@ -38,10 +50,19 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  const cacheKey = `usuario:detail:${id}`
 
   try {
     await ensureUserManagementSchema()
+
+    const user = await getAuthenticatedServerUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+    }
+    if (!canAccessUsuariosModule(user)) {
+      return NextResponse.json({ error: 'Acesso negado ao modulo de usuarios' }, { status: 403 })
+    }
+
+    const cacheKey = `usuario:detail:${user.id}:${user.role}:${id}`
 
     const cachedUsuario = getRuntimeCache<any>(cacheKey)
     if (cachedUsuario !== undefined) {
@@ -63,6 +84,11 @@ export async function GET(
     console.error('Erro ao buscar usuario:', error)
 
     if (isTransientDatabaseError(error)) {
+      const user = await getAuthenticatedServerUser().catch(() => null)
+      if (!user) {
+        return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+      }
+      const cacheKey = `usuario:detail:${user.id}:${user.role}:${id}`
       const cachedUsuario = getRuntimeCache<any>(cacheKey)
       if (cachedUsuario) {
         return NextResponse.json(cachedUsuario, { status: 200 })
@@ -79,6 +105,14 @@ export async function PUT(
 ) {
   try {
     await ensureUserManagementSchema()
+
+    const authenticatedUser = await getAuthenticatedServerUser()
+    if (!authenticatedUser) {
+      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+    }
+    if (!canAccessUsuariosModule(authenticatedUser)) {
+      return NextResponse.json({ error: 'Acesso negado ao modulo de usuarios' }, { status: 403 })
+    }
 
     const { id } = await params
     const data = await request.json()
@@ -97,11 +131,10 @@ export async function PUT(
       session &&
       session.userId === id &&
       usuarioAtual.role === 'admin' &&
-      data.role &&
-      data.role !== 'admin'
+      ((data.role && data.role !== 'admin') || data.ativo === false)
     ) {
       return NextResponse.json(
-        { error: 'O administrador nao pode alterar o proprio nivel de acesso' },
+        { error: 'O administrador nao pode reduzir o proprio acesso nem desativar a propria conta' },
         { status: 400 }
       )
     }
@@ -172,7 +205,23 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const authenticatedUser = await getAuthenticatedServerUser()
+    if (!authenticatedUser) {
+      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+    }
+    if (!canAccessUsuariosModule(authenticatedUser)) {
+      return NextResponse.json({ error: 'Acesso negado ao modulo de usuarios' }, { status: 403 })
+    }
+
     const { id } = await params
+    const session = await getServerSession()
+
+    if (session?.userId === id) {
+      return NextResponse.json(
+        { error: 'Nao e permitido excluir o proprio usuario logado' },
+        { status: 400 }
+      )
+    }
 
     const [usuario] = await query<any[]>(
       'SELECT id, role FROM usuarios WHERE id = ? LIMIT 1',
@@ -217,6 +266,7 @@ export async function DELETE(
     await query('DELETE FROM usuarios WHERE id = ?', [id])
 
     await publishRealtimeEvent({
+      actorUserId: session?.userId || null,
       resource: 'usuario',
       resourceId: id,
     })

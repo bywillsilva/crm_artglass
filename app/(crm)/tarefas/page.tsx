@@ -231,7 +231,10 @@ export default function TarefasPage() {
   const renderTarefaItem = (tarefa: Tarefa) => {
     const cliente = lookups.clientesById.get(tarefa.clienteId)
     const responsavel = lookups.usuariosById.get(tarefa.responsavelId)
-    const canEdit = user?.role === 'admin' || tarefa.responsavelId === user?.id
+    const canEdit =
+      user?.role === 'admin' ||
+      user?.role === 'gerente' ||
+      tarefa.responsavelId === user?.id
 
     return (
       <div key={tarefa.id} className="flex items-start gap-3 p-4 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors">

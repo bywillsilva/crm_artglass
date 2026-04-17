@@ -5,9 +5,21 @@ import bcrypt from 'bcryptjs'
 import { ensureUserManagementSchema } from '@/lib/server/proposal-workflow'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
+import { hasModuleAccess } from '@/lib/auth/module-access'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
+import { getAuthenticatedServerUser } from '@/lib/auth/session'
 
 const USUARIOS_CACHE_TTL_MS = Math.max(Number(process.env.USUARIOS_CACHE_TTL_MS || 30_000), 1000)
+
+function canAccessUsuariosModule(user: { role?: string | null; modulePermissions?: unknown }) {
+  return hasModuleAccess(
+    {
+      role: user.role,
+      modulePermissions: user.modulePermissions as Record<string, boolean> | null | undefined,
+    },
+    'usuarios'
+  )
+}
 
 function parseNullableNumber(value: unknown, fallback = 0) {
   if (typeof value === 'number') {
@@ -34,10 +46,19 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const role = searchParams.get('role')
   const ativo = searchParams.get('ativo')
-  const cacheKey = `usuarios:list:${role || 'todos'}:${ativo || 'todos'}`
 
   try {
     await ensureUserManagementSchema()
+
+    const user = await getAuthenticatedServerUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+    }
+    if (!canAccessUsuariosModule(user)) {
+      return NextResponse.json({ error: 'Acesso negado ao modulo de usuarios' }, { status: 403 })
+    }
+
+    const cacheKey = `usuarios:list:${user.id}:${user.role}:${role || 'todos'}:${ativo || 'todos'}`
 
     const cachedUsuarios = getRuntimeCache<any[]>(cacheKey)
     if (cachedUsuarios !== undefined) {
@@ -67,6 +88,11 @@ export async function GET(request: NextRequest) {
     console.error('Erro ao buscar usuarios:', error)
 
     if (isTransientDatabaseError(error)) {
+      const user = await getAuthenticatedServerUser().catch(() => null)
+      if (!user) {
+        return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+      }
+      const cacheKey = `usuarios:list:${user.id}:${user.role}:${role || 'todos'}:${ativo || 'todos'}`
       return NextResponse.json(getRuntimeCache<any[]>(cacheKey) || [], { status: 200 })
     }
 
@@ -77,6 +103,14 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     await ensureUserManagementSchema()
+
+    const user = await getAuthenticatedServerUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+    }
+    if (!canAccessUsuariosModule(user)) {
+      return NextResponse.json({ error: 'Acesso negado ao modulo de usuarios' }, { status: 403 })
+    }
 
     const data = await request.json()
     const id = uuidv4()
@@ -120,7 +154,7 @@ export async function POST(request: NextRequest) {
     )
 
     await publishRealtimeEvent({
-      actorUserId: null,
+      actorUserId: user.id,
       resource: 'usuario',
       resourceId: id,
     })

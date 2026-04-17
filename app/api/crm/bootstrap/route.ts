@@ -72,14 +72,13 @@ export async function GET(request: Request) {
                    c.endereco,
                    c.cidade,
                    c.estado,
-                   c.cep,
-                   c.origem,
-                   c.observacoes,
-                   c.status_funil,
-                   c.valor_potencial,
-                   c.created_at,
-                   c.updated_at
-                 FROM clientes c
+                    c.cep,
+                    c.origem,
+                    c.observacoes,
+                    c.status_funil,
+                    c.created_at,
+                    c.updated_at
+                  FROM clientes c
                  ORDER BY c.created_at DESC`
               ),
             ] as const
@@ -136,11 +135,12 @@ export async function GET(request: Request) {
                    GROUP BY proposta_id
                  ) pc ON pc.proposta_id = p.id
                  WHERE ${
-                   authenticatedUser.role === 'vendedor'
-                     ? 'p.responsavel_id = ?'
-                     : authenticatedUser.role === 'orcamentista'
-                       ? `p.status IN ('novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao')
-                          AND (p.orcamentista_id = ? OR p.orcamentista_id IS NULL OR p.orcamentista_id = '')`
+                    authenticatedUser.role === 'vendedor'
+                      ? `p.responsavel_id = ?
+                         AND p.status IN ('enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'aguardando_follow_up_3_dias', 'follow_up_3_dias', 'aguardando_follow_up_7_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'perdido')`
+                      : authenticatedUser.role === 'orcamentista'
+                        ? `p.status IN ('novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao')
+                           AND (p.orcamentista_id = ? OR p.orcamentista_id IS NULL OR p.orcamentista_id = '')`
                        : '1=1'
                  }
                  ORDER BY p.created_at DESC`,

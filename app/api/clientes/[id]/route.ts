@@ -50,10 +50,15 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  const cacheKey = `cliente:detail:${id}`
 
   try {
     await ensureCrmRuntimeSchema()
+    const user = await getAuthenticatedServerUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+    }
+
+    const cacheKey = `cliente:detail:${user.role}:${user.id}:${id}`
     const cachedCliente = getRuntimeCache<any>(cacheKey)
     if (cachedCliente !== undefined) {
       return NextResponse.json(cachedCliente)
@@ -76,7 +81,9 @@ export async function GET(
     console.error('Erro ao buscar cliente:', error)
 
     if (isTransientDatabaseError(error)) {
-      const cachedCliente = getRuntimeCache<any>(cacheKey)
+      const user = await getAuthenticatedServerUser().catch(() => null)
+      const cacheKey = user ? `cliente:detail:${user.role}:${user.id}:${id}` : null
+      const cachedCliente = cacheKey ? getRuntimeCache<any>(cacheKey) : null
       if (cachedCliente) {
         return NextResponse.json(cachedCliente, { status: 200 })
       }
@@ -103,7 +110,7 @@ export async function PUT(
       const [clienteAtual] = await query<any[]>(
         `SELECT
         id, nome, cpf, email, telefone, empresa, cargo, endereco, cidade, estado, cep,
-        origem, status_funil, valor_potencial, observacoes
+        origem, status_funil, observacoes
        FROM clientes
        WHERE id = ?`,
       [id]
@@ -118,11 +125,6 @@ export async function PUT(
       (data.status as string | undefined) ??
       clienteAtual.status_funil ??
       'lead_novo'
-
-    const valorPotencial = parseNullableNumber(
-      data.valorPotencial ?? data.valorEstimado,
-      clienteAtual.valor_potencial ?? 0
-    )
 
     const mergedCliente = {
       nome: hasOwn(data, 'nome') ? normalizeNullableText(data.nome) : clienteAtual.nome,
@@ -145,7 +147,7 @@ export async function PUT(
       `UPDATE clientes SET
         nome = ?, cpf = ?, email = ?, telefone = ?, empresa = ?, cargo = ?,
         endereco = ?, cidade = ?, estado = ?, cep = ?, origem = ?,
-        status_funil = ?, valor_potencial = ?, observacoes = ?
+        status_funil = ?, observacoes = ?
        WHERE id = ?`,
       [
         mergedCliente.nome,
@@ -160,7 +162,6 @@ export async function PUT(
         mergedCliente.cep,
         mergedCliente.origem,
         statusFunil,
-        valorPotencial,
         mergedCliente.observacoes,
         id,
       ]

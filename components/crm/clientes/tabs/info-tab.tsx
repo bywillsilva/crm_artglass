@@ -2,7 +2,7 @@
 
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { MapPin, Phone, Mail, Building2, Calendar, DollarSign, User, Briefcase } from 'lucide-react'
+import { MapPin, Phone, Mail, Building2, Calendar, User, Briefcase, IdCard } from 'lucide-react'
 import type { Cliente } from '@/lib/data/types'
 
 interface InfoTabProps {
@@ -10,19 +10,20 @@ interface InfoTabProps {
 }
 
 export function InfoTab({ cliente }: InfoTabProps) {
-  const { formatDate, formatCurrency } = useAppSettings()
+  const { formatDate } = useAppSettings()
+  const origemLabel = cliente.origem?.trim() || 'Nao informado'
 
   const infoItems = [
     { icon: Phone, label: 'Telefone', value: cliente.telefone, href: `tel:${cliente.telefone}` },
     { icon: Mail, label: 'E-mail', value: cliente.email, href: `mailto:${cliente.email}` },
+    ...(cliente.cpf ? [{ icon: IdCard, label: 'CPF', value: cliente.cpf }] : []),
     { icon: MapPin, label: 'Endereco', value: cliente.endereco },
     { icon: Building2, label: 'Tipo', value: cliente.tipo === 'comercial' ? 'Comercial' : 'Residencial' },
     ...(cliente.empresa ? [{ icon: Building2, label: 'Empresa', value: cliente.empresa }] : []),
     ...(cliente.cargo ? [{ icon: Briefcase, label: 'Cargo', value: cliente.cargo }] : []),
-    { icon: User, label: 'Origem', value: cliente.origem },
+    { icon: User, label: 'Origem', value: origemLabel },
     { icon: Calendar, label: 'Cliente desde', value: formatDate(cliente.criadoEm) },
     { icon: Calendar, label: 'Ultimo contato', value: formatDate(cliente.ultimoContato) },
-    { icon: DollarSign, label: 'Valor estimado', value: formatCurrency(cliente.valorEstimado) },
   ]
 
   return (

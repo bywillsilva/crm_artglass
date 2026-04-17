@@ -366,13 +366,14 @@ export async function ensureProposalStatusSchema() {
     await ensureProposalColumns()
     await ensureProposalSupportTables()
     await ensureProposalSequenceSchema()
-    await ensureTableIndexes('propostas', [
-      { name: 'idx_propostas_status_created', columns: 'status, created_at' },
-      { name: 'idx_propostas_responsavel_status', columns: 'responsavel_id, status' },
-      { name: 'idx_propostas_orcamentista_status', columns: 'orcamentista_id, status' },
-      { name: 'idx_propostas_cliente', columns: 'cliente_id' },
-      { name: 'idx_propostas_follow_up_base', columns: 'follow_up_base_at' },
-    ])
+     await ensureTableIndexes('propostas', [
+       { name: 'idx_propostas_status_created', columns: 'status, created_at' },
+       { name: 'idx_propostas_responsavel_status', columns: 'responsavel_id, status' },
+       { name: 'idx_propostas_orcamentista_status', columns: 'orcamentista_id, status' },
+       { name: 'idx_propostas_cliente', columns: 'cliente_id' },
+       { name: 'idx_propostas_follow_up_base', columns: 'follow_up_base_at' },
+       { name: 'idx_propostas_updated_at', columns: 'updated_at' },
+     ])
     await ensureTableIndexes('interacoes', [
       { name: 'idx_interacoes_cliente_created', columns: 'cliente_id, created_at' },
       { name: 'idx_interacoes_tipo_created', columns: 'tipo, created_at' },
@@ -443,6 +444,7 @@ export async function ensureTaskSchema() {
       { name: 'idx_tarefas_responsavel_status_data', columns: 'responsavel_id, status, data_hora' },
       { name: 'idx_tarefas_proposta_origem_status', columns: 'proposta_id, origem, status' },
       { name: 'idx_tarefas_automacao_etapa_data', columns: 'automacao_etapa, status, data_hora' },
+      { name: 'idx_tarefas_updated_at', columns: 'updated_at' },
     ])
   })
 }
@@ -502,6 +504,12 @@ export async function ensureUserManagementSchema() {
         ADD COLUMN meta_vendas DECIMAL(15, 2) NOT NULL DEFAULT 0
       `)
     }
+
+    await ensureTableIndexes('usuarios', [
+      { name: 'idx_usuarios_email', columns: 'email' },
+      { name: 'idx_usuarios_role_ativo_nome', columns: 'role, ativo, nome' },
+      { name: 'idx_usuarios_updated_at', columns: 'updated_at' },
+    ])
   })
 }
 
@@ -511,13 +519,14 @@ export async function ensureClientSchema() {
       `SELECT COLUMN_NAME, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_TYPE
        FROM INFORMATION_SCHEMA.COLUMNS
        WHERE TABLE_SCHEMA = DATABASE()
-         AND TABLE_NAME = 'clientes'
-         AND COLUMN_NAME IN ('email', 'origem', 'cpf')`
+          AND TABLE_NAME = 'clientes'
+          AND COLUMN_NAME IN ('email', 'origem', 'cpf', 'valor_potencial')`
     )
 
     const emailColumn = columns.find((column) => column.COLUMN_NAME === 'email')
     const origemColumn = columns.find((column) => column.COLUMN_NAME === 'origem')
     const cpfColumn = columns.find((column) => column.COLUMN_NAME === 'cpf')
+    const valorPotencialColumn = columns.find((column) => column.COLUMN_NAME === 'valor_potencial')
 
     const emailNeedsUpdate = emailColumn && emailColumn.IS_NULLABLE !== 'YES'
     const origemNeedsUpdate =
@@ -526,10 +535,7 @@ export async function ensureClientSchema() {
         origemColumn.COLUMN_DEFAULT !== null ||
         !String(origemColumn.COLUMN_TYPE || '').includes(`'outro'`))
     const cpfNeedsCreate = !cpfColumn
-
-    if (!emailNeedsUpdate && !origemNeedsUpdate && !cpfNeedsCreate) {
-      return
-    }
+    const valorPotencialNeedsDrop = Boolean(valorPotencialColumn)
 
     if (cpfNeedsCreate) {
       await query(`
@@ -545,6 +551,19 @@ export async function ensureClientSchema() {
         MODIFY COLUMN origem ENUM('site', 'indicacao', 'google', 'facebook', 'instagram', 'telefone', 'outro') NULL DEFAULT NULL
       `)
     }
+
+    if (valorPotencialNeedsDrop) {
+      await query(`
+        ALTER TABLE clientes
+        DROP COLUMN valor_potencial
+      `)
+    }
+
+    await ensureTableIndexes('clientes', [
+      { name: 'idx_clientes_status_created', columns: 'status_funil, created_at' },
+      { name: 'idx_clientes_updated_at', columns: 'updated_at' },
+      { name: 'idx_clientes_nome_email', columns: 'nome, email' },
+    ])
   })
 }
 
@@ -593,7 +612,10 @@ async function deleteAutomatedTasks(propostaId: string) {
   await query(
     `DELETE FROM tarefas
      WHERE proposta_id = ?
-       AND origem = 'automacao_proposta'
+       AND (
+         origem = 'automacao_proposta'
+         OR automacao_etapa IS NOT NULL
+       )
        AND status <> 'concluida'`,
     [propostaId]
   )

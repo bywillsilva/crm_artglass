@@ -34,7 +34,6 @@ export async function POST() {
         cep VARCHAR(10),
         origem ENUM('site', 'indicacao', 'google', 'facebook', 'instagram', 'telefone', 'outro') NULL DEFAULT NULL,
         status_funil ENUM('lead_novo', 'em_atendimento', 'orcamento_enviado', 'negociacao', 'fechado', 'perdido') DEFAULT 'lead_novo',
-        valor_potencial DECIMAL(15, 2) DEFAULT 0,
         observacoes TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -228,13 +227,13 @@ export async function POST() {
       )
 
       await query(`
-        INSERT INTO clientes (id, nome, email, telefone, empresa, cargo, cidade, estado, origem, status_funil, valor_potencial, observacoes) VALUES
-        ('cli-1', 'Roberto Mendes', 'roberto@industria.com', '(11) 99999-1111', 'Industria ABC', 'Diretor', 'Sao Paulo', 'SP', 'site', 'negociacao', 85000.00, 'Cliente interessado em sistema de 50kWp para industria'),
-        ('cli-2', 'Fernanda Lima', 'fernanda@comercio.com', '(11) 99999-2222', 'Comercio XYZ', 'Gerente', 'Campinas', 'SP', 'indicacao', 'orcamento_enviado', 32000.00, 'Indicacao do cliente Roberto'),
-        ('cli-3', 'Marcelo Souza', 'marcelo@fazenda.com', '(19) 99999-3333', 'Fazenda Sol Nascente', 'Proprietario', 'Ribeirao Preto', 'SP', 'google', 'em_atendimento', 120000.00, 'Interessado em sistema rural de grande porte'),
-        ('cli-4', 'Patricia Alves', 'patricia@residencial.com', '(11) 99999-4444', NULL, NULL, 'Santos', 'SP', 'facebook', 'lead_novo', 15000.00, 'Residencia com alto consumo mensal'),
-        ('cli-5', 'Ricardo Gomes', 'ricardo@hotel.com', '(13) 99999-5555', 'Hotel Praia Azul', 'Administrador', 'Guaruja', 'SP', 'instagram', 'fechado', 95000.00, 'Projeto concluido - sistema de 80kWp'),
-        ('cli-6', 'Amanda Ferreira', 'amanda@escola.com', '(11) 99999-6666', 'Colegio Educar', 'Diretora', 'Sao Bernardo', 'SP', 'telefone', 'negociacao', 45000.00, 'Escola particular interessada em energia solar')
+        INSERT INTO clientes (id, nome, email, telefone, empresa, cargo, cidade, estado, origem, status_funil, observacoes) VALUES
+        ('cli-1', 'Roberto Mendes', 'roberto@industria.com', '(11) 99999-1111', 'Industria ABC', 'Diretor', 'Sao Paulo', 'SP', 'site', 'negociacao', 'Cliente interessado em sistema de 50kWp para industria'),
+        ('cli-2', 'Fernanda Lima', 'fernanda@comercio.com', '(11) 99999-2222', 'Comercio XYZ', 'Gerente', 'Campinas', 'SP', 'indicacao', 'orcamento_enviado', 'Indicacao do cliente Roberto'),
+        ('cli-3', 'Marcelo Souza', 'marcelo@fazenda.com', '(19) 99999-3333', 'Fazenda Sol Nascente', 'Proprietario', 'Ribeirao Preto', 'SP', 'google', 'em_atendimento', 'Interessado em sistema rural de grande porte'),
+        ('cli-4', 'Patricia Alves', 'patricia@residencial.com', '(11) 99999-4444', NULL, NULL, 'Santos', 'SP', 'facebook', 'lead_novo', 'Residencia com alto consumo mensal'),
+        ('cli-5', 'Ricardo Gomes', 'ricardo@hotel.com', '(13) 99999-5555', 'Hotel Praia Azul', 'Administrador', 'Guaruja', 'SP', 'instagram', 'fechado', 'Projeto concluido - sistema de 80kWp'),
+        ('cli-6', 'Amanda Ferreira', 'amanda@escola.com', '(11) 99999-6666', 'Colegio Educar', 'Diretora', 'Sao Bernardo', 'SP', 'telefone', 'negociacao', 'Escola particular interessada em energia solar')
       `)
 
       await query(`

@@ -40,7 +40,9 @@ const funnelStatuses: StatusProposta[] = [
   'enviar_ao_cliente',
   'enviado_ao_cliente',
   'follow_up_1_dia',
+  'aguardando_follow_up_3_dias',
   'follow_up_3_dias',
+  'aguardando_follow_up_7_dias',
   'follow_up_7_dias',
   'stand_by',
   'em_retificacao',
@@ -259,7 +261,10 @@ export function DashboardContent() {
                         <Clock className="h-3 w-3" />
                         {formatTime(tarefa.data_hora)}
                         <span>•</span>
-                        <Link href={`/clientes/${tarefa.cliente_id}`} className="hover:text-primary">
+                        <Link
+                          href={`/clientes/${tarefa.cliente_id_resolvido || tarefa.cliente_id}`}
+                          className="hover:text-primary"
+                        >
                           {tarefa.cliente_nome}
                         </Link>
                       </div>

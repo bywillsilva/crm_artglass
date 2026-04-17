@@ -125,7 +125,7 @@ export async function GET(request: NextRequest) {
          FROM propostas
          WHERE 1=1${proposalFilter}
          GROUP BY status
-         ORDER BY FIELD(status, 'novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao', 'enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'perdido')`,
+         ORDER BY FIELD(status, 'novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao', 'enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'aguardando_follow_up_3_dias', 'follow_up_3_dias', 'aguardando_follow_up_7_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'perdido')`,
         proposalParams
       ),
       query<any[]>(
@@ -161,9 +161,14 @@ export async function GET(request: NextRequest) {
         isAdmin ? [startDateTime, endDateTime] : [startDateTime, endDateTime, user.id]
       ),
       query<any[]>(
-        `SELECT t.*, c.nome as cliente_nome, u.nome as responsavel_nome
+        `SELECT
+           t.*,
+           COALESCE(t.cliente_id, p.cliente_id) as cliente_id_resolvido,
+           c.nome as cliente_nome,
+           u.nome as responsavel_nome
          FROM tarefas t
-         LEFT JOIN clientes c ON t.cliente_id = c.id
+         LEFT JOIN propostas p ON t.proposta_id = p.id
+         LEFT JOIN clientes c ON COALESCE(t.cliente_id, p.cliente_id) = c.id
          LEFT JOIN usuarios u ON t.responsavel_id = u.id
          WHERE t.status <> 'concluida'${taskFilter}
          ORDER BY t.data_hora ASC
@@ -171,9 +176,13 @@ export async function GET(request: NextRequest) {
         taskParams
       ),
       query<any[]>(
-        `SELECT t.*, c.nome as cliente_nome
+        `SELECT
+           t.*,
+           COALESCE(t.cliente_id, p.cliente_id) as cliente_id_resolvido,
+           c.nome as cliente_nome
          FROM tarefas t
-         LEFT JOIN clientes c ON t.cliente_id = c.id
+         LEFT JOIN propostas p ON t.proposta_id = p.id
+         LEFT JOIN clientes c ON COALESCE(t.cliente_id, p.cliente_id) = c.id
          WHERE t.data_hora < NOW()
            AND t.status = 'pendente'${taskFilter}
          ORDER BY t.data_hora ASC`,
@@ -185,25 +194,31 @@ export async function GET(request: NextRequest) {
              FROM clientes c
              INNER JOIN propostas p
                ON p.cliente_id = c.id
-              AND p.created_at BETWEEN ? AND ?
-             LEFT JOIN tarefas t
-               ON c.id = t.cliente_id
-              AND t.status = 'pendente'
-              AND t.data_hora BETWEEN ? AND ?
-             WHERE t.id IS NULL
+               AND p.created_at BETWEEN ? AND ?
+             WHERE NOT EXISTS (
+               SELECT 1
+               FROM tarefas t
+               LEFT JOIN propostas tp ON tp.id = t.proposta_id
+               WHERE COALESCE(t.cliente_id, tp.cliente_id) = c.id
+                 AND t.status = 'pendente'
+                 AND t.data_hora BETWEEN ? AND ?
+             )
              LIMIT 10`
           : `SELECT DISTINCT c.*
              FROM clientes c
              INNER JOIN propostas p
                ON p.cliente_id = c.id
-              AND p.responsavel_id = ?
-              AND p.created_at BETWEEN ? AND ?
-             LEFT JOIN tarefas t
-               ON c.id = t.cliente_id
-              AND t.status = 'pendente'
-              AND t.responsavel_id = ?
-              AND t.data_hora BETWEEN ? AND ?
-             WHERE t.id IS NULL
+               AND p.responsavel_id = ?
+               AND p.created_at BETWEEN ? AND ?
+             WHERE NOT EXISTS (
+               SELECT 1
+               FROM tarefas t
+               LEFT JOIN propostas tp ON tp.id = t.proposta_id
+               WHERE COALESCE(t.cliente_id, tp.cliente_id) = c.id
+                 AND t.status = 'pendente'
+                 AND t.responsavel_id = ?
+                 AND t.data_hora BETWEEN ? AND ?
+             )
              LIMIT 10`,
         isAdmin
           ? [startDateTime, endDateTime, startDateTime, endDateTime]
@@ -213,7 +228,7 @@ export async function GET(request: NextRequest) {
         `SELECT p.*, c.nome as cliente_nome
          FROM propostas p
          LEFT JOIN clientes c ON p.cliente_id = c.id
-         WHERE p.status IN ('novo_cliente', 'em_orcamento', 'aguardando_aprovacao', 'enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'stand_by', 'em_retificacao')${proposalAliasedFilter}
+         WHERE p.status IN ('novo_cliente', 'em_orcamento', 'aguardando_aprovacao', 'enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'aguardando_follow_up_3_dias', 'follow_up_3_dias', 'aguardando_follow_up_7_dias', 'follow_up_7_dias', 'stand_by', 'em_retificacao')${proposalAliasedFilter}
          ORDER BY p.updated_at DESC
          LIMIT 10`,
         proposalParams

@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useSession } from '@/lib/hooks/use-api'
@@ -68,6 +69,7 @@ export default function RelatorioVendedoresPage() {
   const [editingMetaUserId, setEditingMetaUserId] = useState<string | null>(null)
   const [metaInput, setMetaInput] = useState('')
   const hasPerformanceAccess = hasModuleAccess(user, 'performance')
+  const canManageSellerGoals = user?.role === 'admin' || user?.role === 'gerente'
 
   const vendedores = useMemo(
     () => state.usuarios.filter((usuario) => usuario.role === 'vendedor' || usuario.role === 'gerente'),
@@ -98,6 +100,9 @@ export default function RelatorioVendedoresPage() {
     totalReceita,
     totalFechadas,
     mediaConversao,
+    totalRecebidasOrcamento,
+    totalSemRetificacao,
+    mediaSemRetificacao,
   } = useMemo(() => {
     const propostasPorResponsavel = new Map<string, typeof propostasFiltradas>()
     const propostasPorOrcamentista = new Map<string, typeof propostasFiltradas>()
@@ -165,7 +170,18 @@ export default function RelatorioVendedoresPage() {
           emAndamento += 1
         }
         if (
-          ['enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'perdido'].includes(proposta.status) &&
+          [
+            'enviar_ao_cliente',
+            'enviado_ao_cliente',
+            'follow_up_1_dia',
+            'aguardando_follow_up_3_dias',
+            'follow_up_3_dias',
+            'aguardando_follow_up_7_dias',
+            'follow_up_7_dias',
+            'stand_by',
+            'fechado',
+            'perdido',
+          ].includes(proposta.status) &&
           Number(proposta.retificacoesCount || 0) === 0
         ) {
           aprovadasSemRetificacao += 1
@@ -212,22 +228,32 @@ export default function RelatorioVendedoresPage() {
       mediaConversao:
         performanceData.reduce((acc, item) => acc + item.taxaConversao, 0) /
         Math.max(performanceData.length, 1),
+      totalRecebidasOrcamento: budgetData.reduce((acc, item) => acc + item.recebidas, 0),
+      totalSemRetificacao: budgetData.reduce((acc, item) => acc + item.aprovadasSemRetificacao, 0),
+      mediaSemRetificacao:
+        budgetData.reduce((acc, item) => {
+          const taxa = item.recebidas > 0 ? (item.aprovadasSemRetificacao / item.recebidas) * 100 : 0
+          return acc + taxa
+        }, 0) / Math.max(budgetData.length, 1),
     }
   }, [orcamentistas, propostasFiltradas, vendedores])
 
   const handleOpenMetaDialog = (userId: string, currentMeta: number) => {
+    if (!canManageSellerGoals) return
     setEditingMetaUserId(userId)
     setMetaInput(String(currentMeta || 0))
   }
 
   const handleSaveMeta = async () => {
-    if (!editingMetaUserId) return
+    if (!canManageSellerGoals || !editingMetaUserId) return
     const usuario = state.usuarios.find((item) => item.id === editingMetaUserId)
     if (!usuario) return
 
+    const parsedMeta = Math.max(parseBrazilianDecimal(metaInput), 0)
+
     await updateUsuario({
       ...usuario,
-      metaVendas: parseBrazilianDecimal(metaInput),
+      metaVendas: parsedMeta,
     })
 
     setEditingMetaUserId(null)
@@ -237,158 +263,181 @@ export default function RelatorioVendedoresPage() {
   return (
     <>
       <CRMHeader
-        title="Performance de Vendedores"
-        subtitle="Metricas consolidadas de conversao, receita e carteira por vendedor"
+        title="Performance"
+        subtitle="Acompanhe vendedores e orcamentistas em sessoes separadas"
       />
 
       <div className="flex-1 overflow-auto p-6 space-y-6">
         <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
-          <MetricCard title="Vendedores Ativos" value={performance.length} />
-          <MetricCard
-            title="Receita Total"
-            value={formatCurrency(totalReceita)}
-          />
-          <MetricCard
-            title="Propostas Fechadas"
-            value={totalFechadas}
-          />
-          <MetricCard
-            title="Taxa Media"
-            value={`${mediaConversao.toFixed(1)}%`}
-          />
-        </div>
+        <Tabs defaultValue="vendedores" className="space-y-6">
+          <TabsList className="grid w-full max-w-[420px] grid-cols-2">
+            <TabsTrigger value="vendedores">Vendedores</TabsTrigger>
+            <TabsTrigger value="orcamentistas">Orcamentistas</TabsTrigger>
+          </TabsList>
 
-        <VendorPerformanceCharts
-          formatCurrency={formatCurrency}
-          revenueChartData={revenueChartData}
-          proposalMixData={proposalMixData}
-          budgetChartData={budgetChartData}
-        />
+          <TabsContent value="vendedores" className="space-y-6">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+              <MetricCard title="Vendedores Ativos" value={performance.length} />
+              <MetricCard title="Receita Total" value={formatCurrency(totalReceita)} />
+              <MetricCard title="Propostas Fechadas" value={totalFechadas} />
+              <MetricCard title="Taxa Media" value={`${mediaConversao.toFixed(1)}%`} />
+            </div>
 
-        <Card className="border-border bg-card">
-          <CardHeader>
-            <CardTitle>Resumo por Vendedor</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {performance.length === 0 ? (
-              <p className="py-6 text-center text-muted-foreground">Nenhum vendedor encontrado.</p>
-            ) : (
-              performance.map((item) => (
-                <div key={item.id} className="rounded-xl border border-border bg-secondary/30 p-4">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <p className="text-lg font-semibold text-foreground">{item.nome}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {item.clientes} clientes com propostas | {item.propostas} propostas totais
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-lg font-semibold text-foreground">{formatCurrency(item.receita)}</p>
-                      <p className="text-sm text-muted-foreground">
-                        Ticket medio {formatCurrency(item.ticketMedio)}
-                      </p>
-                    </div>
-                  </div>
+            <VendorPerformanceCharts
+              formatCurrency={formatCurrency}
+              revenueChartData={revenueChartData}
+              proposalMixData={proposalMixData}
+              budgetChartData={budgetChartData}
+              mode="vendedores"
+            />
 
-                  <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
-                    <MiniMetric label="Conversao" value={`${item.taxaConversao.toFixed(1)}%`} />
-                    <MiniMetric label="Abertas" value={item.abertas} />
-                    <MiniMetric label="Fechadas" value={item.fechadas} />
-                    <MiniMetric label="Perdidas" value={item.perdidas} />
-                    <MiniMetric label="Receita" value={formatCurrency(item.receita)} />
-                  </div>
-
-                  <div className="mt-4 space-y-2 rounded-lg border border-border bg-background/40 p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-medium text-foreground">Meta de vendas</p>
-                        <p className="text-xs text-muted-foreground">
-                          {item.metaVendas > 0
-                            ? `${formatCurrency(item.receita)} de ${formatCurrency(item.metaVendas)}`
-                            : 'Meta ainda nao definida'}
-                        </p>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => handleOpenMetaDialog(item.id, item.metaVendas)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <Progress
-                      value={item.metaVendas > 0 ? Math.min((item.receita / item.metaVendas) * 100, 100) : 0}
-                      className="h-2.5"
-                    />
-                  </div>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="border-border bg-card">
-          <CardHeader>
-            <CardTitle>Resumo por Orcamentista</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {budgetPerformance.length === 0 ? (
-              <p className="py-6 text-center text-muted-foreground">Nenhum orcamentista encontrado.</p>
-            ) : (
-              budgetPerformance.map((item) => {
-                const taxaSemRetificacao =
-                  item.recebidas > 0 ? (item.aprovadasSemRetificacao / item.recebidas) * 100 : 0
-
-                return (
-                  <div key={item.id} className="rounded-xl border border-border bg-secondary/30 p-4">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <div>
-                        <p className="text-lg font-semibold text-foreground">{item.nome}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {item.recebidas} propostas recebidas no periodo
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-lg font-semibold text-foreground">{item.aprovadasSemRetificacao}</p>
-                        <p className="text-sm text-muted-foreground">
-                          aprovadas sem retificacao
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
-                      <MiniMetric label="Recebidas" value={item.recebidas} />
-                      <MiniMetric label="Em andamento" value={item.emAndamento} />
-                      <MiniMetric label="Sem retificacao" value={item.aprovadasSemRetificacao} />
-                      <MiniMetric label="Com retificacao" value={item.comRetificacao} />
-                      <MiniMetric label="Aguardando aprovacao" value={item.aguardandoAprovacao} />
-                    </div>
-
-                    <div className="mt-4 space-y-2 rounded-lg border border-border bg-background/40 p-3">
-                      <div className="flex items-center justify-between gap-3">
+            <Card className="border-border bg-card">
+              <CardHeader>
+                <CardTitle>Resumo por Vendedor</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {performance.length === 0 ? (
+                  <p className="py-6 text-center text-muted-foreground">Nenhum vendedor encontrado.</p>
+                ) : (
+                  performance.map((item) => (
+                    <div key={item.id} className="rounded-xl border border-border bg-secondary/30 p-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                         <div>
-                          <p className="text-sm font-medium text-foreground">Taxa sem retificacao</p>
-                          <p className="text-xs text-muted-foreground">
-                            {item.aprovadasSemRetificacao} de {item.recebidas} propostas aprovadas direto
+                          <p className="text-lg font-semibold text-foreground">{item.nome}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {item.clientes} clientes com propostas | {item.propostas} propostas totais
                           </p>
                         </div>
-                        <p className="text-sm font-semibold text-foreground">{taxaSemRetificacao.toFixed(1)}%</p>
+                        <div className="text-right">
+                          <p className="text-lg font-semibold text-foreground">{formatCurrency(item.receita)}</p>
+                          <p className="text-sm text-muted-foreground">
+                            Ticket medio {formatCurrency(item.ticketMedio)}
+                          </p>
+                        </div>
                       </div>
-                      <Progress value={taxaSemRetificacao} className="h-2.5" />
+
+                      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+                        <MiniMetric label="Conversao" value={`${item.taxaConversao.toFixed(1)}%`} />
+                        <MiniMetric label="Abertas" value={item.abertas} />
+                        <MiniMetric label="Fechadas" value={item.fechadas} />
+                        <MiniMetric label="Perdidas" value={item.perdidas} />
+                        <MiniMetric label="Receita" value={formatCurrency(item.receita)} />
+                      </div>
+
+                      <div className="mt-4 space-y-2 rounded-lg border border-border bg-background/40 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-medium text-foreground">Meta de vendas</p>
+                            <p className="text-xs text-muted-foreground">
+                              {item.metaVendas > 0
+                                ? `${formatCurrency(item.receita)} de ${formatCurrency(item.metaVendas)}`
+                                : 'Meta ainda nao definida'}
+                            </p>
+                          </div>
+                          {canManageSellerGoals && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => handleOpenMetaDialog(item.id, item.metaVendas)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                        <Progress
+                          value={item.metaVendas > 0 ? Math.min((item.receita / item.metaVendas) * 100, 100) : 0}
+                          className="h-2.5"
+                        />
+                      </div>
                     </div>
-                  </div>
-                )
-              })
-            )}
-          </CardContent>
-        </Card>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="orcamentistas" className="space-y-6">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+              <MetricCard title="Orcamentistas Ativos" value={budgetPerformance.length} />
+              <MetricCard title="Propostas Recebidas" value={totalRecebidasOrcamento} />
+              <MetricCard title="Sem Retificacao" value={totalSemRetificacao} />
+              <MetricCard title="Taxa Media Direta" value={`${mediaSemRetificacao.toFixed(1)}%`} />
+            </div>
+
+            <VendorPerformanceCharts
+              formatCurrency={formatCurrency}
+              revenueChartData={revenueChartData}
+              proposalMixData={proposalMixData}
+              budgetChartData={budgetChartData}
+              mode="orcamentistas"
+            />
+
+            <Card className="border-border bg-card">
+              <CardHeader>
+                <CardTitle>Resumo por Orcamentista</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {budgetPerformance.length === 0 ? (
+                  <p className="py-6 text-center text-muted-foreground">Nenhum orcamentista encontrado.</p>
+                ) : (
+                  budgetPerformance.map((item) => {
+                    const taxaSemRetificacao =
+                      item.recebidas > 0 ? (item.aprovadasSemRetificacao / item.recebidas) * 100 : 0
+
+                    return (
+                      <div key={item.id} className="rounded-xl border border-border bg-secondary/30 p-4">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <p className="text-lg font-semibold text-foreground">{item.nome}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {item.recebidas} propostas recebidas no periodo
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-lg font-semibold text-foreground">{item.aprovadasSemRetificacao}</p>
+                            <p className="text-sm text-muted-foreground">
+                              aprovadas sem retificacao
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+                          <MiniMetric label="Recebidas" value={item.recebidas} />
+                          <MiniMetric label="Em andamento" value={item.emAndamento} />
+                          <MiniMetric label="Sem retificacao" value={item.aprovadasSemRetificacao} />
+                          <MiniMetric label="Com retificacao" value={item.comRetificacao} />
+                          <MiniMetric label="Aguardando aprovacao" value={item.aguardandoAprovacao} />
+                        </div>
+
+                        <div className="mt-4 space-y-2 rounded-lg border border-border bg-background/40 p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-medium text-foreground">Taxa sem retificacao</p>
+                              <p className="text-xs text-muted-foreground">
+                                {item.aprovadasSemRetificacao} de {item.recebidas} propostas aprovadas direto
+                              </p>
+                            </div>
+                            <p className="text-sm font-semibold text-foreground">{taxaSemRetificacao.toFixed(1)}%</p>
+                          </div>
+                          <Progress value={taxaSemRetificacao} className="h-2.5" />
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
 
-      <Dialog open={Boolean(editingMetaUserId)} onOpenChange={(open) => !open && setEditingMetaUserId(null)}>
+      <Dialog
+        open={canManageSellerGoals && Boolean(editingMetaUserId)}
+        onOpenChange={(open) => !open && setEditingMetaUserId(null)}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Definir meta de vendas</DialogTitle>

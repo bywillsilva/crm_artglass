@@ -1,7 +1,8 @@
 import { randomInt, createHash, randomUUID } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
-import { sendEmail } from '@/lib/email'
+import { buildEmailTemplate, sendEmail } from '@/lib/email'
+import { getEmailBranding } from '@/lib/server/email-branding'
 
 async function ensurePasswordResetTable() {
   await query(`
@@ -62,22 +63,23 @@ export async function POST(request: NextRequest) {
       [id, user.id, normalizedEmail, tokenHash]
     )
 
-    const appName = process.env.APP_NAME || 'CRM'
+    const branding = await getEmailBranding()
+    const emailContent = buildEmailTemplate({
+      appName: branding.appName,
+      title: 'Recuperacao de senha',
+      greeting: `Ola, ${user.nome}.`,
+      intro: 'Recebemos uma solicitacao para redefinir a sua senha de acesso ao CRM.',
+      highlightLabel: 'Codigo de recuperacao',
+      highlightValue: token,
+      outro: 'Esse codigo expira em 15 minutos e so pode ser usado uma vez.',
+      footer: 'Se voce nao solicitou esta recuperacao, pode ignorar este e-mail com seguranca.',
+    })
 
     await sendEmail({
       to: normalizedEmail,
-      subject: `${appName} - Token de recuperacao de senha`,
-      text: `Seu token de recuperacao e ${token}. Ele expira em 15 minutos.`,
-      html: `
-        <div style="font-family: Arial, sans-serif; color: #111827;">
-          <h2>Recuperacao de senha</h2>
-          <p>Ola, ${user.nome}.</p>
-          <p>Use o token abaixo para redefinir sua senha:</p>
-          <div style="font-size: 32px; font-weight: bold; letter-spacing: 6px; margin: 24px 0;">${token}</div>
-          <p>Este token expira em 15 minutos e so pode ser usado uma vez.</p>
-          <p>Se voce nao solicitou esta recuperacao, ignore este e-mail.</p>
-        </div>
-      `,
+      subject: `${branding.appName} - Token de recuperacao de senha`,
+      text: emailContent.text,
+      html: emailContent.html,
     })
 
     return NextResponse.json({

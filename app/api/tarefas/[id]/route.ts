@@ -4,6 +4,7 @@ import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
+import { notifyTaskEmail } from '@/lib/server/email-notifications'
 import {
   ensureCrmRuntimeSchema,
   formatDateTime,
@@ -35,9 +36,14 @@ export async function GET(
     }
 
     const [tarefa] = await query<any[]>(
-      `SELECT t.*, c.nome as cliente_nome, u.nome as responsavel_nome
+      `SELECT
+         t.*,
+         COALESCE(t.cliente_id, p.cliente_id) as cliente_id_resolvido,
+         c.nome as cliente_nome,
+         u.nome as responsavel_nome
        FROM tarefas t
-       LEFT JOIN clientes c ON t.cliente_id = c.id
+       LEFT JOIN propostas p ON t.proposta_id = p.id
+       LEFT JOIN clientes c ON COALESCE(t.cliente_id, p.cliente_id) = c.id
        LEFT JOIN usuarios u ON t.responsavel_id = u.id
        WHERE t.id = ?`,
       [id]
@@ -136,6 +142,16 @@ export async function PUT(
       resourceId: id,
     })
 
+    await notifyTaskEmail({
+      responsavelId: data.responsavelId || tarefaAtual.responsavel_id,
+      actorUserId: user.id,
+      actorName: user.nome,
+      titulo: data.titulo || tarefaAtual.titulo || data.descricao || tarefaAtual.descricao || 'Tarefa',
+      descricao: data.descricao || tarefaAtual.descricao || null,
+      dataHora: data.dataHora || tarefaAtual.data_hora || null,
+      action: 'updated',
+    })
+
     const [tarefa] = await query<any[]>('SELECT * FROM tarefas WHERE id = ?', [id])
     return NextResponse.json(tarefa)
   } catch (error) {
@@ -193,6 +209,16 @@ export async function PATCH(
         actorUserId: user.id,
         resource: 'tarefa',
         resourceId: id,
+      })
+
+      await notifyTaskEmail({
+        responsavelId: tarefaAtual.responsavel_id,
+        actorUserId: user.id,
+        actorName: user.nome,
+        titulo: tarefaAtual.titulo || tarefaAtual.descricao || 'Tarefa',
+        descricao: tarefaAtual.descricao || null,
+        dataHora: tarefaAtual.data_hora || null,
+        action: 'status_changed',
       })
     }
 

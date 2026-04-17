@@ -218,7 +218,7 @@ function normalizeCliente(row: JsonRecord): Cliente {
     origem: row.origem ?? '',
     observacoes: row.observacoes ?? '',
     status: (row.status ?? row.status_funil ?? 'lead_novo') as StatusFunil,
-    valorEstimado: toNumber(row.valorEstimado ?? row.valor_potencial),
+    responsavelId: row.responsavelId ?? row.responsavel_id ?? '',
     ultimoContato: toDate(row.ultimoContato ?? row.updated_at ?? row.created_at),
     criadoEm: toDate(row.criadoEm ?? row.created_at),
   }
@@ -1010,9 +1010,9 @@ export function useRealtimeSync(enabled = true) {
     fetcher,
     {
       ...READ_ONLY_SWR_OPTIONS,
-      refreshInterval: 10000,
+      refreshInterval: 4000,
       revalidateOnFocus: false,
-      dedupingInterval: 10000,
+      dedupingInterval: 4000,
     }
   )
 
@@ -1078,7 +1078,6 @@ export async function createCliente(data: Partial<Cliente> & JsonRecord) {
     endereco: data.endereco || null,
     origem: data.origem || null,
     statusFunil: data.statusFunil || data.status || 'lead_novo',
-    valorPotencial: data.valorPotencial ?? data.valorEstimado ?? 0,
     observacoes: data.observacoes || null,
     empresa: data.empresa || null,
     cargo: data.cargo || null,
@@ -1102,22 +1101,21 @@ export async function createCliente(data: Partial<Cliente> & JsonRecord) {
 }
 
 export async function updateCliente(id: string, data: Partial<Cliente> & JsonRecord) {
-  const payload = {
+  const payload = compactObject({
     nome: data.nome,
-    cpf: data.cpf || null,
-    email: data.email || null,
-    telefone: data.telefone || null,
-    endereco: data.endereco || null,
-    origem: data.origem || null,
-    statusFunil: data.statusFunil || data.status || 'lead_novo',
-    valorPotencial: data.valorPotencial ?? data.valorEstimado ?? 0,
-    observacoes: data.observacoes || null,
-    empresa: data.empresa || null,
-    cargo: data.cargo || null,
-    cidade: data.cidade || null,
-    estado: data.estado || null,
-    cep: data.cep || null,
-  }
+    cpf: data.cpf === undefined ? undefined : (data.cpf || null),
+    email: data.email === undefined ? undefined : (data.email || null),
+    telefone: data.telefone === undefined ? undefined : (data.telefone || null),
+    endereco: data.endereco === undefined ? undefined : (data.endereco || null),
+    origem: data.origem === undefined ? undefined : (data.origem || null),
+    statusFunil: data.statusFunil ?? data.status,
+    observacoes: data.observacoes === undefined ? undefined : (data.observacoes || null),
+    empresa: data.empresa === undefined ? undefined : (data.empresa || null),
+    cargo: data.cargo === undefined ? undefined : (data.cargo || null),
+    cidade: data.cidade === undefined ? undefined : (data.cidade || null),
+    estado: data.estado === undefined ? undefined : (data.estado || null),
+    cep: data.cep === undefined ? undefined : (data.cep || null),
+  })
 
   const optimisticPatch = compactObject({
     nome: payload.nome,
@@ -1128,8 +1126,6 @@ export async function updateCliente(id: string, data: Partial<Cliente> & JsonRec
     origem: payload.origem,
     status: payload.statusFunil,
     status_funil: payload.statusFunil,
-    valorEstimado: payload.valorPotencial,
-    valor_potencial: payload.valorPotencial,
     observacoes: payload.observacoes,
     empresa: payload.empresa,
     cargo: payload.cargo,
@@ -1155,7 +1151,7 @@ export async function updateCliente(id: string, data: Partial<Cliente> & JsonRec
     return updated
   } catch (error) {
     mutate(`/api/clientes/${id}`)
-    mutate('/api/crm/bootstrap')
+    mutateByPrefix('/api/crm/bootstrap')
     throw error
   }
 }
@@ -1382,13 +1378,16 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     await mutate(`/api/propostas/${id}`, updated as JsonRecord, { revalidate: false })
     await mutateEntityByPrefix('/api/propostas', id, updated as JsonRecord)
     await patchBootstrapEntity('propostas', id, updated as JsonRecord)
+    mutateByPrefix('/api/tarefas')
+    mutateByPrefix('/api/crm/bootstrap')
     mutate('/api/dashboard')
     mutateByPrefix('/api/interacoes')
     return updated
   } catch (error) {
     mutate(`/api/propostas/${id}`)
     mutateByPrefix('/api/propostas')
-    mutate('/api/crm/bootstrap')
+    mutateByPrefix('/api/tarefas')
+    mutateByPrefix('/api/crm/bootstrap')
     mutate('/api/dashboard')
     throw error
   }

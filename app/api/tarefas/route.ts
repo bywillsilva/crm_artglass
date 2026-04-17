@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
+import { notifyTaskEmail } from '@/lib/server/email-notifications'
 import {
   ensureCrmRuntimeSchema,
   formatDateTime,
@@ -66,7 +67,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (clienteId) {
-      sql += ' AND t.cliente_id = ?'
+      sql += ' AND COALESCE(t.cliente_id, p.cliente_id) = ?'
       params.push(clienteId)
     }
 
@@ -149,6 +150,16 @@ export async function POST(request: NextRequest) {
       actorUserId: user.id,
       resource: 'tarefa',
       resourceId: id,
+    })
+
+    await notifyTaskEmail({
+      responsavelId: data.responsavelId,
+      actorUserId: user.id,
+      actorName: user.nome,
+      titulo: data.titulo || data.descricao || 'Tarefa',
+      descricao: data.descricao || null,
+      dataHora: data.dataHora || null,
+      action: 'created',
     })
 
     const [tarefa] = await query<any[]>('SELECT * FROM tarefas WHERE id = ?', [id])

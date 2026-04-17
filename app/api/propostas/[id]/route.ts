@@ -5,6 +5,8 @@ import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { deleteStoredFiles, saveProposalFiles } from '@/lib/server/proposal-files'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
+import { statusPropostaLabels } from '@/lib/data/types'
+import { notifyProposalEmail } from '@/lib/server/email-notifications'
 import {
   canOrcamentistaAccessProposal,
   ensureCrmRuntimeSchema,
@@ -663,12 +665,12 @@ export async function PUT(
       )
     }
 
-    const [clienteAtual] = await query<any[]>(
-      `SELECT id, nome, cpf, email, telefone, endereco, status_funil, valor_potencial
-       FROM clientes
-       WHERE id = ? LIMIT 1`,
-      [resolvedClienteId]
-    )
+      const [clienteAtual] = await query<any[]>(
+        `SELECT id, nome, cpf, email, telefone, endereco, status_funil
+         FROM clientes
+         WHERE id = ? LIMIT 1`,
+        [resolvedClienteId]
+      )
 
     if (!clienteAtual) {
       return NextResponse.json({ error: 'Cliente vinculado a proposta nao foi encontrado.' }, { status: 404 })
@@ -702,7 +704,7 @@ export async function PUT(
 
       await query(
         `UPDATE clientes
-         SET nome = ?, cpf = ?, email = ?, telefone = ?, endereco = ?, status_funil = ?, valor_potencial = ?
+         SET nome = ?, cpf = ?, email = ?, telefone = ?, endereco = ?, status_funil = ?
          WHERE id = ?`,
         [
           mergedClienteFechado.nome,
@@ -711,7 +713,6 @@ export async function PUT(
           mergedClienteFechado.telefone,
           mergedClienteFechado.endereco,
           'fechado',
-          valor,
           resolvedClienteId,
         ]
       )
@@ -850,6 +851,25 @@ export async function PUT(
       resourceId: id,
     })
 
+    if (previousStatus !== storedStatus) {
+      await publishRealtimeEvent({
+        actorUserId: user.id,
+        resource: 'tarefa',
+        resourceId: id,
+      })
+    }
+
+    if (previousStatus !== storedStatus) {
+      await notifyProposalEmail({
+        responsavelId,
+        actorUserId: user.id,
+        actorName: user.nome,
+        proposalNumber: propostaAtual.numero,
+        proposalTitle: data.titulo || propostaAtual.titulo || 'Proposta Comercial',
+        nextStatusLabel: statusPropostaLabels[storedStatus],
+      })
+    }
+
     const proposta = await getProposal(id)
     return NextResponse.json(proposta)
   } catch (error) {
@@ -891,7 +911,12 @@ export async function DELETE(
 
     await query('DELETE FROM proposta_anexos WHERE proposta_id = ?', [id])
     await query('DELETE FROM proposta_comentarios WHERE proposta_id = ?', [id])
-    await query(`DELETE FROM tarefas WHERE proposta_id = ? AND origem = 'automacao_proposta'`, [id])
+    await query(
+      `DELETE FROM tarefas
+       WHERE proposta_id = ?
+         AND (origem = 'automacao_proposta' OR automacao_etapa IS NOT NULL)`,
+      [id]
+    )
     await query('DELETE FROM propostas WHERE id = ?', [id])
 
     await deleteStoredFiles(anexos.map((item) => item.caminho))

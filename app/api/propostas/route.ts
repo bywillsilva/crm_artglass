@@ -322,7 +322,7 @@ export async function GET(request: NextRequest) {
 
     if (user.role === 'vendedor') {
       sql += ` AND p.responsavel_id = ?
-               AND p.status IN ('enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'perdido')`
+               AND p.status IN ('enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'aguardando_follow_up_3_dias', 'follow_up_3_dias', 'aguardando_follow_up_7_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'perdido')`
       params.push(user.id)
     } else if (user.role === 'orcamentista') {
       sql += ` AND p.status IN ('novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao')
@@ -344,7 +344,7 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
       }
 
-      const cacheKey = `propostas:list:${user.id}:${user.role}:${status || 'todos'}:${clienteId || ''}`
+      const cacheKey = `propostas:list:${user.id}:${user.role}:${status || 'todos'}:${clienteId || ''}:${updatedSince || ''}`
       return NextResponse.json(getRuntimeCache<any[]>(cacheKey) || [], { status: 200 })
     }
 

@@ -135,4 +135,22 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  body[data-demo-mode='true']::after {
+    content: 'MODO DEMO';
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 60;
+    border: 1px solid color-mix(in oklab, var(--warning) 50%, transparent);
+    background: color-mix(in oklab, var(--warning) 18%, transparent);
+    color: var(--warning);
+    padding: 0.35rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    pointer-events: none;
+    backdrop-filter: blur(8px);
+  }
 }

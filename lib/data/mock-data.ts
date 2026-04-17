@@ -25,7 +25,6 @@ export const clientesIniciais: Cliente[] = [
     observacoes: 'Cliente interessado em sistema de 5kWp',
     status: 'lead_novo',
     responsavelId: 'user-3',
-    valorEstimado: 25000,
     ultimoContato: new Date('2026-03-18'),
     criadoEm: new Date('2026-03-15'),
   },

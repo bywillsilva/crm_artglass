@@ -2,7 +2,8 @@ import { createHash, randomInt, randomUUID } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { query } from '@/lib/db/mysql'
-import { sendEmail } from '@/lib/email'
+import { buildEmailTemplate, sendEmail } from '@/lib/email'
+import { getEmailBranding } from '@/lib/server/email-branding'
 
 async function ensureEmailVerificationTable() {
   await query(`
@@ -71,19 +72,22 @@ export async function POST(request: NextRequest) {
       [randomUUID(), nome.trim(), normalizedEmail, senhaHash, tokenHash]
     )
 
-    const appName = process.env.APP_NAME || 'Sistema CRM'
+    const branding = await getEmailBranding()
+    const emailContent = buildEmailTemplate({
+      appName: branding.appName,
+      title: 'Confirmacao de cadastro',
+      greeting: `Ola, ${nome.trim()}.`,
+      intro: 'Use o codigo abaixo para confirmar a criacao da sua conta no CRM.',
+      highlightLabel: 'Codigo de confirmacao',
+      highlightValue: token,
+      outro: 'Esse codigo expira em 15 minutos e so pode ser usado uma vez.',
+    })
+
     await sendEmail({
       to: normalizedEmail,
-      subject: `${appName} - Confirmacao de cadastro`,
-      text: `Seu token de confirmacao de cadastro e ${token}. Ele expira em 15 minutos.`,
-      html: `
-        <div style="font-family: Arial, sans-serif; color: #111827;">
-          <h2>Confirmacao de cadastro</h2>
-          <p>Use o token abaixo para confirmar a criacao da sua conta:</p>
-          <div style="font-size: 32px; font-weight: bold; letter-spacing: 6px; margin: 24px 0;">${token}</div>
-          <p>Este token expira em 15 minutos e so pode ser usado uma vez.</p>
-        </div>
-      `,
+      subject: `${branding.appName} - Confirmacao de cadastro`,
+      text: emailContent.text,
+      html: emailContent.html,
     })
 
     return NextResponse.json({

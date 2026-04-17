@@ -158,7 +158,10 @@ export function TasksTab({ clienteId }: TasksTabProps) {
                 const isAtrasada =
                   tarefa.status === 'pendente' &&
                   new Date(tarefa.dataHora) < new Date()
-                const canEdit = user?.role === 'admin' || tarefa.responsavelId === user?.id
+                const canEdit =
+                  user?.role === 'admin' ||
+                  user?.role === 'gerente' ||
+                  tarefa.responsavelId === user?.id
 
                 return (
                   <div
@@ -220,27 +223,29 @@ export function TasksTab({ clienteId }: TasksTabProps) {
                           <Pencil className="h-4 w-4" />
                         </Button>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                        onClick={() => {
-                          if (
-                            !general.confirmDeletes ||
-                            confirm('Tem certeza que deseja excluir esta tarefa?')
-                          ) {
-                            void deleteTarefa(tarefa.id)
-                              .then(() => {
-                                toast.success('Tarefa excluida com sucesso.')
-                              })
-                              .catch((error: any) => {
-                                toast.error(error?.message || 'Nao foi possivel excluir a tarefa.')
-                              })
-                          }
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {canEdit && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          onClick={() => {
+                            if (
+                              !general.confirmDeletes ||
+                              confirm('Tem certeza que deseja excluir esta tarefa?')
+                            ) {
+                              void deleteTarefa(tarefa.id)
+                                .then(() => {
+                                  toast.success('Tarefa excluida com sucesso.')
+                                })
+                                .catch((error: any) => {
+                                  toast.error(error?.message || 'Nao foi possivel excluir a tarefa.')
+                                })
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
                     </div>
                   </div>
                 )
