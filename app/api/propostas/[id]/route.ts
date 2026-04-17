@@ -56,6 +56,16 @@ type ProposalAttachmentRecord = {
   tipo_mime: string | null
 }
 
+type ProposalDetailAttachment = {
+  id: string
+  usuario_id: string | null
+  nome_original: string | null
+  tipo_mime: string | null
+  tamanho: number | null
+  created_at: string | null
+  url: string
+}
+
 type SellerWorkflowAction =
   | 'enviado_ao_cliente'
   | 'em_retificacao'
@@ -300,6 +310,37 @@ async function getProposalAttachments(id: string) {
   )
 }
 
+async function getProposalDetailPayload(id: string) {
+  const proposta = await getProposal(id)
+  if (!proposta) {
+    return null
+  }
+
+  const anexos = await query<ProposalDetailAttachment[]>(
+    `SELECT id, usuario_id, nome_original, tipo_mime, tamanho, created_at,
+            CONCAT('/api/propostas/', proposta_id, '/anexos/', id) as url
+     FROM proposta_anexos
+     WHERE proposta_id = ?
+     ORDER BY created_at DESC`,
+    [id]
+  )
+
+  const comentarios = await query<any[]>(
+    `SELECT pc.id, pc.proposta_id, pc.usuario_id, pc.comentario, pc.created_at, u.nome as usuario_nome
+     FROM proposta_comentarios pc
+     LEFT JOIN usuarios u ON u.id = pc.usuario_id
+     WHERE pc.proposta_id = ?
+     ORDER BY pc.created_at DESC`,
+    [id]
+  )
+
+  return {
+    ...proposta,
+    anexos,
+    comentarios,
+  }
+}
+
 function canViewProposal(user: any, proposta: any) {
   if (user.role === 'admin' || user.role === 'gerente') return true
   if (user.role === 'vendedor') {
@@ -327,7 +368,15 @@ function isTransitionAllowed(user: any, currentStatus: ProposalWorkflowStatus, n
     return true
   }
 
-  if (user.role === 'admin' || user.role === 'gerente') {
+  if (user.role === 'admin') {
+    return WORKFLOW_ALLOWED_TRANSITIONS[currentStatus]?.includes(nextStatus) ?? false
+  }
+
+  if (user.role === 'gerente') {
+    if (currentStatus === 'enviar_ao_cliente') {
+      return nextStatus === 'enviado_ao_cliente'
+    }
+
     return WORKFLOW_ALLOWED_TRANSITIONS[currentStatus]?.includes(nextStatus) ?? false
   }
 
@@ -433,28 +482,9 @@ export async function GET(
       return NextResponse.json({ error: 'Acesso negado a esta proposta' }, { status: 403 })
     }
 
-    const anexos = await query<any[]>(
-      `SELECT id, usuario_id, nome_original, tipo_mime, tamanho, created_at,
-              CONCAT('/uploads/propostas/', proposta_id, '/', nome_arquivo) as url
-       FROM proposta_anexos
-       WHERE proposta_id = ?
-       ORDER BY created_at DESC`,
-      [id]
-    )
-
-    const comentarios = await query<any[]>(
-      `SELECT pc.id, pc.proposta_id, pc.usuario_id, pc.comentario, pc.created_at, u.nome as usuario_nome
-       FROM proposta_comentarios pc
-       LEFT JOIN usuarios u ON u.id = pc.usuario_id
-       WHERE pc.proposta_id = ?
-       ORDER BY pc.created_at DESC`,
-      [id]
-    )
-
-    const payload = {
-      ...proposta,
-      anexos,
-      comentarios,
+    const payload = await getProposalDetailPayload(id)
+    if (!payload) {
+      return NextResponse.json({ error: 'Proposta nao encontrada' }, { status: 404 })
     }
 
     setRuntimeCache(cacheKey, payload, PROPOSTA_DETAIL_CACHE_TTL_MS)
@@ -845,6 +875,7 @@ export async function PUT(
     }
 
     invalidateRuntimeCache('crm-bootstrap:')
+    invalidateRuntimeCache('proposta:detail:')
     await publishRealtimeEvent({
       actorUserId: user.id,
       resource: 'proposta',
@@ -872,7 +903,7 @@ export async function PUT(
       })
     }
 
-    const proposta = await getProposal(id)
+    const proposta = await getProposalDetailPayload(id)
     return NextResponse.json(proposta)
   } catch (error) {
     console.error('Erro ao atualizar proposta:', error)
@@ -924,6 +955,7 @@ export async function DELETE(
     await deleteStoredFiles(anexos.map((item) => item.caminho))
 
     invalidateRuntimeCache('crm-bootstrap:')
+    invalidateRuntimeCache('proposta:detail:')
     await publishRealtimeEvent({
       actorUserId: user.id,
       resource: 'proposta',

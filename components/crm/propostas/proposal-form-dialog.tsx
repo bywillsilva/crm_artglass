@@ -273,6 +273,8 @@ export function ProposalFormDialog({
   const hasExistingProposalPdf = Boolean(propostaSource?.anexos?.some(isPdfAttachment))
   const hasNewProposalPdf = files.some(isPdfFile)
   const hasRequiredProposalPdf = !requiresProposalPdf || hasExistingProposalPdf || hasNewProposalPdf
+  const buildAttachmentHref = (attachmentId: string) =>
+    propostaId ? `/api/propostas/${propostaId}/anexos/${attachmentId}` : '#'
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -558,7 +560,7 @@ export function ProposalFormDialog({
                       {propostaSource.anexos.map((anexo) => (
                         <a
                           key={anexo.id}
-                          href={anexo.url}
+                          href={buildAttachmentHref(anexo.id)}
                           target="_blank"
                           rel="noreferrer"
                           className="flex items-center gap-2 text-sm text-primary hover:underline"
@@ -591,10 +593,6 @@ export function ProposalFormDialog({
                     <div className="flex items-center justify-between gap-3">
                       <span>Valor</span>
                       <span className="font-medium text-foreground">{valor || '0,00'}</span>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span>Anexos novos</span>
-                      <span className="font-medium text-foreground">{files.length}</span>
                     </div>
                     {requiresProposalPdf ? (
                       <div className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs text-foreground">

@@ -64,6 +64,12 @@ const MODULE_REALTIME_PREFIXES: Record<string, readonly string[]> = {
   global: REALTIME_REVALIDATE_PREFIXES,
 }
 
+const MODULE_DETAIL_PREFIXES: Partial<Record<string, string>> = {
+  clientes: '/api/clientes/',
+  tarefas: '/api/tarefas/',
+  propostas: '/api/propostas/',
+}
+
 function toNumber(value: unknown) {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
@@ -664,6 +670,7 @@ async function syncIncrementalModule(
 
   const endpoint = endpointByModule[moduleName]
   const collection = collectionByModule[moduleName]
+  const detailPrefix = MODULE_DETAIL_PREFIXES[moduleName]
 
   if (!endpoint || !collection) {
     revalidateRealtimeModules([moduleName])
@@ -676,6 +683,7 @@ async function syncIncrementalModule(
     )
 
     if (!Array.isArray(result) || result.length === 0) {
+      revalidateRealtimeModules([moduleName])
       return
     }
 
@@ -685,6 +693,20 @@ async function syncIncrementalModule(
       { revalidate: false }
     )
     await mergeBootstrapCollection(collection, result)
+
+    if (detailPrefix) {
+      await Promise.all(
+        result
+          .filter((entity) => entity?.id)
+          .map((entity) =>
+            mutate(`${detailPrefix}${entity.id}`, entity, {
+              revalidate: false,
+            })
+          )
+      )
+    }
+
+    revalidateRealtimeModules([moduleName])
   } catch {
     revalidateRealtimeModules([moduleName])
   }
@@ -1011,9 +1033,10 @@ export function useRealtimeSync(enabled = true) {
     fetcher,
     {
       ...READ_ONLY_SWR_OPTIONS,
-      refreshInterval: 4000,
-      revalidateOnFocus: false,
-      dedupingInterval: 4000,
+      refreshInterval: 1500,
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
+      dedupingInterval: 1500,
     }
   )
 

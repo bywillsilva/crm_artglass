@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
+import { invalidateRuntimeCache } from '@/lib/server/runtime-cache'
 import {
   canOrcamentistaAccessProposal,
   ensureCrmRuntimeSchema,
@@ -107,6 +108,8 @@ export async function POST(
       [commentId]
     )
 
+    invalidateRuntimeCache('proposta:detail:')
+    invalidateRuntimeCache('crm-bootstrap:')
     await publishRealtimeEvent({
       actorUserId: user.id,
       resource: 'proposta_comentario',

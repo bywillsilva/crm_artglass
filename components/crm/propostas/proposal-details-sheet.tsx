@@ -42,6 +42,15 @@ type ProposalCommentSnapshot = {
   criadoEm?: string | Date
 }
 
+type ProposalAttachmentSnapshot = {
+  id: string
+  nome: string
+  url?: string
+  tamanho: number
+  tipoMime?: string
+  usuarioId?: string
+}
+
 interface ProposalDetailsSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -75,6 +84,9 @@ export function ProposalDetailsSheet({
     }
     return 'Nao foi possivel carregar os detalhes desta proposta agora.'
   }, [error])
+
+  const buildAttachmentHref = (attachmentId: string) =>
+    propostaId ? `/api/propostas/${propostaId}/anexos/${attachmentId}` : '#'
 
   const syncProposalSnapshot = async (proposalSnapshot: any) => {
     if (!propostaId || !proposalSnapshot) return
@@ -208,6 +220,67 @@ export function ProposalDetailsSheet({
     )
   }
 
+  const applyAttachmentSnapshot = async (
+    updater: (attachments: ProposalAttachmentSnapshot[]) => ProposalAttachmentSnapshot[]
+  ) => {
+    if (!propostaId) return
+
+    await mutate(
+      `/api/propostas/${propostaId}`,
+      (current?: Record<string, any> | null) => {
+        if (!current || typeof current !== 'object') {
+          return current
+        }
+
+        const currentAttachments = Array.isArray(current.anexos)
+          ? (current.anexos as ProposalAttachmentSnapshot[])
+          : []
+        const nextAttachments = updater(currentAttachments)
+
+        return {
+          ...current,
+          anexos: nextAttachments,
+          anexosCount: nextAttachments.length,
+          anexos_count: nextAttachments.length,
+        }
+      },
+      { revalidate: false }
+    )
+
+    await mutate(
+      (key) => typeof key === 'string' && key.startsWith('/api/crm/bootstrap'),
+      (current?: Record<string, unknown> | null) => {
+        if (!current || typeof current !== 'object') {
+          return current
+        }
+
+        const propostas = Array.isArray(current.propostas) ? current.propostas : []
+        return {
+          ...current,
+          propostas: propostas.map((item: any) => {
+            if (item?.id !== propostaId) {
+              return item
+            }
+
+            const currentCount = Number(item?.anexosCount ?? item?.anexos_count ?? item?.anexos?.length ?? 0)
+            const nextAttachments = updater(
+              Array.isArray(item?.anexos) ? (item.anexos as ProposalAttachmentSnapshot[]) : []
+            )
+            const nextCount = Array.isArray(item?.anexos) ? nextAttachments.length : Math.max(nextAttachments.length, currentCount)
+
+            return {
+              ...item,
+              ...(Array.isArray(item?.anexos) ? { anexos: nextAttachments } : {}),
+              anexosCount: nextCount,
+              anexos_count: nextCount,
+            }
+          }),
+        }
+      },
+      { revalidate: false }
+    )
+  }
+
   useEffect(() => {
     if (!open || !propostaId || !proposta) {
       return
@@ -327,6 +400,7 @@ export function ProposalDetailsSheet({
         throw new Error(data?.error || 'Nao foi possivel excluir o anexo.')
       }
 
+      await applyAttachmentSnapshot((attachments) => attachments.filter((item) => item.id !== attachmentId))
       await refreshProposalData()
       toast.success('Anexo removido.')
     } catch (error: any) {
@@ -431,7 +505,7 @@ export function ProposalDetailsSheet({
                       {propostaSource.anexos.map((anexo) => (
                         <a
                           key={anexo.id}
-                          href={anexo.url}
+                          href={buildAttachmentHref(anexo.id)}
                           target="_blank"
                           rel="noreferrer"
                           className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm text-foreground transition hover:bg-secondary/30"

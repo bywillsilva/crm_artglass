@@ -1,9 +1,10 @@
 'use client'
 
-import { CalendarRange } from 'lucide-react'
-import { Card, CardContent } from '@/components/ui/card'
+import { CalendarRange, ChevronDown } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   Select,
   SelectContent,
@@ -21,8 +22,8 @@ import {
 
 const presetLabels: Record<DateFilterPreset, string> = {
   current_month: 'Mes atual',
-  last_30_days: 'Ultimos 30 dias',
-  last_90_days: 'Ultimos 90 dias',
+  last_30_days: '30 dias',
+  last_90_days: '90 dias',
   current_year: 'Ano atual',
   custom: 'Personalizado',
 }
@@ -32,8 +33,18 @@ interface DateRangeFilterProps {
   onChange: (value: DateFilterValue) => void
 }
 
+function formatCompactDate(value: string) {
+  const [year, month, day] = value.split('-')
+  if (!year || !month || !day) {
+    return value
+  }
+
+  return `${day}/${month}/${year}`
+}
+
 export function DateRangeFilter({ value, onChange }: DateRangeFilterProps) {
   const safeValue = normalizeDateFilter(value.startDate && value.endDate ? value : createDefaultDateFilter())
+  const rangeLabel = `${formatCompactDate(safeValue.startDate)} - ${formatCompactDate(safeValue.endDate)}`
 
   const handlePresetChange = (preset: DateFilterPreset) => {
     onChange(getDateRangeFromPreset(preset))
@@ -50,56 +61,84 @@ export function DateRangeFilter({ value, onChange }: DateRangeFilterProps) {
   }
 
   return (
-    <Card className="border-border bg-card">
-      <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-end">
-        <div className="flex items-center gap-3 md:min-w-[220px]">
-          <div className="rounded-lg bg-primary/10 p-2 text-primary">
-            <CalendarRange className="h-4 w-4" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-foreground">Periodo analisado</p>
-            <p className="text-xs text-muted-foreground">
-              Defina o intervalo usado nos indicadores e graficos
-            </p>
-          </div>
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-10 max-w-full justify-start gap-3 rounded-full border-border/70 bg-card/70 px-3 text-left shadow-sm backdrop-blur-sm hover:bg-card"
+        >
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <CalendarRange className="h-3.5 w-3.5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              Periodo
+            </span>
+            <span className="block truncate text-sm font-medium text-foreground">
+              {presetLabels[safeValue.preset]} · {rangeLabel}
+            </span>
+          </span>
+          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[min(92vw,360px)] space-y-4 rounded-2xl border-border/70 bg-card/95 p-4 shadow-xl backdrop-blur-sm"
+      >
+        <div className="space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            Periodo analisado
+          </p>
+          <p className="text-sm text-foreground">
+            Ajuste rapidamente o intervalo usado nos indicadores e graficos.
+          </p>
         </div>
 
-        <div className="grid flex-1 gap-4 md:grid-cols-3">
-          <div className="space-y-2">
-            <Label>Preferencia</Label>
-            <Select value={safeValue.preset} onValueChange={(value) => handlePresetChange(value as DateFilterPreset)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(presetLabels).map(([key, label]) => (
-                  <SelectItem key={key} value={key}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <div className="space-y-1.5">
+          <Label className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+            Preferencia
+          </Label>
+          <Select value={safeValue.preset} onValueChange={(next) => handlePresetChange(next as DateFilterPreset)}>
+            <SelectTrigger className="h-9 rounded-xl bg-background/70">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(presetLabels).map(([key, label]) => (
+                <SelectItem key={key} value={key}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
-          <div className="space-y-2">
-            <Label>Data inicial</Label>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+              Inicio
+            </Label>
             <Input
               type="date"
+              className="h-9 rounded-xl bg-background/70"
               value={safeValue.startDate}
               onChange={(event) => handleDateChange('startDate', event.target.value)}
             />
           </div>
 
-          <div className="space-y-2">
-            <Label>Data final</Label>
+          <div className="space-y-1.5">
+            <Label className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+              Fim
+            </Label>
             <Input
               type="date"
+              className="h-9 rounded-xl bg-background/70"
               value={safeValue.endDate}
               onChange={(event) => handleDateChange('endDate', event.target.value)}
             />
           </div>
         </div>
-      </CardContent>
-    </Card>
+      </PopoverContent>
+    </Popover>
   )
 }

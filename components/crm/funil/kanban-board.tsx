@@ -10,7 +10,6 @@ import {
   Eye,
   MessageSquare,
   Paperclip,
-  Pencil,
   RefreshCw,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -22,7 +21,6 @@ import {
   getProposalCardVisualState,
   getProposalTaskStage,
 } from '@/lib/utils/proposal-kanban'
-import { ProposalFormDialog } from '@/components/crm/propostas/proposal-form-dialog'
 import { ProposalDetailsSheet } from '@/components/crm/propostas/proposal-details-sheet'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -109,10 +107,12 @@ const SELLER_ACTION_LABELS: Record<SellerMoveAction, string> = {
   outra_justificativa: 'Outra justificativa',
 }
 
-function getAdminCommercialStatusOptions(status: StatusProposta): StatusProposta[] {
+function getAdminCommercialStatusOptions(status: StatusProposta, role?: string | null): StatusProposta[] {
   switch (status) {
     case 'enviar_ao_cliente':
-      return ['enviado_ao_cliente', 'aguardando_aprovacao', 'em_retificacao', 'em_orcamento']
+      return role === 'admin'
+        ? ['enviado_ao_cliente', 'aguardando_aprovacao', 'em_retificacao', 'em_orcamento']
+        : ['enviado_ao_cliente']
     case 'enviado_ao_cliente':
       return ['follow_up_1_dia', 'fechado', 'perdido', 'em_retificacao']
     case 'follow_up_1_dia':
@@ -205,8 +205,34 @@ function isPdfFile(file: File) {
   return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
 }
 
-function isPdfAttachment(anexo: { tipoMime?: string; nome?: string }) {
-  return anexo.tipoMime === 'application/pdf' || String(anexo.nome || '').toLowerCase().endsWith('.pdf')
+function isPdfAttachment(anexo: {
+  tipoMime?: string
+  tipo_mime?: string
+  nome?: string
+  nome_original?: string
+}) {
+  return (
+    anexo.tipoMime === 'application/pdf' ||
+    anexo.tipo_mime === 'application/pdf' ||
+    String(anexo.nome || anexo.nome_original || '').toLowerCase().endsWith('.pdf')
+  )
+}
+
+function proposalHasApprovalRequirements(
+  proposta:
+    | Proposta
+    | (Partial<Proposta> & {
+        anexos?: Array<{
+          tipoMime?: string
+          tipo_mime?: string
+          nome?: string
+          nome_original?: string
+        }>
+      })
+) {
+  const hasPositiveValue = Number(proposta.valor || 0) > 0
+  const hasPdfAttachment = Array.isArray(proposta.anexos) && proposta.anexos.some(isPdfAttachment)
+  return hasPositiveValue && hasPdfAttachment
 }
 
 function parseProposalNumericInput(value: string) {
@@ -268,7 +294,6 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const [closeClientAddress, setCloseClientAddress] = useState('')
   const [optimisticPropostas, setOptimisticPropostas] = useState<Record<string, Partial<Proposta>>>({})
   const [updatingProposalIds, setUpdatingProposalIds] = useState<Record<string, true>>({})
-  const [editingPropostaId, setEditingPropostaId] = useState<string | null>(null)
   const [detailsPropostaId, setDetailsPropostaId] = useState<string | null>(null)
   const [touchMovePropostaId, setTouchMovePropostaId] = useState<string | null>(null)
   const [touchMoveStatus, setTouchMoveStatus] = useState<StatusProposta | ''>('')
@@ -509,7 +534,32 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     })
   }
 
-  const requestMove = (propostaId: string, targetStatus: StatusProposta) => {
+  const shouldRequireMoveComment = useCallback(
+    (
+      proposta: Proposta,
+      targetStatus: StatusProposta,
+      sellerWorkflowAction?: SellerMoveAction | ''
+    ) => {
+      if (sellerWorkflowAction === 'em_retificacao') return true
+      if (sellerWorkflowAction === 'outra_justificativa') return true
+      if (sellerWorkflowAction === 'perdido') return true
+      if (sellerWorkflowAction === 'stand_by') return true
+
+      if (!sellerWorkflowAction && ['em_retificacao', 'perdido', 'stand_by'].includes(targetStatus)) {
+        const isAdminApprovalRefusal =
+          ['admin', 'gerente'].includes(user?.role || '') &&
+          proposta.status === 'aguardando_aprovacao' &&
+          targetStatus === 'em_retificacao'
+
+        return !isAdminApprovalRefusal
+      }
+
+      return false
+    },
+    [user?.role]
+  )
+
+  const requestMove = async (propostaId: string, targetStatus: StatusProposta) => {
     const proposta = propostasById.get(propostaId)
     const isCommercialCard = proposta ? SELLER_COLUMNS.includes(resolveKanbanDisplayStatus(proposta.status)) : false
     const canOpenSameStatusGuidedAction =
@@ -523,6 +573,51 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
 
     const cliente = lookups.clientesById.get(proposta.clienteId)
     const currentTime = `${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`
+    const requiresDirectFollowUpTime = ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias'].includes(targetStatus)
+    const requiresApprovalValidationRole = ['orcamentista', 'admin', 'gerente'].includes(user?.role || '')
+    const requiresDirectApprovalValidation =
+      requiresApprovalValidationRole && targetStatus === 'aguardando_aprovacao'
+    const requiresDirectMoveComment = shouldRequireMoveComment(proposta, targetStatus)
+    const requiresDirectClosedClientData = targetStatus === 'fechado'
+    const requiresGuidedCommercialAction =
+      (user?.role === 'vendedor' && isCommercialCard) ||
+      ((user?.role === 'admin' || user?.role === 'gerente') &&
+        isCommercialCard &&
+        targetStatus === proposta.status)
+
+    if (requiresDirectApprovalValidation) {
+      const loadedProposalAlreadyReady = proposalHasApprovalRequirements(proposta)
+
+      if (loadedProposalAlreadyReady) {
+        void executeMove(proposta, { targetStatus })
+        return
+      }
+
+      try {
+        const response = await fetch(`/api/propostas/${proposta.id}`)
+        if (response.ok) {
+          const detailedProposal = (await response.json()) as Proposta
+          if (proposalHasApprovalRequirements(detailedProposal)) {
+            void executeMove(proposta, { targetStatus })
+            return
+          }
+        }
+      } catch {
+        // Se a validacao detalhada falhar, seguimos para o modal guiado.
+      }
+    }
+
+    if (
+      !requiresDirectFollowUpTime &&
+      !requiresDirectApprovalValidation &&
+      !requiresDirectMoveComment &&
+      !requiresDirectClosedClientData &&
+      !requiresGuidedCommercialAction
+    ) {
+      void executeMove(proposta, { targetStatus })
+      return
+    }
+
     setPendingMove({ propostaId, targetStatus })
     setSellerAction(
       user?.role === 'vendedor' && proposta.status === 'enviar_ao_cliente' && targetStatus === proposta.status
@@ -699,90 +794,138 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     finishTouchDrag(event.pointerId)
   }
 
+  const executeMove = useCallback(
+    async (
+      proposta: Proposta,
+      options: {
+        targetStatus: StatusProposta
+        sellerWorkflowAction?: SellerMoveAction | ''
+        adminStatus?: StatusProposta | ''
+        comment?: string
+        followUpTime?: string
+        moveValue?: string
+        moveFiles?: File[]
+        closeClientData?: {
+          nome: string
+          cpf: string
+          email: string
+          telefone: string
+          endereco: string
+        }
+      }
+    ) => {
+      if (isSubmittingMove) return
+
+      const effectiveSellerWorkflowAction = options.sellerWorkflowAction || ''
+      const baseTargetStatus = options.adminStatus || options.targetStatus
+      const resolvedStatus = (() => {
+        if (effectiveSellerWorkflowAction) {
+          if (effectiveSellerWorkflowAction === 'outra_justificativa') {
+            if (proposta.status === 'enviado_ao_cliente') return 'follow_up_1_dia' as StatusProposta
+            if (proposta.status === 'follow_up_1_dia') return 'follow_up_3_dias' as StatusProposta
+            if (proposta.status === 'follow_up_3_dias') return 'follow_up_7_dias' as StatusProposta
+          }
+
+          return effectiveSellerWorkflowAction as StatusProposta
+        }
+
+        return baseTargetStatus as StatusProposta
+      })()
+
+      const persistedStatus =
+        proposta.status === 'follow_up_1_dia' && resolvedStatus === 'follow_up_3_dias'
+          ? ('aguardando_follow_up_3_dias' as StatusProposta)
+          : proposta.status === 'follow_up_3_dias' && resolvedStatus === 'follow_up_7_dias'
+            ? ('aguardando_follow_up_7_dias' as StatusProposta)
+            : resolvedStatus
+
+      const parsedSubmittedValue = parseProposalNumericInput(options.moveValue || '')
+      const shouldUseSubmittedValue =
+        persistedStatus === 'fechado' ||
+        (persistedStatus === 'aguardando_aprovacao' && (parsedSubmittedValue ?? 0) > 0)
+      const nextValue = shouldUseSubmittedValue ? (parsedSubmittedValue ?? 0) : proposta.valor
+      const optimisticPatch: Partial<Proposta> = {
+        status: persistedStatus,
+        valor: nextValue,
+        followUpTime: options.followUpTime || proposta.followUpTime || null,
+      }
+
+      setIsSubmittingMove(true)
+      setOptimisticPropostas((prev) => ({ ...prev, [proposta.id]: optimisticPatch }))
+      setUpdatingProposalIds((prev) => ({ ...prev, [proposta.id]: true }))
+
+      try {
+        await updateProposta({
+          ...proposta,
+          status: effectiveSellerWorkflowAction ? proposta.status : resolvedStatus,
+          valor: nextValue,
+          comentario: options.comment || null,
+          justificativa: options.comment || null,
+          workflowAction: effectiveSellerWorkflowAction || null,
+          followUpTime: options.followUpTime || proposta.followUpTime || null,
+          clienteNome: persistedStatus === 'fechado' ? options.closeClientData?.nome || null : null,
+          clienteCpf: persistedStatus === 'fechado' ? options.closeClientData?.cpf || null : null,
+          clienteEmail: persistedStatus === 'fechado' ? options.closeClientData?.email || null : null,
+          clienteTelefone: persistedStatus === 'fechado' ? options.closeClientData?.telefone || null : null,
+          clienteEndereco: persistedStatus === 'fechado' ? options.closeClientData?.endereco || null : null,
+          clienteValorFechado: persistedStatus === 'fechado' ? nextValue : null,
+          anexos: options.moveFiles || [],
+        } as unknown as Proposta)
+        toast.success('Proposta atualizada com sucesso.')
+        setPendingMove(null)
+        setSellerAction('')
+        setAdminMoveStatus('')
+        setMoveComment('')
+        setFollowUpTime('')
+        setMoveValue('')
+        setMoveFiles([])
+      } catch (error: any) {
+        setOptimisticPropostas((prev) => {
+          const next = { ...prev }
+          delete next[proposta.id]
+          return next
+        })
+        toast.error(error?.message || 'Nao foi possivel atualizar a proposta.')
+      } finally {
+        setIsSubmittingMove(false)
+        setUpdatingProposalIds((prev) => {
+          const next = { ...prev }
+          delete next[proposta.id]
+          return next
+        })
+        setOptimisticPropostas((prev) => {
+          const next = { ...prev }
+          delete next[proposta.id]
+          return next
+        })
+      }
+    },
+    [isSubmittingMove, updateProposta]
+  )
+
   const confirmMove = async () => {
     if (!pendingMove || isSubmittingMove) return
     const proposta = propostasById.get(pendingMove.propostaId)
     if (!proposta) return
-    const currentPendingMove = pendingMove
-    const persistedStatus = (() => {
-      if (isSellerMove && effectiveSellerAction) {
-        if (effectiveSellerAction === 'outra_justificativa') {
-          if (proposta.status === 'follow_up_1_dia') return 'aguardando_follow_up_3_dias' as StatusProposta
-          if (proposta.status === 'follow_up_3_dias') return 'aguardando_follow_up_7_dias' as StatusProposta
-          return proposta.status
-        }
 
-        return effectiveSellerAction as StatusProposta
-      }
-
-      if (proposta.status === 'follow_up_1_dia' && resolvedTargetStatus === 'follow_up_3_dias') {
-        return 'aguardando_follow_up_3_dias'
-      }
-
-      if (proposta.status === 'follow_up_3_dias' && resolvedTargetStatus === 'follow_up_7_dias') {
-        return 'aguardando_follow_up_7_dias'
-      }
-
-      return resolvedTargetStatus
-    })()
-    const parsedMoveValue = parseProposalNumericInput(moveValue)
-    const nextValue =
-      requiresClosedClientData ? (parsedMoveValue ?? 0) : proposta.valor
-    const optimisticPatch: Partial<Proposta> = {
-      status: persistedStatus,
-      valor: nextValue,
-      followUpTime: followUpTime || proposta.followUpTime || null,
-    }
-
-    setIsSubmittingMove(true)
-    setOptimisticPropostas((prev) => ({ ...prev, [proposta.id]: optimisticPatch }))
-    setUpdatingProposalIds((prev) => ({ ...prev, [proposta.id]: true }))
-
-    try {
-      await updateProposta({
-        ...proposta,
-        status: isSellerMove ? proposta.status : resolvedTargetStatus,
-        valor: nextValue,
-        comentario: requiresMoveComment ? moveComment : null,
-        justificativa: requiresMoveComment ? moveComment : null,
-        workflowAction: isSellerMove ? effectiveSellerAction : null,
-        followUpTime: followUpTime || proposta.followUpTime || null,
-        clienteNome: requiresClosedClientData ? closeClientName : null,
-        clienteCpf: requiresClosedClientData ? closeClientCpf : null,
-        clienteEmail: requiresClosedClientData ? closeClientEmail : null,
-        clienteTelefone: requiresClosedClientData ? closeClientPhone : null,
-        clienteEndereco: requiresClosedClientData ? closeClientAddress : null,
-        clienteValorFechado: requiresClosedClientData ? nextValue : null,
-        anexos: moveFiles,
-      } as unknown as Proposta)
-      toast.success('Proposta atualizada com sucesso.')
-      setPendingMove(null)
-      setSellerAction('')
-      setAdminMoveStatus('')
-      setMoveComment('')
-      setFollowUpTime('')
-      setMoveValue('')
-      setMoveFiles([])
-    } catch (error: any) {
-      setOptimisticPropostas((prev) => {
-        const next = { ...prev }
-        delete next[proposta.id]
-        return next
-      })
-      toast.error(error?.message || 'Nao foi possivel atualizar a proposta.')
-    } finally {
-      setIsSubmittingMove(false)
-      setUpdatingProposalIds((prev) => {
-        const next = { ...prev }
-        delete next[proposta.id]
-        return next
-      })
-      setOptimisticPropostas((prev) => {
-        const next = { ...prev }
-        delete next[proposta.id]
-        return next
-      })
-    }
+    await executeMove(proposta, {
+      targetStatus: pendingMove.targetStatus,
+      sellerWorkflowAction: isSellerMove ? effectiveSellerAction : '',
+      adminStatus: isAdminCommercialMove ? adminMoveStatus : '',
+      comment: requiresMoveComment ? moveComment : '',
+      followUpTime: followUpTime || proposta.followUpTime || undefined,
+      moveValue,
+      moveFiles,
+      closeClientData: requiresClosedClientData
+        ? {
+            nome: closeClientName,
+            cpf: closeClientCpf,
+            email: closeClientEmail,
+            telefone: closeClientPhone,
+            endereco: closeClientAddress,
+          }
+        : undefined,
+    })
   }
 
   const pendingMoveProposal = pendingMove
@@ -799,7 +942,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     pendingMove?.targetStatus === pendingMoveProposal?.status
   const sellerActionOptions = pendingMoveProposal ? getSellerActionOptions(pendingMoveProposal.status) : []
   const adminCommercialOptions = pendingMoveProposal
-    ? getAdminCommercialStatusOptions(pendingMoveDisplayStatus || pendingMoveProposal.status)
+    ? getAdminCommercialStatusOptions(pendingMoveDisplayStatus || pendingMoveProposal.status, user?.role)
     : []
   const selectedSellerAction = isSellerMove ? sellerAction : ''
   const sellerCanOnlyConfirmSend = isSellerMove && pendingMoveProposal?.status === 'enviar_ao_cliente'
@@ -832,13 +975,13 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     proposta: approvalValidationProposalData,
     isLoading: isLoadingApprovalValidationProposal,
   } = useProposta(approvalValidationProposalId)
-  const requiresMoveComment =
-    effectiveSellerAction === 'em_retificacao' ||
-    effectiveSellerAction === 'outra_justificativa' ||
-    effectiveSellerAction === 'perdido' ||
-    effectiveSellerAction === 'stand_by' ||
-    (!isSellerMove &&
-      ['em_retificacao', 'perdido', 'stand_by'].includes(resolvedTargetStatus || ''))
+  const requiresMoveComment = pendingMoveProposal
+    ? shouldRequireMoveComment(
+        pendingMoveProposal,
+        (resolvedTargetStatus || pendingMove?.targetStatus || pendingMoveProposal.status) as StatusProposta,
+        effectiveSellerAction
+      )
+    : false
   const requiresFollowUpTime =
     (effectiveSellerAction === 'outra_justificativa' &&
       ['enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias'].includes(
@@ -856,18 +999,17 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       : false
     : false
   const parsedMoveValue = parseProposalNumericInput(moveValue)
-  const approvalValue =
-    parsedMoveValue ?? (approvalTargetProposal?.valor && approvalTargetProposal.valor > 0
-      ? approvalTargetProposal.valor
-      : 0)
-  const requiresBudgetValue = approvalValidationActive && approvalValue <= 0
+  const existingApprovalValue =
+    approvalTargetProposal?.valor && approvalTargetProposal.valor > 0 ? approvalTargetProposal.valor : 0
+  const proposalNeedsApprovalValue = approvalValidationActive && existingApprovalValue <= 0
+  const requiresBudgetValue = proposalNeedsApprovalValue
   const requiresAttachment = approvalValidationActive && !hasExistingProposalPdf
   const hasRequiredPdfAttachment = !requiresAttachment || moveFiles.some(isPdfFile)
   const approvalRequirementsReady = !approvalValidationActive || !isLoadingApprovalValidationProposal
   const approvalRequirementsMessage = approvalValidationActive
-    ? requiresBudgetValue && requiresAttachment
+    ? proposalNeedsApprovalValue && requiresAttachment
       ? 'Para enviar esta proposta para aprovacao, informe o valor do orcamento e anexe a proposta em PDF.'
-      : requiresBudgetValue
+      : proposalNeedsApprovalValue
         ? 'Para enviar esta proposta para aprovacao, informe o valor do orcamento.'
         : requiresAttachment
           ? 'Para enviar esta proposta para aprovacao, anexe a proposta em PDF.'
@@ -1075,18 +1217,6 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                                 onClick={() => requestMove(proposta.id, proposta.status)}
                               >
                                 <RefreshCw className="h-4 w-4" />
-                              </Button>
-                            ) : null}
-                            {user?.role !== 'vendedor' ? (
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className="rounded-full text-muted-foreground hover:text-foreground"
-                                title="Editar proposta"
-                                aria-label="Editar proposta"
-                                onClick={() => setEditingPropostaId(proposta.id)}
-                              >
-                                <Pencil className="h-4 w-4" />
                               </Button>
                             ) : null}
                           </div>
@@ -1465,7 +1595,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                     (isSellerMove && !effectiveSellerAction) ||
                     (isAdminCommercialMove && !resolvedTargetStatus) ||
                     hasInvalidMoveValue ||
-                    (requiresBudgetValue && (parseProposalNumericInput(moveValue) ?? 0) <= 0) ||
+                    (proposalNeedsApprovalValue && (parseProposalNumericInput(moveValue) ?? 0) <= 0) ||
                     !hasRequiredPdfAttachment ||
                     (requiresMoveComment && !moveComment.trim()) ||
                     (requiresFollowUpTime && !followUpTime) ||
@@ -1485,12 +1615,6 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         </DialogContent>
       </Dialog>
 
-      <ProposalFormDialog
-        open={Boolean(editingPropostaId)}
-        onOpenChange={(open) => !open && setEditingPropostaId(null)}
-        propostaId={editingPropostaId}
-        propostaInicial={editingPropostaId ? propostasById.get(editingPropostaId) || null : null}
-      />
       <ProposalDetailsSheet
         open={Boolean(detailsPropostaId)}
         onOpenChange={(open) => !open && setDetailsPropostaId(null)}
