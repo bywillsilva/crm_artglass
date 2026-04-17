@@ -867,6 +867,7 @@ export async function PUT(
         actorName: user.nome,
         proposalNumber: propostaAtual.numero,
         proposalTitle: data.titulo || propostaAtual.titulo || 'Proposta Comercial',
+        clientName: cliente?.nome || propostaAtual.cliente_nome || data.clienteNome || null,
         nextStatusLabel: statusPropostaLabels[storedStatus],
       })
     }

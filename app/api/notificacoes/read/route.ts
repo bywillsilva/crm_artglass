@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
-import { query } from '@/lib/db/mysql'
+import { isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysql'
 import { deleteRuntimeCache, getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 
 const NOTIFICATION_SCHEMA_CACHE_MS = 60 * 60 * 1000
@@ -66,7 +66,7 @@ export async function GET() {
     setRuntimeCache(cacheKey, payload, NOTIFICATION_READS_CACHE_TTL_MS)
     return NextResponse.json(payload)
   } catch (error) {
-    console.error('Erro ao buscar notificacoes lidas:', error)
+    logDatabaseError('Erro ao buscar notificacoes lidas', error)
     return NextResponse.json([])
   }
 }
@@ -97,7 +97,10 @@ export async function POST(request: NextRequest) {
     deleteRuntimeCache(`notification-reads:${user.id}`)
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Erro ao marcar notificacoes como lidas:', error)
+    logDatabaseError('Erro ao marcar notificacoes como lidas', error)
+    if (isTransientDatabaseError(error)) {
+      return NextResponse.json({ success: true, degraded: true })
+    }
     return NextResponse.json({ error: 'Erro ao marcar notificacoes como lidas' }, { status: 500 })
   }
 }

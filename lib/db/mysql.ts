@@ -61,6 +61,16 @@ export function isTransientDatabaseError(error: unknown) {
   return code === 'DB_UNAVAILABLE' || RETRYABLE_CONNECTION_CODES.has(code)
 }
 
+export function logDatabaseError(context: string, error: unknown) {
+  if (isTransientDatabaseError(error)) {
+    const code = typeof error === 'object' && error && 'code' in error ? String((error as any).code) : 'DB_UNAVAILABLE'
+    console.warn(`${context}: falha transitória de banco (${code})`)
+    return
+  }
+
+  console.error(context, error)
+}
+
 function createDatabaseUnavailableError(error?: unknown) {
   const message =
     error instanceof Error && error.message

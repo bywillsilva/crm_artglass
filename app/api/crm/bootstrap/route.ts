@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { query } from '@/lib/db/mysql'
+import { isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysql'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 
@@ -158,7 +158,9 @@ export async function GET(request: Request) {
     setRuntimeCache(cacheKey, payload, CRM_BOOTSTRAP_CACHE_TTL_MS)
     return NextResponse.json(payload)
   } catch (error) {
-    console.error('Erro ao carregar bootstrap do CRM:', error)
+    if (!isTransientDatabaseError(error)) {
+      logDatabaseError('Erro ao carregar bootstrap do CRM', error)
+    }
 
     if (isAuthenticated) {
       const sections = parseSectionsParam(request)

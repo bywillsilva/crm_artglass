@@ -5,6 +5,7 @@ import useSWR, { mutate } from 'swr'
 import { useTheme } from 'next-themes'
 import { saveConfiguracao, useSession } from '@/lib/hooks/use-api'
 import { parseDateTimeValue } from '@/lib/utils/date-time'
+import { formatBrazilPhone } from '@/lib/utils/phone'
 
 type ConfiguracaoRecord = { chave: string; valor: any }
 
@@ -83,11 +84,11 @@ const defaultAppearance: AppearanceSettings = {
 }
 
 const defaultCompany: CompanySettings = {
-  nome: 'SolarTech Energia',
-  cnpj: '12.345.678/0001-90',
-  telefone: '(11) 3333-4444',
-  email: 'contato@solartech.com',
-  endereco: 'Av. Paulista, 1000 - Sao Paulo, SP',
+  nome: '',
+  cnpj: '',
+  telefone: '',
+  email: '',
+  endereco: '',
 }
 
 const fetcher = async (url: string) => {
@@ -113,6 +114,13 @@ function parseJson<T>(value: unknown, fallback: T): T {
     }
   }
   return fallback
+}
+
+function normalizeCompanySettings(value: CompanySettings) {
+  return {
+    ...value,
+    telefone: formatBrazilPhone(value.telefone),
+  }
 }
 
 const toDateValue = parseDateTimeValue
@@ -154,7 +162,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
       parseJson(configMap.get('notificacoes'), defaultNotifications)
     )
     setAppearance(parseJson(configMap.get('aparencia'), defaultAppearance))
-    setCompany(parseJson(configMap.get('empresa'), defaultCompany))
+    setCompany(normalizeCompanySettings(parseJson(configMap.get('empresa'), defaultCompany)))
   }, [data])
 
   useEffect(() => {
@@ -247,7 +255,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
     ]
 
     if (user?.role === 'admin') {
-      requests.push(saveConfiguracao('empresa', company))
+      requests.push(saveConfiguracao('empresa', normalizeCompanySettings(company)))
     }
 
     await Promise.all(requests)

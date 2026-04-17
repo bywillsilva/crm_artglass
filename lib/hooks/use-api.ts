@@ -7,6 +7,7 @@ import {
   parseDateTimeValue,
 } from '@/lib/utils/date-time'
 import { getDateFilterQueryParams, type DateFilterValue } from '@/lib/utils/date-filter'
+import { formatBrazilPhone } from '@/lib/utils/phone'
 import type {
   Cliente,
   Interacao,
@@ -209,7 +210,7 @@ function normalizeCliente(row: JsonRecord): Cliente {
     id: row.id,
     nome: row.nome ?? '',
     cpf: row.cpf ?? '',
-    telefone: row.telefone ?? '',
+    telefone: formatBrazilPhone(row.telefone ?? ''),
     email: row.email ?? '',
     empresa: row.empresa ?? '',
     cargo: row.cargo ?? '',
@@ -1074,7 +1075,7 @@ export async function createCliente(data: Partial<Cliente> & JsonRecord) {
     nome: data.nome,
     cpf: data.cpf || null,
     email: data.email || null,
-    telefone: data.telefone || null,
+    telefone: formatBrazilPhone(data.telefone) || null,
     endereco: data.endereco || null,
     origem: data.origem || null,
     statusFunil: data.statusFunil || data.status || 'lead_novo',
@@ -1105,7 +1106,7 @@ export async function updateCliente(id: string, data: Partial<Cliente> & JsonRec
     nome: data.nome,
     cpf: data.cpf === undefined ? undefined : (data.cpf || null),
     email: data.email === undefined ? undefined : (data.email || null),
-    telefone: data.telefone === undefined ? undefined : (data.telefone || null),
+    telefone: data.telefone === undefined ? undefined : (formatBrazilPhone(data.telefone) || null),
     endereco: data.endereco === undefined ? undefined : (data.endereco || null),
     origem: data.origem === undefined ? undefined : (data.origem || null),
     statusFunil: data.statusFunil ?? data.status,
@@ -1334,7 +1335,7 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     followUpTime: data.followUpTime || null,
     clienteNome: data.clienteNome || null,
     clienteCpf: data.clienteCpf || null,
-    clienteTelefone: data.clienteTelefone || null,
+    clienteTelefone: formatBrazilPhone(data.clienteTelefone) || null,
     clienteEmail: data.clienteEmail || null,
     clienteEndereco: data.clienteEndereco || null,
     clienteValorFechado: parsedClienteValorFechado ?? null,

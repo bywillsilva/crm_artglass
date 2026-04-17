@@ -31,18 +31,9 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import type { Cliente } from '@/lib/data/types'
+import { formatBrazilPhone, isValidBrazilPhone } from '@/lib/utils/phone'
 
-const phoneRegex = /^\(\d{2}\) 9 \d{4}-\d{4}$/
 const cpfRegex = /^\d{3}\.\d{3}\.\d{3}-\d{2}$/
-
-function formatPhone(value: string) {
-  const digits = value.replace(/\D/g, '').slice(0, 11)
-  if (!digits) return ''
-  if (digits.length <= 2) return digits
-  if (digits.length <= 3) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
-  if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2, 3)} ${digits.slice(3)}`
-  return `(${digits.slice(0, 2)}) ${digits.slice(2, 3)} ${digits.slice(3, 7)}-${digits.slice(7)}`
-}
 
 function formatCpf(value: string) {
   const digits = value.replace(/\D/g, '').slice(0, 11)
@@ -58,7 +49,7 @@ function getClientFormDefaults(cliente?: Cliente) {
       return {
         nome: cliente.nome,
         cpf: formatCpf(cliente.cpf || ''),
-        telefone: formatPhone(cliente.telefone || ''),
+        telefone: formatBrazilPhone(cliente.telefone || ''),
         email: cliente.email || '',
       empresa: cliente.empresa || '',
       cargo: cliente.cargo || '',
@@ -124,7 +115,7 @@ const emailSchema = z
 const optionalPhoneSchema = z
   .string()
   .trim()
-  .refine((value) => !value || phoneRegex.test(value), 'Telefone deve estar no formato (xx) 9 xxxx-xxxx')
+  .refine((value) => !value || isValidBrazilPhone(value), 'Telefone deve estar em um formato brasileiro valido')
 
 const optionalCpfSchema = z
   .string()
@@ -192,7 +183,7 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
       empresa: data.tipo === 'comercial' ? normalizeOptionalText(data.empresa) : '',
       cargo: data.tipo === 'comercial' ? normalizeOptionalText(data.cargo) : '',
       email: data.email.trim(),
-      telefone: formatPhone(data.telefone),
+      telefone: formatBrazilPhone(data.telefone),
       endereco: normalizeOptionalText(data.endereco),
       observacoes: normalizeOptionalText(data.observacoes),
       origem: data.origem === 'nao_informado' ? '' : normalizeOrigemOption(data.origem),
@@ -288,7 +279,7 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
                         value={field.value}
                         onChange={(e) => field.onChange(e.target.value)}
                         onBlur={(e) => {
-                          field.onChange(formatPhone(e.target.value))
+                        field.onChange(formatBrazilPhone(e.target.value))
                           field.onBlur()
                         }}
                       />

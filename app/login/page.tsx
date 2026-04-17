@@ -15,6 +15,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { getDefaultRouteForRole } from '@/lib/auth/default-route'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -94,7 +95,7 @@ export default function LoginPage() {
       }
 
       toast.success('Login realizado com sucesso!')
-      router.push('/dashboard')
+      router.push(getDefaultRouteForRole(data?.user?.role))
       router.refresh()
     } catch (error: any) {
       toast.error(error.message || 'Nao foi possivel entrar')
@@ -127,7 +128,7 @@ export default function LoginPage() {
 
       toast.success('Login realizado com sucesso!')
       setTwoFactorDialogOpen(false)
-      router.push('/dashboard')
+      router.push(getDefaultRouteForRole(data?.user?.role))
       router.refresh()
     } catch (error: any) {
       toast.error(error.message || 'Nao foi possivel validar o codigo')
@@ -197,7 +198,7 @@ export default function LoginPage() {
       }
 
       toast.success('Conta criada com sucesso!')
-      router.push('/dashboard')
+      router.push(getDefaultRouteForRole(data?.user?.role))
       router.refresh()
     } catch (error: any) {
       toast.error(error.message || 'Nao foi possivel confirmar o cadastro')

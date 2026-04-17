@@ -24,6 +24,13 @@ function canAccessUsuariosModule(user: { role?: string | null; modulePermissions
   )
 }
 
+function canAccessOwnProfile(
+  authenticatedUser: { id: string; role?: string | null; modulePermissions?: unknown },
+  targetUserId: string
+) {
+  return authenticatedUser.id === targetUserId || canAccessUsuariosModule(authenticatedUser)
+}
+
 function parseNullableNumber(value: unknown, fallback = 0) {
   if (typeof value === 'number') {
     return Number.isFinite(value) ? value : fallback
@@ -58,8 +65,8 @@ export async function GET(
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
-    if (!canAccessUsuariosModule(user)) {
-      return NextResponse.json({ error: 'Acesso negado ao modulo de usuarios' }, { status: 403 })
+    if (!canAccessOwnProfile(user, id)) {
+      return NextResponse.json({ error: 'Acesso negado ao perfil solicitado' }, { status: 403 })
     }
 
     const cacheKey = `usuario:detail:${user.id}:${user.role}:${id}`
@@ -110,16 +117,16 @@ export async function PUT(
     if (!authenticatedUser) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
-    if (!canAccessUsuariosModule(authenticatedUser)) {
-      return NextResponse.json({ error: 'Acesso negado ao modulo de usuarios' }, { status: 403 })
-    }
-
     const { id } = await params
+    const canManageUsuarios = canAccessUsuariosModule(authenticatedUser)
+    if (!canAccessOwnProfile(authenticatedUser, id)) {
+      return NextResponse.json({ error: 'Acesso negado ao perfil solicitado' }, { status: 403 })
+    }
     const data = await request.json()
     const session = await getServerSession()
 
     const [usuarioAtual] = await query<any[]>(
-      'SELECT id, role, module_permissions FROM usuarios WHERE id = ? LIMIT 1',
+      'SELECT id, role, ativo, meta_vendas, module_permissions FROM usuarios WHERE id = ? LIMIT 1',
       [id]
     )
 
@@ -147,9 +154,9 @@ export async function PUT(
       .toUpperCase()
       .slice(0, 2)
 
-    const nextRole = data.role || usuarioAtual.role
+    const nextRole = canManageUsuarios ? data.role || usuarioAtual.role : usuarioAtual.role
     const modulePermissions = normalizeModulePermissions(
-      data.modulePermissions ?? usuarioAtual.module_permissions,
+      canManageUsuarios ? data.modulePermissions ?? usuarioAtual.module_permissions : usuarioAtual.module_permissions,
       nextRole
     )
 
@@ -159,8 +166,10 @@ export async function PUT(
       data.email,
       iniciais,
       nextRole,
-      data.ativo,
-      parseNullableNumber(data.metaVendas ?? data.meta_vendas, 0),
+      canManageUsuarios ? data.ativo : Boolean(usuarioAtual.ativo),
+      canManageUsuarios
+        ? parseNullableNumber(data.metaVendas ?? data.meta_vendas, 0)
+        : parseNullableNumber(usuarioAtual.meta_vendas ?? 0, 0),
     ]
 
     sql += ', module_permissions = ?'

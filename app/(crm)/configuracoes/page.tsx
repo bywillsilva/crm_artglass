@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Bell, Palette, Globe, Shield, Database, Mail } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAppSettings } from '@/lib/context/app-settings-context'
+import { formatBrazilPhone } from '@/lib/utils/phone'
 
 export default function ConfiguracoesPage() {
   const {
@@ -500,7 +501,9 @@ export default function ConfiguracoesPage() {
                         id="telefoneEmpresa"
                         value={company.telefone}
                         disabled={!canEditCompany}
-                        onChange={(e) => setCompany({ ...company, telefone: e.target.value })}
+                        onChange={(e) =>
+                          setCompany({ ...company, telefone: formatBrazilPhone(e.target.value) })
+                        }
                       />
                     </div>
                     <div className="space-y-2">

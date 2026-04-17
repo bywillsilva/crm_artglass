@@ -1,4 +1,4 @@
-import { query } from '@/lib/db/mysql'
+import { isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysql'
 import { invalidateRuntimeCache } from '@/lib/server/runtime-cache'
 
 const REALTIME_SCHEMA_CACHE_MS = 60 * 60 * 1000
@@ -41,6 +41,8 @@ function mapResourceToModule(resource: string) {
     case 'interacao':
       return 'interacoes'
     case 'configuracao':
+    case 'config_global':
+    case 'config_usuario':
       return 'configuracoes'
     default:
       return 'global'
@@ -111,7 +113,7 @@ export async function publishRealtimeEvent({
       invalidateRuntimeCache()
     }
   } catch (error) {
-    console.error('Erro ao publicar evento de sincronizacao em tempo real:', error)
+    logDatabaseError('Erro ao publicar evento de sincronizacao em tempo real', error)
   }
 }
 
@@ -119,7 +121,7 @@ export async function getLatestRealtimeVersion() {
   try {
     await ensureRealtimeEventsSchema()
   } catch (error) {
-    console.error('Erro ao garantir schema de sincronizacao:', error)
+    logDatabaseError('Erro ao garantir schema de sincronizacao', error)
     return realtimeVersion
   }
 
@@ -143,7 +145,9 @@ export async function getLatestRealtimeVersion() {
       realtimeVersionCachedAt = Date.now()
       return realtimeVersion
     } catch (error) {
-      console.error('Erro ao consultar versao de sincronizacao:', error)
+      if (!isTransientDatabaseError(error)) {
+        logDatabaseError('Erro ao consultar versao de sincronizacao', error)
+      }
       return realtimeVersion
     }
   })()
@@ -159,7 +163,7 @@ export async function getLatestRealtimeVersionsByModule() {
   try {
     await ensureRealtimeEventsSchema()
   } catch (error) {
-    console.error('Erro ao garantir schema de sincronizacao por modulo:', error)
+    logDatabaseError('Erro ao garantir schema de sincronizacao por modulo', error)
     return {
       versions: realtimeModuleVersions,
       changedAt: realtimeModuleChangedAt,
@@ -211,7 +215,9 @@ export async function getLatestRealtimeVersionsByModule() {
         changedAt: realtimeModuleChangedAt,
       }
     } catch (error) {
-      console.error('Erro ao consultar versoes de sincronizacao por modulo:', error)
+      if (!isTransientDatabaseError(error)) {
+        logDatabaseError('Erro ao consultar versoes de sincronizacao por modulo', error)
+      }
       return {
         versions: realtimeModuleVersions,
         changedAt: realtimeModuleChangedAt,

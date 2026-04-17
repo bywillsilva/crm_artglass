@@ -94,6 +94,7 @@ export async function notifyProposalEmail(params: {
   actorName?: string | null
   proposalNumber?: string | null
   proposalTitle?: string | null
+  clientName?: string | null
   nextStatusLabel: string
 }) {
   const targetUsers = await getProposalEmailTargets({
@@ -106,6 +107,9 @@ export async function notifyProposalEmail(params: {
   const branding = await getEmailBranding()
   const actorName = params.actorName || 'Um usuario do CRM'
   const proposalLabel = params.proposalNumber || params.proposalTitle || 'Uma proposta'
+  const clientLabel = typeof params.clientName === 'string' && params.clientName.trim()
+    ? params.clientName.trim()
+    : null
 
   await Promise.all(
     targetUsers.map(async (targetUser) => {
@@ -119,7 +123,9 @@ export async function notifyProposalEmail(params: {
         intro: `${actorName} movimentou uma proposta no funil de vendas.`,
         highlightLabel: 'Novo status',
         highlightValue: params.nextStatusLabel,
-        outro: `Proposta: ${proposalLabel}`,
+        outro: clientLabel
+          ? `Proposta: ${proposalLabel}\nCliente: ${clientLabel}`
+          : `Proposta: ${proposalLabel}`,
       })
 
       await safeSendEmail({

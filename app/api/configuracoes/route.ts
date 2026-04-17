@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { query } from '@/lib/db/mysql'
+import { isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
@@ -76,16 +76,17 @@ async function ensureConfiguracoesSchema() {
 
 export async function GET(request: NextRequest) {
   try {
+    const searchParams = request.nextUrl.searchParams
+    const chave = searchParams.get('chave')
+    const isPublicGlobalCompanyRequest = chave === 'empresa'
     const user = await getAuthenticatedServerUser()
-    if (!user) {
+
+    if (!user && !isPublicGlobalCompanyRequest) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
 
-    const searchParams = request.nextUrl.searchParams
-    const chave = searchParams.get('chave')
-
     if (chave) {
-      const scopedCacheKey = `config:${chave}:${GLOBAL_KEYS.includes(chave) ? 'global' : user.id}`
+      const scopedCacheKey = `config:${chave}:${GLOBAL_KEYS.includes(chave) ? 'global' : (user?.id || 'anon')}`
       const cachedConfig = getRuntimeCache<any>(scopedCacheKey)
       if (cachedConfig !== undefined) {
         return NextResponse.json(cachedConfig)
@@ -98,6 +99,10 @@ export async function GET(request: NextRequest) {
         )
         setRuntimeCache(scopedCacheKey, config || null, CONFIG_CACHE_TTL_MS)
         return NextResponse.json(config || null)
+      }
+
+      if (!user) {
+        return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
       }
 
       const [config] = await query<any[]>(
@@ -114,6 +119,10 @@ export async function GET(request: NextRequest) {
       )
       setRuntimeCache(scopedCacheKey, config || null, CONFIG_CACHE_TTL_MS)
       return NextResponse.json(config || null)
+    }
+
+    if (!user) {
+      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
 
     const listCacheKey = `config:list:${user.id}`
@@ -145,7 +154,9 @@ export async function GET(request: NextRequest) {
     setRuntimeCache(listCacheKey, payload, CONFIG_CACHE_TTL_MS)
     return NextResponse.json(payload)
   } catch (error) {
-    console.error('Erro ao buscar configuracoes:', error)
+    if (!isTransientDatabaseError(error)) {
+      logDatabaseError('Erro ao buscar configuracoes', error)
+    }
     return NextResponse.json([])
   }
 }
@@ -209,7 +220,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(config)
   } catch (error) {
-    console.error('Erro ao salvar configuracao:', error)
+    logDatabaseError('Erro ao salvar configuracao', error)
+    if (isTransientDatabaseError(error)) {
+      return NextResponse.json({ error: 'Banco temporariamente indisponivel. Tente novamente em instantes.' }, { status: 503 })
+    }
     return NextResponse.json({ error: 'Erro ao salvar configuracao' }, { status: 500 })
   }
 }

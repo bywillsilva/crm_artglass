@@ -17,6 +17,7 @@ import { toast } from 'sonner'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useProposta, useSession } from '@/lib/hooks/use-api'
+import { formatBrazilPhone } from '@/lib/utils/phone'
 import {
   getProposalCardVisualState,
   getProposalTaskStage,
@@ -189,15 +190,6 @@ function getSellerActionOptions(status: StatusProposta): SellerMoveAction[] {
     default:
       return []
   }
-}
-
-function formatPhone(value: string) {
-  const digits = value.replace(/\D/g, '').slice(0, 11)
-  if (!digits) return ''
-  if (digits.length <= 2) return digits
-  if (digits.length <= 3) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
-  if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2, 3)} ${digits.slice(3)}`
-  return `(${digits.slice(0, 2)}) ${digits.slice(2, 3)} ${digits.slice(3, 7)}-${digits.slice(7)}`
 }
 
 function formatCpf(value: string) {
@@ -1428,7 +1420,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                       value={closeClientPhone}
                       placeholder="(00) 9 0000-0000"
                       onChange={(event) => setCloseClientPhone(event.target.value)}
-                      onBlur={(event) => setCloseClientPhone(formatPhone(event.target.value))}
+                      onBlur={(event) => setCloseClientPhone(formatBrazilPhone(event.target.value))}
                     />
                   </div>
                   <div className="space-y-2">
