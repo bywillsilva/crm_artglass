@@ -1,5 +1,5 @@
 import { promises as fs } from 'fs'
-import { basename } from 'path'
+import path, { basename } from 'path'
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
@@ -57,6 +57,26 @@ function buildAttachmentFileName(attachment: any) {
   return basename(String(attachment.caminho || 'anexo'))
 }
 
+async function resolveStoredAttachmentPath(propostaId: string, attachment: any) {
+  const candidates = [
+    typeof attachment.caminho === 'string' ? attachment.caminho : null,
+    attachment.nome_arquivo
+      ? path.join(process.cwd(), 'public', 'uploads', 'propostas', propostaId, String(attachment.nome_arquivo))
+      : null,
+  ].filter((value): value is string => Boolean(value))
+
+  for (const candidate of candidates) {
+    try {
+      await fs.access(candidate)
+      return candidate
+    } catch {
+      // Tenta o proximo caminho possivel.
+    }
+  }
+
+  return null
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; attachmentId: string }> }
@@ -80,7 +100,7 @@ export async function GET(
     }
 
     const [attachment] = await query<any[]>(
-      `SELECT id, proposta_id, caminho, nome_original, tipo_mime
+      `SELECT id, proposta_id, caminho, nome_arquivo, nome_original, tipo_mime
        FROM proposta_anexos
        WHERE id = ?
        LIMIT 1`,
@@ -91,7 +111,12 @@ export async function GET(
       return NextResponse.json({ error: 'Anexo nao encontrado' }, { status: 404 })
     }
 
-    const fileBuffer = await fs.readFile(String(attachment.caminho))
+    const resolvedPath = await resolveStoredAttachmentPath(id, attachment)
+    if (!resolvedPath) {
+      return NextResponse.json({ error: 'Arquivo do anexo nao foi encontrado no servidor' }, { status: 404 })
+    }
+
+    const fileBuffer = await fs.readFile(resolvedPath)
     const fileName = buildAttachmentFileName(attachment)
 
     return new NextResponse(fileBuffer, {
