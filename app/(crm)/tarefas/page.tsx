@@ -464,7 +464,7 @@ export default function TarefasPage() {
 
             <div className="flex justify-end gap-3">
               <Button variant="outline" onClick={() => setShowAddForm(false)} disabled={isCreatingTask}>Cancelar</Button>
-              <Button onClick={() => void handleAddTarefa()} pending={isCreatingTask} disabled={isCreatingTask || !descricao.trim() || !dataHora || !responsavelId || !clienteId}>
+              <Button data-enter-confirm="true" onClick={() => void handleAddTarefa()} pending={isCreatingTask} disabled={isCreatingTask || !descricao.trim() || !dataHora || !responsavelId || !clienteId}>
                 Criar Tarefa
               </Button>
             </div>
@@ -516,7 +516,7 @@ export default function TarefasPage() {
 
             <div className="flex justify-end gap-3">
               <Button variant="outline" onClick={() => setShowEditForm(false)} disabled={isSavingTask}>Cancelar</Button>
-              <Button onClick={() => void handleSaveEdit()} pending={isSavingTask} disabled={isSavingTask || !editDescricao.trim() || !editDataHora || !editResponsavelId || !editClienteId}>
+              <Button data-enter-confirm="true" onClick={() => void handleSaveEdit()} pending={isSavingTask} disabled={isSavingTask || !editDescricao.trim() || !editDataHora || !editResponsavelId || !editClienteId}>
                 Salvar alteracoes
               </Button>
             </div>

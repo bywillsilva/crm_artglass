@@ -88,7 +88,7 @@ export function CRMProvider({ children }: { children: ReactNode }) {
 
     if (isClienteDetailsPage) return ['clientes', 'usuarios', 'tarefas', 'propostas'] as const
     if (pathname.startsWith('/clientes')) return ['clientes', 'usuarios'] as const
-    if (pathname.startsWith('/funil')) return ['propostas', 'usuarios'] as const
+    if (pathname.startsWith('/funil')) return ['propostas', 'tarefas', 'usuarios'] as const
     if (pathname.startsWith('/propostas')) return ['propostas', 'clientes', 'usuarios'] as const
     if (pathname.startsWith('/tarefas')) return ['tarefas', 'clientes', 'usuarios'] as const
     if (pathname.startsWith('/usuarios')) return ['usuarios'] as const

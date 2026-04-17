@@ -302,6 +302,7 @@ export function TasksTab({ clienteId }: TasksTabProps) {
                 Cancelar
               </Button>
               <Button
+                data-enter-confirm="true"
                 onClick={() => void handleAddTarefa()}
                 pending={isCreatingTask}
                 disabled={isCreatingTask || !descricao.trim() || !dataHora || !responsavelId}
@@ -351,7 +352,7 @@ export function TasksTab({ clienteId }: TasksTabProps) {
               <Button variant="outline" onClick={() => setShowEditForm(false)} disabled={isSavingTask}>
                 Cancelar
               </Button>
-              <Button onClick={() => void handleSaveEdit()} pending={isSavingTask} disabled={isSavingTask || !editDescricao.trim() || !editDataHora || !editResponsavelId}>
+              <Button data-enter-confirm="true" onClick={() => void handleSaveEdit()} pending={isSavingTask} disabled={isSavingTask || !editDescricao.trim() || !editDataHora || !editResponsavelId}>
                 Salvar alteracoes
               </Button>
             </div>

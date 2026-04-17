@@ -230,6 +230,34 @@ function parseProposalNumericInput(value: string) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+function getDeadlineBannerStyles(cardStateClasses: string) {
+  if (cardStateClasses.includes('red')) {
+    return {
+      container: 'bg-red-500/15 text-red-200 border-red-500/30',
+      icon: 'text-red-400',
+    }
+  }
+
+  if (cardStateClasses.includes('orange') || cardStateClasses.includes('amber')) {
+    return {
+      container: 'bg-amber-500/15 text-amber-100 border-amber-500/30',
+      icon: 'text-amber-400',
+    }
+  }
+
+  if (cardStateClasses.includes('emerald')) {
+    return {
+      container: 'bg-emerald-500/15 text-emerald-100 border-emerald-500/30',
+      icon: 'text-emerald-400',
+    }
+  }
+
+  return {
+    container: 'bg-background/80 text-foreground border-border',
+    icon: 'text-muted-foreground',
+  }
+}
+
 export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const { state, lookups, updateProposta } = useCRM()
   const { formatCurrency, formatDateTime } = useAppSettings()
@@ -411,9 +439,12 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     for (const tarefa of state.tarefas) {
       if (
         !tarefa.propostaId ||
-        tarefa.origem !== 'automacao_proposta' ||
         tarefa.status === 'concluida'
       ) {
+        continue
+      }
+
+      if (tarefa.origem !== 'automacao_proposta' && !tarefa.automacaoEtapa) {
         continue
       }
 
@@ -1089,18 +1120,25 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                           </span>
                         </div>
 
-                        {cardState.label ? (
-                          <div className="mt-3 flex items-center gap-2 rounded-lg bg-background/60 px-3 py-2 text-xs text-foreground">
-                            {cardState.classes.includes('emerald') ? (
-                              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                            ) : cardState.classes.includes('orange') || cardState.classes.includes('red') ? (
-                              <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
-                            ) : (
-                              <Clock3 className="h-3.5 w-3.5 text-muted-foreground" />
-                            )}
-                            {cardState.label}
-                          </div>
-                        ) : null}
+                        {cardState.label ? (() => {
+                          const bannerStyles = getDeadlineBannerStyles(cardState.classes)
+                          return (
+                            <div
+                              className={`mt-4 -mx-4 flex items-center gap-2 border-y px-4 py-2 text-xs font-medium ${bannerStyles.container}`}
+                            >
+                              {cardState.classes.includes('emerald') ? (
+                                <CheckCircle2 className={`h-3.5 w-3.5 ${bannerStyles.icon}`} />
+                              ) : cardState.classes.includes('orange') ||
+                                cardState.classes.includes('amber') ||
+                                cardState.classes.includes('red') ? (
+                                <AlertTriangle className={`h-3.5 w-3.5 ${bannerStyles.icon}`} />
+                              ) : (
+                                <Clock3 className={`h-3.5 w-3.5 ${bannerStyles.icon}`} />
+                              )}
+                              <span>{cardState.label}</span>
+                            </div>
+                          )
+                        })() : null}
 
                         {status === 'aguardando_aprovacao' && (user?.role === 'admin' || user?.role === 'gerente') ? (
                           <div className="mt-3 flex gap-2">
@@ -1426,6 +1464,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                 Cancelar
               </Button>
               <Button
+                data-enter-confirm="true"
                 onClick={() => void confirmMove()}
                 pending={isSubmittingMove}
                 disabled={

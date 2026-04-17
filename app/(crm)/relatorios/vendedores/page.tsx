@@ -457,7 +457,7 @@ export default function RelatorioVendedoresPage() {
               <Button variant="outline" onClick={() => setEditingMetaUserId(null)}>
                 Cancelar
               </Button>
-              <Button onClick={() => void handleSaveMeta()}>
+              <Button data-enter-confirm="true" onClick={() => void handleSaveMeta()}>
                 Salvar meta
               </Button>
             </div>

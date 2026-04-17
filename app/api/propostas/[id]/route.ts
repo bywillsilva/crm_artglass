@@ -862,6 +862,7 @@ export async function PUT(
     if (previousStatus !== storedStatus) {
       await notifyProposalEmail({
         responsavelId,
+        orcamentistaId,
         actorUserId: user.id,
         actorName: user.nome,
         proposalNumber: propostaAtual.numero,

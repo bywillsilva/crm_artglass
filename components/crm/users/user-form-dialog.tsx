@@ -267,6 +267,7 @@ export function UserFormDialog({
             Cancelar
           </Button>
           <Button
+            data-enter-confirm="true"
             onClick={onSubmit}
             pending={isSubmitting}
             disabled={

@@ -18,6 +18,36 @@ async function getUserEmailTarget(userId: string | null | undefined) {
   return user
 }
 
+async function getProposalEmailTargets(params: {
+  responsavelId: string | null | undefined
+  orcamentistaId?: string | null | undefined
+  actorUserId?: string | null
+}) {
+  const explicitIds = Array.from(
+    new Set([params.responsavelId, params.orcamentistaId].filter(Boolean) as string[])
+  )
+
+  const placeholders = explicitIds.map(() => '?').join(', ')
+  const values: string[] = [...explicitIds]
+  const conditions = [`role IN ('admin', 'gerente')`]
+
+  if (explicitIds.length > 0) {
+    conditions.push(`id IN (${placeholders})`)
+  }
+
+  const users = await query<any[]>(
+    `SELECT id, nome, email, ativo, role
+     FROM usuarios
+     WHERE ativo = 1
+       AND email IS NOT NULL
+       AND email <> ''
+       AND (${conditions.join(' OR ')})`,
+    values
+  )
+
+  return users.filter((user) => user?.id && user.id !== params.actorUserId)
+}
+
 export async function notifyTaskEmail(params: {
   responsavelId: string | null | undefined
   actorUserId?: string | null
@@ -59,39 +89,45 @@ export async function notifyTaskEmail(params: {
 
 export async function notifyProposalEmail(params: {
   responsavelId: string | null | undefined
+  orcamentistaId?: string | null
   actorUserId?: string | null
   actorName?: string | null
   proposalNumber?: string | null
   proposalTitle?: string | null
   nextStatusLabel: string
 }) {
-  if (!params.responsavelId || params.responsavelId === params.actorUserId) {
-    return
-  }
-
-  const targetUser = await getUserEmailTarget(params.responsavelId)
-  if (!targetUser) return
-
-  const shouldSend = await shouldSendEmailNotification(targetUser.id, 'propostas')
-  if (!shouldSend) return
+  const targetUsers = await getProposalEmailTargets({
+    responsavelId: params.responsavelId,
+    orcamentistaId: params.orcamentistaId,
+    actorUserId: params.actorUserId,
+  })
+  if (targetUsers.length === 0) return
 
   const branding = await getEmailBranding()
   const actorName = params.actorName || 'Um usuario do CRM'
   const proposalLabel = params.proposalNumber || params.proposalTitle || 'Uma proposta'
-  const emailContent = buildEmailTemplate({
-    appName: branding.appName,
-    title: 'Atualizacao de proposta',
-    greeting: `Ola, ${targetUser.nome}.`,
-    intro: `${actorName} atualizou o andamento de uma proposta sob sua responsabilidade.`,
-    highlightLabel: 'Novo status',
-    highlightValue: params.nextStatusLabel,
-    outro: `Proposta: ${proposalLabel}`,
-  })
 
-  await safeSendEmail({
-    to: targetUser.email,
-    subject: `${branding.appName} - Atualizacao de proposta`,
-    text: emailContent.text,
-    html: emailContent.html,
-  })
+  await Promise.all(
+    targetUsers.map(async (targetUser) => {
+      const shouldSend = await shouldSendEmailNotification(targetUser.id, 'propostas')
+      if (!shouldSend) return
+
+      const emailContent = buildEmailTemplate({
+        appName: branding.appName,
+        title: 'Atualizacao de proposta',
+        greeting: `Ola, ${targetUser.nome}.`,
+        intro: `${actorName} movimentou uma proposta no funil de vendas.`,
+        highlightLabel: 'Novo status',
+        highlightValue: params.nextStatusLabel,
+        outro: `Proposta: ${proposalLabel}`,
+      })
+
+      await safeSendEmail({
+        to: targetUser.email,
+        subject: `${branding.appName} - Atualizacao de proposta`,
+        text: emailContent.text,
+        html: emailContent.html,
+      })
+    })
+  )
 }

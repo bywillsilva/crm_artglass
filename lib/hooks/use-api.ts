@@ -55,7 +55,7 @@ const REALTIME_REVALIDATE_PREFIXES = [
 
 const MODULE_REALTIME_PREFIXES: Record<string, readonly string[]> = {
   clientes: ['/api/crm/bootstrap', '/api/clientes', '/api/dashboard'],
-  propostas: ['/api/crm/bootstrap', '/api/propostas', '/api/dashboard'],
+  propostas: ['/api/crm/bootstrap', '/api/propostas', '/api/tarefas', '/api/dashboard'],
   tarefas: ['/api/crm/bootstrap', '/api/tarefas', '/api/dashboard'],
   usuarios: ['/api/crm/bootstrap', '/api/usuarios'],
   interacoes: ['/api/interacoes'],
