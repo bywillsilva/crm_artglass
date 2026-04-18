@@ -421,8 +421,8 @@ export function ProposalDetailsSheet({
         </SheetHeader>
 
         {propostaSource ? (
-          <div className="grid flex-1 gap-6 overflow-hidden px-4 pb-4 lg:grid-cols-[1.05fr_0.95fr]">
-            <ScrollArea className="h-[calc(100vh-9rem)] pr-4">
+          <div className="grid flex-1 gap-6 overflow-y-auto px-4 pb-4 lg:grid-cols-[1.05fr_0.95fr] lg:overflow-hidden">
+            <ScrollArea className="h-auto pr-0 lg:h-[calc(100vh-9rem)] lg:pr-4">
               <div className="space-y-6">
                 <div className="space-y-3 rounded-xl border border-border bg-card p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
@@ -545,7 +545,7 @@ export function ProposalDetailsSheet({
               </div>
             </ScrollArea>
 
-            <div className="flex h-[calc(100vh-9rem)] min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card">
+            <div className="flex min-h-[420px] min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card lg:h-[calc(100vh-9rem)] lg:min-h-0">
               <div className="flex items-center gap-2 border-b border-border px-4 py-3">
                 <MessageSquare className="h-4 w-4 text-muted-foreground" />
                 <div>

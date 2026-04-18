@@ -295,8 +295,6 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const [optimisticPropostas, setOptimisticPropostas] = useState<Record<string, Partial<Proposta>>>({})
   const [updatingProposalIds, setUpdatingProposalIds] = useState<Record<string, true>>({})
   const [detailsPropostaId, setDetailsPropostaId] = useState<string | null>(null)
-  const [touchMovePropostaId, setTouchMovePropostaId] = useState<string | null>(null)
-  const [touchMoveStatus, setTouchMoveStatus] = useState<StatusProposta | ''>('')
   const [isTouchDevice, setIsTouchDevice] = useState(false)
   const [isSubmittingMove, setIsSubmittingMove] = useState(false)
   const [dragState, setDragState] = useState<DragState | null>(null)
@@ -640,23 +638,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     setCloseClientAddress(cliente?.endereco || '')
   }
 
-  const openTouchMovePicker = (propostaId: string) => {
-    setTouchMovePropostaId(propostaId)
-    setTouchMoveStatus('')
-  }
-
-  const confirmTouchMoveSelection = () => {
-    if (!touchMovePropostaId || !touchMoveStatus) return
-    requestMove(touchMovePropostaId, touchMoveStatus)
-    setTouchMovePropostaId(null)
-    setTouchMoveStatus('')
-  }
-
   const handleTouchPointerDown = (event: React.PointerEvent<HTMLDivElement>, proposta: Proposta) => {
-    if (user?.role === 'vendedor') {
-      return
-    }
-
     if ((event.pointerType === 'mouse' && event.button !== 0) || isInteractiveTarget(event.target)) {
       return
     }
@@ -1020,10 +1002,6 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const hasInvalidMoveValue = moveValue.trim() !== '' && parsedMoveValue === null
   const isSchedulingFollowUp = requiresFollowUpTime
   const pendingMoveTargetLabel = pendingMove ? statusPropostaLabels[pendingMove.targetStatus] : ''
-  const touchMoveProposal = touchMovePropostaId ? propostasById.get(touchMovePropostaId) || null : null
-  const availableTouchStatuses = touchMoveProposal
-    ? visibleColumns.filter((status) => status !== touchMoveProposal.status)
-    : []
   const draggedTouchProposal = dragState ? propostasById.get(dragState.propostaId) || null : null
   const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 0
   const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 0
@@ -1146,7 +1124,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                             ? 'opacity-35 scale-[0.98]'
                             : ''
                         } select-none [-webkit-touch-callout:none]`}
-                        style={{ touchAction: isTouchDevice && user?.role !== 'vendedor' ? 'none' : undefined }}
+                        style={{ touchAction: isTouchDevice ? 'none' : undefined }}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
@@ -1158,18 +1136,6 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                             </p>
                           </div>
                           <div className="flex items-center gap-1 rounded-full border border-border/70 bg-background/70 px-1 py-1">
-                            {isTouchDevice && user?.role !== 'vendedor' ? (
-                              <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                className="rounded-full text-muted-foreground hover:text-foreground"
-                                title="Mover card"
-                                aria-label="Mover card"
-                                onClick={() => openTouchMovePicker(proposta.id)}
-                              >
-                                <ArrowRightLeft className="h-4 w-4" />
-                              </Button>
-                            ) : null}
                             <Button
                               variant="ghost"
                               size="icon-sm"
@@ -1314,56 +1280,6 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
           </div>
         </div>
       ) : null}
-
-      <Dialog
-        open={Boolean(touchMovePropostaId)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setTouchMovePropostaId(null)
-            setTouchMoveStatus('')
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Escolher nova etapa</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Selecione a coluna para onde esta proposta deve ser movida.
-            </p>
-            <Select
-              value={touchMoveStatus}
-              onValueChange={(value) => setTouchMoveStatus(value as StatusProposta)}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Selecione a etapa" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableTouchStatuses.map((status) => (
-                  <SelectItem key={status} value={status}>
-                    {statusPropostaLabels[status]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <div className="flex justify-end gap-3">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setTouchMovePropostaId(null)
-                  setTouchMoveStatus('')
-                }}
-              >
-                Cancelar
-              </Button>
-              <Button onClick={confirmTouchMoveSelection} disabled={!touchMoveStatus}>
-                Continuar
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <Dialog
         open={Boolean(pendingMove)}
