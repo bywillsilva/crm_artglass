@@ -298,7 +298,7 @@ export default function TarefasPage() {
         action={{ label: 'Nova Tarefa', onClick: () => setShowAddForm(true) }}
       />
 
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-4 sm:p-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
             <Tabs defaultValue="hoje">

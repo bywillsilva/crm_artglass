@@ -345,7 +345,7 @@ export function ProposalFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto px-6 sm:max-w-5xl sm:px-8">
+      <DialogContent className="max-h-[92vh] w-[calc(100vw-1rem)] overflow-y-auto px-4 sm:w-full sm:max-w-5xl sm:px-6">
         <DialogHeader>
           <DialogTitle>{isEditing ? 'Editar proposta' : 'Nova proposta'}</DialogTitle>
           <DialogDescription>Campos com * sao obrigatorios.</DialogDescription>
@@ -354,17 +354,17 @@ export function ProposalFormDialog({
         {isEditing && isLoading ? (
           <p className="py-8 text-center text-muted-foreground">Carregando proposta...</p>
         ) : (
-          <form className="space-y-6 py-1" onSubmit={(event) => void handleSubmit(event)}>
-            <div className="grid gap-6 xl:grid-cols-[1.25fr_0.9fr]">
-              <div className="space-y-6">
-                <div className="rounded-xl border border-border bg-card p-6">
+          <form className="space-y-4 py-1 sm:space-y-6" onSubmit={(event) => void handleSubmit(event)}>
+            <div className="grid gap-4 xl:grid-cols-[1.25fr_0.9fr] xl:gap-6">
+              <div className="space-y-4 sm:space-y-6">
+                <div className="rounded-xl border border-border bg-card p-4 sm:p-6">
                   <div className="mb-4">
                     <h3 className="text-sm font-semibold text-foreground">Dados comerciais</h3>
                     <p className="text-sm text-muted-foreground">
                       Defina cliente, responsaveis e etapa atual da proposta.
                     </p>
                   </div>
-                  <div className="grid gap-5 md:grid-cols-2">
+                  <div className="grid gap-4 md:grid-cols-2 md:gap-5">
                     <div className="space-y-2">
                 <Label><RequiredLabel>Cliente</RequiredLabel></Label>
                 <Select value={clienteId} onValueChange={(value) => {
@@ -491,7 +491,7 @@ export function ProposalFormDialog({
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-border bg-card p-6">
+                <div className="rounded-xl border border-border bg-card p-4 sm:p-6">
                   <div className="mb-4">
                     <h3 className="text-sm font-semibold text-foreground">Detalhes da proposta</h3>
                     <p className="text-sm text-muted-foreground">
@@ -513,8 +513,8 @@ export function ProposalFormDialog({
                 </div>
               </div>
 
-              <div className="space-y-6">
-                <div className="rounded-xl border border-border bg-card p-6">
+              <div className="space-y-4 sm:space-y-6">
+                <div className="rounded-xl border border-border bg-card p-4 sm:p-6">
                   <div className="mb-4">
                     <h3 className="text-sm font-semibold text-foreground">Anexos do orcamento</h3>
                     <p className="text-sm text-muted-foreground">
@@ -522,21 +522,21 @@ export function ProposalFormDialog({
                     </p>
                   </div>
                   <div className="space-y-3">
-                <Label>{requiresProposalPdf ? <RequiredLabel>Proposta em PDF</RequiredLabel> : 'Anexos do orcamento'}</Label>
+                <Label>{requiresProposalPdf ? <RequiredLabel>Proposta em PDF</RequiredLabel> : 'Proposta em PDF'}</Label>
                 <div className="rounded-lg border border-dashed border-border bg-background/40 p-4">
                   <div className="flex items-center gap-3 text-sm text-muted-foreground">
                     <Upload className="h-4 w-4" />
                     <span>
                       {requiresProposalPdf
                         ? 'Ao enviar para aguardando aprovacao, anexe obrigatoriamente a proposta em PDF.'
-                        : 'Adicione um ou mais arquivos de qualquer tipo.'}
+                        : 'Adicione o arquivo da proposta em PDF pelo gerenciador de arquivos do dispositivo.'}
                     </span>
                   </div>
                   <Input
                     className="mt-3"
                     type="file"
                     multiple
-                    accept={requiresProposalPdf ? '.pdf,application/pdf' : undefined}
+                    accept=".pdf,application/pdf"
                     onChange={(event) =>
                       {
                         isDirtyRef.current = true
@@ -575,7 +575,7 @@ export function ProposalFormDialog({
               </div>
                 </div>
 
-                <div className="rounded-xl border border-border bg-secondary/20 p-6">
+                <div className="rounded-xl border border-border bg-secondary/20 p-4 sm:p-6">
                   <h3 className="text-sm font-semibold text-foreground">Resumo rapido</h3>
                   <div className="mt-4 space-y-3 text-sm text-muted-foreground">
                     <div className="flex items-center justify-between gap-3">

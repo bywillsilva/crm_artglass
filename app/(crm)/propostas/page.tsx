@@ -193,6 +193,88 @@ export default function PropostasPage() {
     )
   }
 
+  const renderPropostaCard = (proposta: typeof state.propostas[number]) => {
+    const cliente = getCliente(proposta.clienteId)
+    const canDeleteProposal =
+      user?.role === 'admin' ||
+      user?.role === 'gerente' ||
+      (
+        user?.role === 'orcamentista' &&
+        (!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
+        ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
+      )
+    const canEditProposal =
+      user?.role === 'admin' ||
+      user?.role === 'gerente' ||
+      (
+        user?.role === 'orcamentista' &&
+        (!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
+        ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
+      )
+
+    return (
+      <Card key={proposta.id} className="border-border bg-card md:hidden">
+        <CardContent className="space-y-4 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 space-y-1">
+              {cliente ? (
+                <Link
+                  href={`/clientes/${cliente.id}`}
+                  className="block truncate font-medium text-foreground transition-colors hover:text-primary"
+                >
+                  {cliente.nome}
+                </Link>
+              ) : (
+                <p className="truncate text-sm text-muted-foreground">
+                  {proposta.clienteNome || 'Cliente nao encontrado'}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">{formatDate(proposta.dataEnvio)}</p>
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {canEditProposal && (
+                  <DropdownMenuItem onClick={() => setEditingPropostaId(proposta.id)}>
+                    <Pencil className="mr-2 h-4 w-4" />
+                    Editar proposta
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem onClick={() => setDetailsPropostaId(proposta.id)}>
+                  <Eye className="mr-2 h-4 w-4" />
+                  Ver detalhes
+                </DropdownMenuItem>
+                {canDeleteProposal && (
+                  <DropdownMenuItem onClick={() => deleteProposta(proposta.id)} className="text-destructive">
+                    <X className="mr-2 h-4 w-4" />
+                    Excluir
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className={statusPropostaColors[proposta.status]}>
+              {statusPropostaLabels[proposta.status]}
+            </Badge>
+            <span className="text-sm font-semibold text-foreground">{formatCurrency(proposta.valor)}</span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 text-sm text-muted-foreground">
+            <p className="truncate">Descricao: {proposta.descricao || '-'}</p>
+            <p className="truncate">Vendedor: {proposta.responsavelNome || '-'}</p>
+            <p className="truncate">Orcamentista: {proposta.orcamentistaNome || '-'}</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   const stats = [
     {
       title: 'Em andamento',
@@ -236,11 +318,11 @@ export default function PropostasPage() {
         action={{ label: 'Nova Proposta', onClick: () => setShowCreateDialog(true) }}
       />
 
-      <div className="flex-1 overflow-auto space-y-6 p-6">
+      <div className="flex-1 overflow-auto space-y-4 p-4 sm:space-y-6 sm:p-6">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           {stats.map((stat) => (
             <Card key={stat.title} className="border-border bg-card">
-              <CardContent className="p-6">
+              <CardContent className="p-4 sm:p-6">
                 <div className="flex items-start justify-between">
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">{stat.title}</p>
@@ -259,7 +341,7 @@ export default function PropostasPage() {
         </div>
 
         <Tabs defaultValue="todas">
-          <TabsList className="mb-4">
+          <TabsList className="mb-4 flex h-auto w-full max-w-full flex-nowrap overflow-x-auto">
             {tabs.map((tab) => {
               const count =
                 tab.key === 'todas'
@@ -289,33 +371,38 @@ export default function PropostasPage() {
 
             return (
               <TabsContent key={tab.key} value={tab.key}>
-                <Card className="border-border bg-card">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-secondary/50 hover:bg-secondary/50">
-                        <TableHead className="text-foreground">Cliente</TableHead>
-                        <TableHead className="text-foreground">Valor</TableHead>
-                        <TableHead className="text-foreground">Descricao</TableHead>
-                        <TableHead className="text-foreground">Status</TableHead>
-                        <TableHead className="text-foreground">Data</TableHead>
-                        <TableHead className="text-foreground">Vendedor</TableHead>
-                        <TableHead className="text-foreground">Orcamentista</TableHead>
-                        <TableHead className="w-12 text-foreground"></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {propostas.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
-                            Nenhuma proposta encontrada
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        propostas.map(renderPropostaRow)
-                      )}
-                    </TableBody>
-                  </Table>
-                </Card>
+                {propostas.length === 0 ? (
+                  <Card className="border-border bg-card">
+                    <CardContent className="py-8 text-center text-muted-foreground">
+                      Nenhuma proposta encontrada
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <>
+                    <div className="space-y-3 md:hidden">
+                      {propostas.map(renderPropostaCard)}
+                    </div>
+                    <Card className="hidden border-border bg-card md:block">
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="bg-secondary/50 hover:bg-secondary/50">
+                              <TableHead className="text-foreground">Cliente</TableHead>
+                              <TableHead className="text-foreground">Valor</TableHead>
+                              <TableHead className="text-foreground">Descricao</TableHead>
+                              <TableHead className="text-foreground">Status</TableHead>
+                              <TableHead className="text-foreground">Data</TableHead>
+                              <TableHead className="text-foreground">Vendedor</TableHead>
+                              <TableHead className="text-foreground">Orcamentista</TableHead>
+                              <TableHead className="w-12 text-foreground"></TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>{propostas.map(renderPropostaRow)}</TableBody>
+                        </Table>
+                      </div>
+                    </Card>
+                  </>
+                )}
               </TabsContent>
             )
           })}

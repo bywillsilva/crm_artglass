@@ -59,15 +59,15 @@ export default async function CRMLayout({
         },
       }}
     >
-      <AppSettingsProvider>
-        <CRMProvider>
-          <div className="flex min-h-screen bg-background">
-            <CRMSidebar />
-            <main className="flex-1 flex flex-col overflow-hidden">
-              {children}
-            </main>
-          </div>
-        </CRMProvider>
+        <AppSettingsProvider>
+          <CRMProvider>
+            <div className="flex min-h-screen bg-background">
+              <CRMSidebar />
+              <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                {children}
+              </main>
+            </div>
+          </CRMProvider>
       </AppSettingsProvider>
     </SWRConfig>
   )

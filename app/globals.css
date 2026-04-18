@@ -134,6 +134,8 @@
 
   body {
     @apply bg-background text-foreground;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
   }
 
   body[data-demo-mode='true']::after {
@@ -152,5 +154,17 @@
     letter-spacing: 0.08em;
     pointer-events: none;
     backdrop-filter: blur(8px);
+  }
+}
+
+@media (max-width: 767px) {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px;
   }
 }

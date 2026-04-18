@@ -267,7 +267,7 @@ export default function RelatorioVendedoresPage() {
         subtitle="Acompanhe vendedores e orcamentistas em sessoes separadas"
       />
 
-      <div className="flex-1 overflow-auto p-6 space-y-6">
+      <div className="flex-1 overflow-auto space-y-4 p-4 sm:space-y-6 sm:p-6">
         <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
 
         <Tabs defaultValue="vendedores" className="space-y-6">

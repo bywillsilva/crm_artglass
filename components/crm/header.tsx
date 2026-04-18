@@ -8,6 +8,7 @@ import {
   CheckSquare,
   FileText,
   LogOut,
+  Menu,
   MessageSquare,
   Plus,
   Search,
@@ -402,15 +403,171 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
     router.refresh()
   }
 
+  const openMobileSidebar = () => {
+    if (typeof window === 'undefined') return
+    window.dispatchEvent(new Event('crm-mobile-sidebar:open'))
+  }
+
   return (
     <>
-      <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-border bg-card px-6">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">{title}</h1>
-          {subtitle && <p className="text-sm text-muted-foreground">{subtitle}</p>}
+      <header className="sticky top-0 z-10 border-b border-border bg-card/95 px-3 py-3 backdrop-blur sm:px-4 md:flex md:min-h-16 md:items-center md:justify-between md:gap-3 md:px-6">
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 bg-secondary/25 px-2 py-2 shadow-sm md:hidden">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 shrink-0 rounded-xl"
+            onClick={openMobileSidebar}
+            aria-label="Abrir menu"
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
+
+          <div className="flex items-center justify-end gap-1.5 sm:gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 rounded-xl"
+              onClick={() => setCommandOpen(true)}
+              aria-label="Abrir busca"
+            >
+              <Search className="h-4 w-4" />
+            </Button>
+
+            {action && (
+              <Button onClick={action.onClick} size="sm" className="h-9 shrink-0 rounded-xl px-3">
+                <Plus className="h-4 w-4" />
+              </Button>
+            )}
+
+            <DropdownMenu
+              open={notificationMenuOpen}
+              onOpenChange={(open) => {
+                setNotificationMenuOpen(open)
+                if (open) {
+                  setShouldLoadProposalNotifications(true)
+                }
+              }}
+            >
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="relative h-9 w-9 shrink-0 rounded-xl">
+                  <Bell className="h-5 w-5" />
+                  {notificationCount > 0 && (
+                    <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] text-destructive-foreground">
+                      {notificationCount}
+                    </span>
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-[min(92vw,24rem)]">
+                <DropdownMenuLabel className="flex items-center justify-between">
+                  <span>Notificacoes</span>
+                  {actionNotifications.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-auto px-2 py-1 text-xs"
+                      onClick={() => void markAllActionNotificationsAsRead()}
+                    >
+                      Marcar avisos como lidos
+                    </Button>
+                  )}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+
+                {(['tarefas', 'propostas', 'clientes'] as NotificationGroupKey[]).map((group) => {
+                  const items = groupedNotifications[group]
+                  if (items.length === 0) return null
+
+                  const Icon = GROUP_META[group].icon
+
+                  return (
+                    <div key={group}>
+                      <DropdownMenuLabel className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Icon className="h-3 w-3" />
+                        {GROUP_META[group].title}
+                      </DropdownMenuLabel>
+                      {items.slice(0, 5).map((item) => (
+                        <DropdownMenuItem
+                          key={item.id}
+                          onClick={() => {
+                            void markNotificationAsRead(item)
+                            router.push(item.href)
+                          }}
+                        >
+                          <div className="flex flex-col gap-1">
+                            <span className="font-medium">{item.title}</span>
+                            <span className="text-xs text-muted-foreground">{item.description}</span>
+                          </div>
+                        </DropdownMenuItem>
+                      ))}
+                      <DropdownMenuSeparator />
+                    </div>
+                  )
+                })}
+
+                {notificationCount === 0 && (
+                  <DropdownMenuItem disabled>Nenhuma notificacao no momento</DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="h-9 gap-2 rounded-xl px-2">
+                  <Avatar className="h-8 w-8">
+                    <AvatarFallback className="bg-primary text-sm text-primary-foreground">
+                      {user?.avatar || '??'}
+                    </AvatarFallback>
+                  </Avatar>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>Minha Conta</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/perfil">
+                    <User className="mr-2 h-4 w-4" />
+                    Perfil
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/configuracoes">
+                    <Settings className="mr-2 h-4 w-4" />
+                    Configuracoes
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="text-destructive" onClick={() => void handleLogout()}>
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Sair
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="mt-3 min-w-0 md:hidden">
+          <h1 className="truncate text-lg font-semibold tracking-tight text-foreground">{title}</h1>
+          {subtitle && <p className="mt-1 line-clamp-2 max-w-[32rem] text-xs leading-5 text-muted-foreground">{subtitle}</p>}
+        </div>
+
+        <div className="hidden min-w-0 md:block">
+          <h1 className="truncate text-lg font-semibold text-foreground md:text-xl">{title}</h1>
+          {subtitle && <p className="line-clamp-2 text-xs text-muted-foreground md:text-sm">{subtitle}</p>}
+        </div>
+
+        <div className="hidden w-full items-center justify-end gap-2 sm:gap-3 md:flex md:w-auto md:gap-4">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setCommandOpen(true)}
+            aria-label="Abrir busca"
+          >
+            <Search className="h-4 w-4" />
+          </Button>
+
           <div className="relative hidden md:block">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -425,9 +582,9 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
           </div>
 
           {action && (
-            <Button onClick={action.onClick} size="sm">
-              <Plus className="mr-2 h-4 w-4" />
-              {action.label}
+            <Button onClick={action.onClick} size="sm" className="shrink-0 rounded-full px-3">
+              <Plus className="h-4 w-4 md:mr-2" />
+              <span className="hidden md:inline">{action.label}</span>
             </Button>
           )}
 
@@ -441,7 +598,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
             }}
           >
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="relative">
+              <Button variant="ghost" size="icon" className="relative shrink-0">
                 <Bell className="h-5 w-5" />
                 {notificationCount > 0 && (
                   <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] text-destructive-foreground">
@@ -450,7 +607,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
                 )}
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-96">
+            <DropdownMenuContent align="end" className="w-[min(92vw,24rem)]">
               <DropdownMenuLabel className="flex items-center justify-between">
                 <span>Notificacoes</span>
                 {actionNotifications.length > 0 && (
@@ -506,13 +663,13 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="gap-2 px-2">
+              <Button variant="ghost" className="gap-2 rounded-full px-2">
                 <Avatar className="h-8 w-8">
                   <AvatarFallback className="bg-primary text-sm text-primary-foreground">
                     {user?.avatar || '??'}
                   </AvatarFallback>
                 </Avatar>
-                <span className="hidden text-sm font-medium md:inline">{user?.nome}</span>
+                <span className="hidden max-w-28 truncate text-sm font-medium md:inline">{user?.nome}</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">

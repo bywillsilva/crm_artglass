@@ -216,13 +216,13 @@ export default function RelatoriosPage() {
     <>
       <CRMHeader title="Relatorios" subtitle="Analise de performance e metricas" />
 
-      <div className="flex-1 overflow-auto p-6 space-y-6">
+      <div className="flex-1 overflow-auto space-y-4 p-4 sm:space-y-6 sm:p-6">
         <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {stats.map((stat) => (
             <Card key={stat.title} className="bg-card border-border">
-              <CardContent className="p-6">
+              <CardContent className="p-4 sm:p-6">
                 <div className="flex items-start justify-between">
                   <div className="space-y-1">
                     <p className="text-sm text-muted-foreground">{stat.title}</p>

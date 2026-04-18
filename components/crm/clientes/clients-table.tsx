@@ -60,98 +60,168 @@ export function ClientsTable({ onNewClient }: ClientsTableProps) {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-border">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-secondary/50 hover:bg-secondary/50">
-              <TableHead className="text-foreground">Cliente</TableHead>
-              <TableHead className="text-foreground">Contato</TableHead>
-              <TableHead className="text-foreground">Ultimo Contato</TableHead>
-              <TableHead className="w-12 text-foreground"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredClientes.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">
-                  Nenhum cliente encontrado
-                </TableCell>
-              </TableRow>
-            ) : (
-              filteredClientes.map((cliente) => {
-                return (
-                  <TableRow key={cliente.id} className="hover:bg-secondary/30">
-                    <TableCell>
-                      <div>
-                        <Link
-                          href={`/clientes/${cliente.id}`}
-                          className="font-medium text-foreground transition-colors hover:text-primary"
-                        >
-                          {cliente.nome}
+      {filteredClientes.length === 0 ? (
+        <div className="rounded-lg border border-border py-8 text-center text-muted-foreground">
+          Nenhum cliente encontrado
+        </div>
+      ) : (
+        <>
+          <div className="space-y-3 md:hidden">
+            {filteredClientes.map((cliente) => (
+              <div key={cliente.id} className="rounded-lg border border-border bg-card p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <Link
+                      href={`/clientes/${cliente.id}`}
+                      className="block truncate font-medium text-foreground transition-colors hover:text-primary"
+                    >
+                      {cliente.nome}
+                    </Link>
+                    <p className="text-xs text-muted-foreground">
+                      {cliente.tipo === 'comercial' ? 'Comercial' : 'Residencial'} | {getOrigemLabel(cliente.origem)}
+                    </p>
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem asChild>
+                        <Link href={`/clientes/${cliente.id}`}>
+                          <Eye className="mr-2 h-4 w-4" />
+                          Ver detalhes
                         </Link>
-                        <p className="text-xs text-muted-foreground">
-                          {cliente.tipo === 'comercial' ? 'Comercial' : 'Residencial'} | {getOrigemLabel(cliente.origem)}
-                        </p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="space-y-1">
-                        <a
-                          href={`tel:${cliente.telefone}`}
-                          className="flex items-center gap-1 text-sm text-foreground hover:text-primary"
-                        >
-                          <Phone className="h-3 w-3" />
-                          {cliente.telefone}
-                        </a>
-                        <p className="text-xs text-muted-foreground">{cliente.email}</p>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {formatDate(cliente.ultimoContato)}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem asChild>
-                            <Link href={`/clientes/${cliente.id}`}>
-                              <Eye className="mr-2 h-4 w-4" />
-                              Ver detalhes
-                            </Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setEditingClient(cliente)}>
-                            <Pencil className="mr-2 h-4 w-4" />
-                            Editar
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            className="text-destructive"
-                            onClick={() => {
-                              void deleteCliente(cliente.id)
-                                .then(() => {
-                                  toast.success('Cliente excluido com sucesso.')
-                                })
-                                .catch((error: any) => {
-                                  toast.error(error?.message || 'Nao foi possivel excluir o cliente.')
-                                })
-                            }}
-                          >
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Excluir
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setEditingClient(cliente)}>
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Editar
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="text-destructive"
+                        onClick={() => {
+                          void deleteCliente(cliente.id)
+                            .then(() => {
+                              toast.success('Cliente excluido com sucesso.')
+                            })
+                            .catch((error: any) => {
+                              toast.error(error?.message || 'Nao foi possivel excluir o cliente.')
+                            })
+                        }}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Excluir
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  <a
+                    href={`tel:${cliente.telefone}`}
+                    className="flex items-center gap-2 text-sm text-foreground hover:text-primary"
+                  >
+                    <Phone className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{cliente.telefone}</span>
+                  </a>
+                  <p className="truncate text-xs text-muted-foreground">{cliente.email}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Ultimo contato: {formatDate(cliente.ultimoContato)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="hidden overflow-hidden rounded-lg border border-border md:block">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-secondary/50 hover:bg-secondary/50">
+                    <TableHead className="text-foreground">Cliente</TableHead>
+                    <TableHead className="text-foreground">Contato</TableHead>
+                    <TableHead className="text-foreground">Ultimo Contato</TableHead>
+                    <TableHead className="w-12 text-foreground"></TableHead>
                   </TableRow>
-                )
-              })
-            )}
-          </TableBody>
-        </Table>
-      </div>
+                </TableHeader>
+                <TableBody>
+                  {filteredClientes.map((cliente) => {
+                    return (
+                      <TableRow key={cliente.id} className="hover:bg-secondary/30">
+                        <TableCell>
+                          <div>
+                            <Link
+                              href={`/clientes/${cliente.id}`}
+                              className="font-medium text-foreground transition-colors hover:text-primary"
+                            >
+                              {cliente.nome}
+                            </Link>
+                            <p className="text-xs text-muted-foreground">
+                              {cliente.tipo === 'comercial' ? 'Comercial' : 'Residencial'} | {getOrigemLabel(cliente.origem)}
+                            </p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <a
+                              href={`tel:${cliente.telefone}`}
+                              className="flex items-center gap-1 text-sm text-foreground hover:text-primary"
+                            >
+                              <Phone className="h-3 w-3" />
+                              {cliente.telefone}
+                            </a>
+                            <p className="text-xs text-muted-foreground">{cliente.email}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {formatDate(cliente.ultimoContato)}
+                        </TableCell>
+                        <TableCell>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <MoreHorizontal className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem asChild>
+                                <Link href={`/clientes/${cliente.id}`}>
+                                  <Eye className="mr-2 h-4 w-4" />
+                                  Ver detalhes
+                                </Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => setEditingClient(cliente)}>
+                                <Pencil className="mr-2 h-4 w-4" />
+                                Editar
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive"
+                                onClick={() => {
+                                  void deleteCliente(cliente.id)
+                                    .then(() => {
+                                      toast.success('Cliente excluido com sucesso.')
+                                    })
+                                    .catch((error: any) => {
+                                      toast.error(error?.message || 'Nao foi possivel excluir o cliente.')
+                                    })
+                                }}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Excluir
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </>
+      )}
 
       <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
         <p>
