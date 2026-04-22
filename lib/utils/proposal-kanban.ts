@@ -28,6 +28,9 @@ export function getProposalTaskStage(status: StatusProposta) {
   if (status === 'em_orcamento') return 'em_orcamento'
   if (status === 'em_retificacao') return 'em_retificacao'
   if (status === 'enviar_ao_cliente') return 'enviar_ao_cliente'
+  if (status === 'enviado_ao_cliente') return 'follow_up_1_dia'
+  if (status === 'aguardando_follow_up_3_dias') return 'follow_up_3_dias'
+  if (status === 'aguardando_follow_up_7_dias') return 'follow_up_7_dias'
   return status
 }
 
@@ -82,6 +85,19 @@ export function getProposalCardVisualState(
 
     if (now >= warningAt) {
       return { classes: 'border-orange-500 bg-orange-500/10 ring-1 ring-orange-500/25', label: 'Prazo do orcamento apertado' }
+    }
+  }
+
+  if (status === 'em_retificacao') {
+    const warningAt = new Date(dueDate)
+    warningAt.setHours(warningAt.getHours() - 6)
+
+    if (now >= dueDate) {
+      return { classes: 'border-red-500 bg-red-500/10 ring-1 ring-red-500/30', label: 'Retificacao em atraso' }
+    }
+
+    if (now >= warningAt) {
+      return { classes: 'border-orange-500 bg-orange-500/10 ring-1 ring-orange-500/25', label: 'Prazo da retificacao apertado' }
     }
   }
 

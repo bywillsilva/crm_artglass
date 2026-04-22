@@ -473,11 +473,13 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   }, [state.tarefas])
 
   const getProposalAutoTask = (propostaId: string, stage?: string) =>
-    automatedTasksByProposalStage.get(`${propostaId}:${stage || ''}`)
+    automatedTasksByProposalStage.get(`${propostaId}:${stage || ''}`) ||
+    automatedTasksByProposalStage.get(`${propostaId}:`)
 
   const getCardState = (proposta: Proposta) => {
-    const task = getProposalAutoTask(proposta.id, getProposalTaskStage(proposta.status))
-    return getProposalCardVisualState(resolveKanbanDisplayStatus(proposta.status), task, formatDateTime)
+    const taskStage = getProposalTaskStage(proposta.status)
+    const task = getProposalAutoTask(proposta.id, taskStage)
+    return getProposalCardVisualState(resolveKanbanDisplayStatus(taskStage as StatusProposta), task, formatDateTime)
   }
 
   const clearTouchPendingDrag = (releasePointer = false) => {
