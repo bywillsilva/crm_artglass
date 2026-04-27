@@ -172,6 +172,31 @@ interface KanbanBoardProps {
   propostas?: Proposta[]
 }
 
+function dedupePropostasById(propostas: Proposta[]) {
+  const seen = new Set<string>()
+  return propostas.filter((proposta) => {
+    const id = String(proposta.id || '')
+    if (!id || seen.has(id)) {
+      return false
+    }
+
+    seen.add(id)
+    return true
+  })
+}
+
+function getProposalCardTitle(proposta: Proposta, clientName: string) {
+  const rawTitle = (proposta.titulo || '').trim()
+  const isLegacyNewClientTitle =
+    rawTitle === 'Novo cliente' || rawTitle.startsWith('Novo cliente -')
+
+  if ((proposta.status === 'novo_cliente' || isLegacyNewClientTitle) && clientName) {
+    return clientName
+  }
+
+  return rawTitle || 'Proposta Comercial'
+}
+
 function getSellerActionOptions(status: StatusProposta): SellerMoveAction[] {
   switch (status) {
     case 'enviar_ao_cliente':
@@ -382,11 +407,11 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
 
   const propostasBase = useMemo(
     () =>
-      (propostas || state.propostas).map((proposta) =>
+      dedupePropostasById((propostas || state.propostas).map((proposta) =>
         optimisticPropostas[proposta.id]
           ? { ...proposta, ...optimisticPropostas[proposta.id] }
           : proposta
-      ),
+      )),
     [optimisticPropostas, propostas, state.propostas]
   )
 
@@ -1110,6 +1135,10 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                 ) : (
                   propostasDaColuna.map((proposta) => {
                     const cardState = getCardState(proposta)
+                    const clientName =
+                      lookups.clientesById.get(proposta.clienteId)?.nome || proposta.clienteNome || 'Cliente'
+                    const cardTitle = getProposalCardTitle(proposta, clientName)
+                    const shouldShowClientLine = clientName && cardTitle.trim() !== clientName.trim()
                     return (
                       <div
                         key={proposta.id}
@@ -1129,13 +1158,18 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                         style={{ touchAction: isTouchDevice ? 'none' : undefined }}
                       >
                         <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-foreground">
-                              {lookups.clientesById.get(proposta.clienteId)?.nome || proposta.clienteNome || 'Cliente'}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                              {proposta.numero || 'Sem numero'}
                             </p>
-                            <p className="mt-1 text-lg font-bold text-foreground">
-                              {formatCurrency(proposta.valor)}
+                            <p className="mt-1 line-clamp-2 text-sm font-semibold text-foreground">
+                              {cardTitle}
                             </p>
+                            {shouldShowClientLine ? (
+                              <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">
+                                {clientName}
+                              </p>
+                            ) : null}
                           </div>
                           <div className="flex items-center gap-1 rounded-full border border-border/70 bg-background/70 px-1 py-1">
                             <Button
@@ -1190,11 +1224,17 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                           </div>
                         </div>
 
-                        {proposta.descricao ? (
-                          <p className="mt-3 line-clamp-3 text-sm text-muted-foreground">{proposta.descricao}</p>
+                        <p className="mt-3 text-lg font-bold text-foreground">
+                          {formatCurrency(proposta.valor)}
+                        </p>
+
+                        {proposta.descricao?.trim() ? (
+                          <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">
+                            {proposta.descricao}
+                          </p>
                         ) : null}
 
-                        <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                        <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                           <span>Vend.: {proposta.responsavelNome || '-'}</span>
                           <span>Orc.: {proposta.orcamentistaNome || '-'}</span>
                         </div>

@@ -529,6 +529,28 @@ function prependEntityToKey(key: string, entity: JsonRecord) {
   return mutate(key, (current) => prependCachedEntity(current, entity), { revalidate: false })
 }
 
+function dedupeEntitiesById(items: JsonRecord[]) {
+  const seen = new Set<string>()
+  const deduped: JsonRecord[] = []
+
+  for (const item of items) {
+    const id = item?.id ? String(item.id) : null
+    if (!id) {
+      deduped.push(item)
+      continue
+    }
+
+    if (seen.has(id)) {
+      continue
+    }
+
+    seen.add(id)
+    deduped.push(item)
+  }
+
+  return deduped
+}
+
 function mergeCachedEntities(current: any, incoming: JsonRecord[]) {
   if (!Array.isArray(current) || incoming.length === 0) {
     return current
@@ -558,7 +580,7 @@ function mergeCachedEntities(current: any, incoming: JsonRecord[]) {
     merged.unshift(entity)
   }
 
-  return merged
+  return dedupeEntitiesById(merged)
 }
 
 function removeEntityFromPrefix(prefix: string, id: string) {

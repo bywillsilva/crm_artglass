@@ -58,6 +58,23 @@ interface ProposalDetailsSheetProps {
   propostaInicial?: Proposta | null
 }
 
+function getProposalDisplayTitle(proposta: Proposta | null) {
+  if (!proposta) {
+    return 'Proposta Comercial'
+  }
+
+  const rawTitle = (proposta.titulo || '').trim()
+  const clientName = proposta.clienteNome?.trim() || ''
+  const isLegacyNewClientTitle =
+    rawTitle === 'Novo cliente' || rawTitle.startsWith('Novo cliente -')
+
+  if ((proposta.status === 'novo_cliente' || isLegacyNewClientTitle) && clientName) {
+    return clientName
+  }
+
+  return rawTitle || 'Proposta Comercial'
+}
+
 export function ProposalDetailsSheet({
   open,
   onOpenChange,
@@ -84,6 +101,12 @@ export function ProposalDetailsSheet({
     }
     return 'Nao foi possivel carregar os detalhes desta proposta agora.'
   }, [error])
+  const displayTitle = useMemo(() => getProposalDisplayTitle(propostaSource), [propostaSource])
+  const displayClientName = useMemo(() => propostaSource?.clienteNome?.trim() || '', [propostaSource])
+  const shouldShowClientLine = useMemo(() => {
+    if (!displayClientName) return false
+    return displayTitle.trim() !== displayClientName
+  }, [displayClientName, displayTitle])
 
   const buildAttachmentHref = (attachmentId: string) =>
     propostaId ? `/api/propostas/${propostaId}/anexos/${attachmentId}` : '#'
@@ -431,11 +454,13 @@ export function ProposalDetailsSheet({
                         {propostaSource.numero || 'Proposta Comercial'}
                       </p>
                       <h3 className="break-words text-xl font-semibold text-foreground">
-                        {propostaSource.titulo || 'Proposta Comercial'}
+                        {displayTitle}
                       </h3>
-                      <p className="mt-1 break-words text-sm text-muted-foreground">
-                        Cliente: {propostaSource.clienteNome || 'Nao informado'}
-                      </p>
+                      {shouldShowClientLine ? (
+                        <p className="mt-1 break-words text-sm text-muted-foreground">
+                          Cliente: {displayClientName}
+                        </p>
+                      ) : null}
                     </div>
                     <Badge variant="outline" className={`max-w-full whitespace-normal break-words text-center ${statusPropostaColors[propostaSource.status]}`}>
                       {statusPropostaLabels[propostaSource.status]}

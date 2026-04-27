@@ -273,11 +273,11 @@ async function findReusableSeedProposal(clienteId: string) {
      FROM propostas p
      LEFT JOIN proposta_anexos pa ON pa.proposta_id = p.id
      LEFT JOIN proposta_comentarios pc ON pc.proposta_id = p.id
-     WHERE p.cliente_id = ?
-       AND p.status = 'novo_cliente'
-       AND COALESCE(p.valor, 0) <= 0
-       AND (p.descricao IS NULL OR TRIM(p.descricao) = '')
-       AND p.titulo LIKE 'Novo cliente - %'
+       WHERE p.cliente_id = ?
+        AND p.status = 'novo_cliente'
+        AND COALESCE(p.valor, 0) <= 0
+        AND (p.descricao IS NULL OR TRIM(p.descricao) = '')
+        AND (p.titulo = 'Novo cliente' OR p.titulo LIKE 'Novo cliente - %')
      GROUP BY p.id, p.numero, p.created_at
      HAVING COUNT(DISTINCT pa.id) = 0 AND COUNT(DISTINCT pc.id) = 0
      ORDER BY p.created_at DESC

@@ -140,7 +140,7 @@ async function createInitialProposalForClient(
           responsavelId,
           orcamentistaId,
           0,
-          `Novo cliente - ${params.clienteNome}`,
+          'Novo cliente',
           null,
           0,
           0,
