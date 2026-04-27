@@ -844,9 +844,19 @@ export async function PUT(
         savedFiles.map((file) =>
           query(
             `INSERT INTO proposta_anexos (
-              id, proposta_id, nome_original, nome_arquivo, caminho, tipo_mime, tamanho, usuario_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [file.id, id, file.nomeOriginal, file.nomeArquivo, file.caminho, file.tipoMime, file.tamanho, user.id]
+              id, proposta_id, nome_original, nome_arquivo, caminho, tipo_mime, tamanho, conteudo, usuario_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              file.id,
+              id,
+              file.nomeOriginal,
+              file.nomeArquivo,
+              file.caminho,
+              file.tipoMime,
+              file.tamanho,
+              file.conteudo,
+              user.id,
+            ]
           )
         )
       )

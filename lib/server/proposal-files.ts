@@ -10,6 +10,7 @@ export type SavedProposalFile = {
   url: string
   tipoMime: string
   tamanho: number
+  conteudo: Buffer
 }
 
 const uploadsRoot = path.join(process.cwd(), 'public', 'uploads', 'propostas')
@@ -18,7 +19,7 @@ function sanitizeFileName(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]/g, '_')
 }
 
-function toStoredRelativeProposalPath(propostaId: string, nomeArquivo: string) {
+export function toStoredRelativeProposalPath(propostaId: string, nomeArquivo: string) {
   return path.posix.join('uploads', 'propostas', propostaId, nomeArquivo)
 }
 
@@ -63,6 +64,7 @@ export async function saveProposalFiles(propostaId: string, files: File[]) {
       url: `/uploads/propostas/${propostaId}/${nomeArquivo}`,
       tipoMime: file.type || 'application/octet-stream',
       tamanho: file.size,
+      conteudo: buffer,
     })
   }
 

@@ -273,10 +273,23 @@ async function ensureProposalSupportTables() {
       caminho VARCHAR(500) NOT NULL,
       tipo_mime VARCHAR(150) NOT NULL,
       tamanho BIGINT NOT NULL DEFAULT 0,
+      conteudo LONGBLOB NULL,
       usuario_id VARCHAR(36) NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `)
+
+  const attachmentColumns = await query<any[]>(
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'proposta_anexos'
+       AND COLUMN_NAME = 'conteudo'`
+  )
+
+  if (!attachmentColumns.length) {
+    await query(`ALTER TABLE proposta_anexos ADD COLUMN conteudo LONGBLOB NULL AFTER tamanho`)
+  }
 
   await query(`
     CREATE TABLE IF NOT EXISTS proposta_comentarios (

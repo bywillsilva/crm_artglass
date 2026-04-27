@@ -140,8 +140,8 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
   const { data: publicCompanyConfig } = useSWR('/api/configuracoes?chave=empresa', fetcher, {
     revalidateOnFocus: true,
     revalidateOnReconnect: true,
-    refreshInterval: 2000,
-    dedupingInterval: 1000,
+    refreshInterval: 15000,
+    dedupingInterval: 10000,
     errorRetryCount: 0,
     shouldRetryOnError: false,
   })

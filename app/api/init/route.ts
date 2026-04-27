@@ -113,6 +113,7 @@ export async function POST() {
         caminho VARCHAR(500) NOT NULL,
         tipo_mime VARCHAR(150) NOT NULL,
         tamanho BIGINT NOT NULL DEFAULT 0,
+        conteudo LONGBLOB NULL,
         usuario_id VARCHAR(36) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )

@@ -3,7 +3,7 @@ import { invalidateRuntimeCache } from '@/lib/server/runtime-cache'
 
 const REALTIME_SCHEMA_CACHE_MS = 60 * 60 * 1000
 const REALTIME_VERSION_CACHE_MS = Math.max(
-  Number(process.env.REALTIME_VERSION_CACHE_MS || 1000),
+  Number(process.env.REALTIME_VERSION_CACHE_MS || 2000),
   1000
 )
 

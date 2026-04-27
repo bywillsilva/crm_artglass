@@ -315,16 +315,18 @@ function normalizeProposta(row: JsonRecord): Proposta {
 
 function normalizeInteracao(row: JsonRecord): Interacao {
   const tipo = (row.tipo ?? 'email') as TipoInteracao
+  const parsedDados =
+    typeof row.dados === 'string'
+      ? parseJsonObject(row.dados)
+      : row.dados ?? null
+
   return {
     id: row.id,
     clienteId: row.clienteId ?? row.cliente_id ?? '',
     tipo,
     descricao: row.descricao ?? '',
     usuarioId: row.usuarioId ?? row.usuario_id ?? '',
-    dados:
-      typeof row.dados === 'string'
-        ? JSON.parse(row.dados || 'null')
-        : row.dados ?? null,
+    dados: parsedDados,
     criadoEm: toDate(row.criadoEm ?? row.created_at),
   }
 }
@@ -344,7 +346,7 @@ async function parseResponseBody(res: Response) {
 }
 
 const fetcher = async (url: string) => {
-  const res = await fetch(url, { cache: 'no-store' })
+  const res = await fetch(url)
   const data = await parseResponseBody(res)
 
   if (!res.ok) {
@@ -359,10 +361,7 @@ const fetcher = async (url: string) => {
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    cache: 'no-store',
-    ...init,
-  })
+  const res = await fetch(url, init)
   const data = await parseResponseBody(res)
 
   if (!res.ok) {
@@ -1045,10 +1044,10 @@ export function useRealtimeSync(enabled = true) {
     fetcher,
     {
       ...READ_ONLY_SWR_OPTIONS,
-      refreshInterval: 1000,
+      refreshInterval: 2000,
       revalidateOnFocus: true,
       revalidateOnReconnect: true,
-      dedupingInterval: 1000,
+      dedupingInterval: 2000,
     }
   )
 

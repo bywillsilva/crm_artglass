@@ -4,7 +4,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { getServerSession } from '@/lib/auth/session'
-import { deleteStoredFiles, resolveStoredProposalFilePath } from '@/lib/server/proposal-files'
+import {
+  deleteStoredFiles,
+  resolveStoredProposalFilePath,
+  toStoredRelativeProposalPath,
+} from '@/lib/server/proposal-files'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { invalidateRuntimeCache } from '@/lib/server/runtime-cache'
 import {
@@ -61,6 +65,24 @@ async function touchProposalUpdatedAt(propostaId: string) {
   await query('UPDATE propostas SET updated_at = NOW() WHERE id = ?', [propostaId])
 }
 
+async function backfillAttachmentStorage(
+  attachmentId: string,
+  propostaId: string,
+  nomeArquivo: string | null | undefined,
+  fileBuffer: Buffer
+) {
+  const nextPath = nomeArquivo
+    ? toStoredRelativeProposalPath(propostaId, String(nomeArquivo))
+    : null
+
+  await query(
+    `UPDATE proposta_anexos
+     SET conteudo = ?, caminho = COALESCE(?, caminho)
+     WHERE id = ?`,
+    [fileBuffer, nextPath, attachmentId]
+  )
+}
+
 async function resolveStoredAttachmentPath(propostaId: string, attachment: any) {
   const legacyFileNameFromPath =
     typeof attachment.caminho === 'string' && attachment.caminho.trim()
@@ -112,7 +134,7 @@ export async function GET(
     }
 
     const [attachment] = await query<any[]>(
-      `SELECT id, proposta_id, caminho, nome_arquivo, nome_original, tipo_mime
+      `SELECT id, proposta_id, caminho, nome_arquivo, nome_original, tipo_mime, conteudo
        FROM proposta_anexos
        WHERE id = ?
        LIMIT 1`,
@@ -123,12 +145,28 @@ export async function GET(
       return NextResponse.json({ error: 'Anexo nao encontrado' }, { status: 404 })
     }
 
+    let fileBuffer: Buffer | null = null
     const resolvedPath = await resolveStoredAttachmentPath(id, attachment)
-    if (!resolvedPath) {
+    if (resolvedPath) {
+      fileBuffer = await fs.readFile(resolvedPath)
+      if (!attachment.conteudo) {
+        await backfillAttachmentStorage(
+          attachment.id,
+          id,
+          attachment.nome_arquivo,
+          fileBuffer
+        )
+      }
+    } else if (attachment.conteudo) {
+      fileBuffer = Buffer.isBuffer(attachment.conteudo)
+        ? attachment.conteudo
+        : Buffer.from(attachment.conteudo)
+    }
+
+    if (!fileBuffer) {
       return NextResponse.json({ error: 'Arquivo do anexo nao foi encontrado no servidor' }, { status: 404 })
     }
 
-    const fileBuffer = await fs.readFile(resolvedPath)
     const fileName = buildAttachmentFileName(attachment)
 
     return new NextResponse(fileBuffer, {
