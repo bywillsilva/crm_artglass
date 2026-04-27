@@ -344,7 +344,7 @@ async function parseResponseBody(res: Response) {
 }
 
 const fetcher = async (url: string) => {
-  const res = await fetch(url)
+  const res = await fetch(url, { cache: 'no-store' })
   const data = await parseResponseBody(res)
 
   if (!res.ok) {
@@ -359,7 +359,10 @@ const fetcher = async (url: string) => {
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init)
+  const res = await fetch(url, {
+    cache: 'no-store',
+    ...init,
+  })
   const data = await parseResponseBody(res)
 
   if (!res.ok) {
@@ -1042,10 +1045,10 @@ export function useRealtimeSync(enabled = true) {
     fetcher,
     {
       ...READ_ONLY_SWR_OPTIONS,
-      refreshInterval: 1500,
+      refreshInterval: 1000,
       revalidateOnFocus: true,
       revalidateOnReconnect: true,
-      dedupingInterval: 1500,
+      dedupingInterval: 1000,
     }
   )
 

@@ -17,6 +17,68 @@ const CRM_BOOTSTRAP_CACHE_TTL_MS = Math.max(
 const BOOTSTRAP_SECTIONS = ['clientes', 'usuarios', 'tarefas', 'propostas'] as const
 type BootstrapSection = (typeof BOOTSTRAP_SECTIONS)[number]
 
+const BOOTSTRAP_CLIENT_SELECT_COLUMNS = `
+  c.id,
+  c.nome,
+  c.cpf,
+  c.telefone,
+  c.email,
+  c.empresa,
+  c.cargo,
+  c.endereco,
+  c.cidade,
+  c.estado,
+  c.cep,
+  c.origem,
+  c.observacoes,
+  c.status_funil,
+  c.responsavel_id,
+  c.created_at,
+  c.updated_at
+`
+
+const BOOTSTRAP_TASK_SELECT_COLUMNS = `
+  t.id,
+  t.titulo,
+  t.descricao,
+  t.tipo,
+  t.data_hora,
+  t.status,
+  t.cliente_id,
+  t.responsavel_id,
+  t.proposta_id,
+  t.automacao_etapa,
+  t.origem,
+  t.created_at,
+  t.updated_at,
+  COALESCE(t.cliente_id, p.cliente_id) as cliente_id_resolvido
+`
+
+const BOOTSTRAP_PROPOSAL_SELECT_COLUMNS = `
+  p.id,
+  p.numero,
+  p.cliente_id,
+  p.responsavel_id,
+  p.orcamentista_id,
+  p.retificacoes_count,
+  p.titulo,
+  p.descricao,
+  p.valor,
+  p.desconto,
+  p.valor_final,
+  p.status,
+  p.validade,
+  p.follow_up_base_at,
+  p.follow_up_time,
+  p.created_at,
+  p.updated_at,
+  c.nome as cliente_nome,
+  u.nome as responsavel_nome,
+  o.nome as orcamentista_nome,
+  COALESCE(pa.anexos_count, 0) as anexos_count,
+  COALESCE(pc.comentarios_count, 0) as comentarios_count
+`
+
 function parseSectionsParam(request: Request) {
   const url = new URL(request.url)
   const rawSections = url.searchParams.get('sections')
@@ -62,22 +124,7 @@ export async function GET(request: Request) {
               section,
               await query<any[]>(
                  `SELECT
-                    c.id,
-                    c.nome,
-                    c.cpf,
-                    c.telefone,
-                    c.email,
-                    c.empresa,
-                   c.cargo,
-                   c.endereco,
-                   c.cidade,
-                   c.estado,
-                    c.cep,
-                    c.origem,
-                    c.observacoes,
-                    c.status_funil,
-                    c.created_at,
-                    c.updated_at
+                    ${BOOTSTRAP_CLIENT_SELECT_COLUMNS}
                   FROM clientes c
                  ORDER BY c.created_at DESC`
               ),
@@ -95,15 +142,10 @@ export async function GET(request: Request) {
             return [
               section,
               await query<any[]>(
-                `SELECT
-                   t.*,
-                   COALESCE(t.cliente_id, p.cliente_id) as cliente_id_resolvido,
-                   c.nome as cliente_nome,
-                   u.nome as responsavel_nome
+                 `SELECT
+                   ${BOOTSTRAP_TASK_SELECT_COLUMNS}
                  FROM tarefas t
                  LEFT JOIN propostas p ON t.proposta_id = p.id
-                 LEFT JOIN clientes c ON COALESCE(t.cliente_id, p.cliente_id) = c.id
-                 LEFT JOIN usuarios u ON t.responsavel_id = u.id
                  WHERE ${isAdmin ? '1=1' : 't.responsavel_id = ?'}
                  ORDER BY t.data_hora ASC`,
                 isAdmin ? [] : [authenticatedUser.id]
@@ -113,13 +155,8 @@ export async function GET(request: Request) {
             return [
               section,
               await query<any[]>(
-                `SELECT
-                   p.*,
-                   c.nome as cliente_nome,
-                   u.nome as responsavel_nome,
-                   o.nome as orcamentista_nome,
-                   COALESCE(pa.anexos_count, 0) as anexos_count,
-                   COALESCE(pc.comentarios_count, 0) as comentarios_count
+                 `SELECT
+                   ${BOOTSTRAP_PROPOSAL_SELECT_COLUMNS}
                  FROM propostas p
                  LEFT JOIN clientes c ON p.cliente_id = c.id
                  LEFT JOIN usuarios u ON p.responsavel_id = u.id

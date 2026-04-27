@@ -412,7 +412,7 @@ export function ProposalDetailsSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-5xl">
+      <SheetContent side="right" className="w-full overflow-x-hidden sm:max-w-5xl">
         <SheetHeader>
           <SheetTitle>Detalhes da Proposta</SheetTitle>
           <SheetDescription>
@@ -421,23 +421,23 @@ export function ProposalDetailsSheet({
         </SheetHeader>
 
         {propostaSource ? (
-          <div className="grid flex-1 gap-6 overflow-y-auto px-4 pb-4 lg:grid-cols-[1.05fr_0.95fr] lg:overflow-hidden">
-            <ScrollArea className="h-auto pr-0 lg:h-[calc(100vh-9rem)] lg:pr-4">
-              <div className="space-y-6">
-                <div className="space-y-3 rounded-xl border border-border bg-card p-4">
+          <div className="grid min-w-0 flex-1 gap-4 overflow-x-hidden overflow-y-auto px-3 pb-4 sm:px-4 lg:grid-cols-[1.05fr_0.95fr] lg:gap-6 lg:overflow-hidden">
+            <ScrollArea className="h-auto min-w-0 pr-0 lg:h-[calc(100vh-9rem)] lg:pr-4">
+              <div className="min-w-0 space-y-4 sm:space-y-6">
+                <div className="min-w-0 space-y-3 rounded-xl border border-border bg-card p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
+                    <div className="min-w-0">
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">
                         {propostaSource.numero || 'Proposta Comercial'}
                       </p>
-                      <h3 className="text-xl font-semibold text-foreground">
+                      <h3 className="break-words text-xl font-semibold text-foreground">
                         {propostaSource.titulo || 'Proposta Comercial'}
                       </h3>
-                      <p className="mt-1 text-sm text-muted-foreground">
+                      <p className="mt-1 break-words text-sm text-muted-foreground">
                         Cliente: {propostaSource.clienteNome || 'Nao informado'}
                       </p>
                     </div>
-                    <Badge variant="outline" className={statusPropostaColors[propostaSource.status]}>
+                    <Badge variant="outline" className={`max-w-full whitespace-normal break-words text-center ${statusPropostaColors[propostaSource.status]}`}>
                       {statusPropostaLabels[propostaSource.status]}
                     </Badge>
                   </div>
@@ -453,7 +453,7 @@ export function ProposalDetailsSheet({
                   )}
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid min-w-0 gap-4 md:grid-cols-2">
                   <InfoCard
                     title="Vendedor Responsavel"
                     value={propostaSource.responsavelNome || '-'}
@@ -481,7 +481,7 @@ export function ProposalDetailsSheet({
                   />
                 </div>
 
-                <div className="space-y-3 rounded-xl border border-border bg-card p-4">
+                <div className="min-w-0 space-y-3 rounded-xl border border-border bg-card p-4">
                   <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                     <CalendarClock className="h-4 w-4 text-muted-foreground" />
                     Linha do tempo
@@ -495,7 +495,7 @@ export function ProposalDetailsSheet({
                   </div>
                 </div>
 
-                <div className="space-y-3 rounded-xl border border-border bg-card p-4">
+                <div className="min-w-0 space-y-3 rounded-xl border border-border bg-card p-4">
                   <div className="flex items-center gap-2 text-sm font-medium text-foreground">
                     <Paperclip className="h-4 w-4 text-muted-foreground" />
                     Anexos
@@ -508,10 +508,10 @@ export function ProposalDetailsSheet({
                           href={buildAttachmentHref(anexo.id)}
                           target="_blank"
                           rel="noreferrer"
-                          className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm text-foreground transition hover:bg-secondary/30"
+                          className="flex min-w-0 items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition hover:bg-secondary/30"
                         >
-                          <span className="truncate">{anexo.nome}</span>
-                          <div className="ml-3 flex items-center gap-2">
+                          <span className="min-w-0 flex-1 break-words">{anexo.nome}</span>
+                          <div className="ml-0 shrink-0 flex items-center gap-2">
                             <span className="text-xs text-muted-foreground">
                               {Math.max(1, Math.round(anexo.tamanho / 1024))} KB
                             </span>
@@ -557,7 +557,7 @@ export function ProposalDetailsSheet({
               </div>
 
               <ScrollArea className="min-h-0 flex-1 px-4 py-4">
-                <div className="space-y-4">
+                <div className="min-w-0 space-y-4">
                   {propostaSource.comentarios?.length ? (
                     propostaSource.comentarios.map((item) => {
                       const canManageComment =
@@ -608,7 +608,7 @@ export function ProposalDetailsSheet({
                                 onChange={(event) => setEditingComment(event.target.value)}
                                 placeholder="Atualize o comentario..."
                               />
-                              <div className="flex justify-end gap-2">
+                                <div className="flex flex-wrap justify-end gap-2">
                                 <Button
                                   type="button"
                                   variant="outline"
@@ -652,21 +652,22 @@ export function ProposalDetailsSheet({
 
               <Separator />
 
-              <div className="space-y-3 px-4 py-4">
+                <div className="min-w-0 space-y-3 px-4 py-4">
                 <Textarea
                   rows={4}
                   placeholder="Adicionar comentario..."
                   value={newComment}
                   onChange={(event) => setNewComment(event.target.value)}
                 />
-                <div className="flex justify-end">
-                  <Button
-                    type="button"
-                    onClick={() => void handleCreateComment()}
-                    disabled={isSubmitting || !newComment.trim()}
-                  >
-                    <Send className="mr-2 h-4 w-4" />
-                    Registrar comentario
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      onClick={() => void handleCreateComment()}
+                      disabled={isSubmitting || !newComment.trim()}
+                      className="max-w-full whitespace-normal text-right"
+                    >
+                      <Send className="mr-2 h-4 w-4" />
+                      Registrar comentario
                   </Button>
                 </div>
               </div>
@@ -706,10 +707,10 @@ function InfoCard({
   subtitle: string
 }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-4">
+    <div className="min-w-0 rounded-xl border border-border bg-card p-4">
       <p className="text-xs uppercase tracking-wide text-muted-foreground">{title}</p>
-      <p className="mt-2 text-base font-semibold text-foreground">{value}</p>
-      <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
+      <p className="mt-2 break-words text-base font-semibold text-foreground">{value}</p>
+      <p className="mt-1 break-words text-sm text-muted-foreground">{subtitle}</p>
     </div>
   )
 }

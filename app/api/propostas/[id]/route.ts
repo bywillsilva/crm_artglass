@@ -25,6 +25,31 @@ const PROPOSTA_DETAIL_CACHE_TTL_MS = Math.max(
   1000
 )
 
+const PROPOSAL_BASE_SELECT_COLUMNS = `
+  p.id,
+  p.numero,
+  p.cliente_id,
+  p.responsavel_id,
+  p.orcamentista_id,
+  p.retificacoes_count,
+  p.titulo,
+  p.descricao,
+  p.valor,
+  p.desconto,
+  p.valor_final,
+  p.status,
+  p.validade,
+  p.servicos,
+  p.condicoes,
+  p.follow_up_base_at,
+  p.follow_up_time,
+  p.created_at,
+  p.updated_at,
+  c.nome as cliente_nome,
+  u.nome as responsavel_nome,
+  o.nome as orcamentista_nome
+`
+
 type ProposalPayload = {
   titulo?: string
   descricao?: string
@@ -289,7 +314,7 @@ async function getAuthenticatedUser() {
 
 async function getProposal(id: string) {
   const [proposta] = await query<any[]>(
-    `SELECT p.*, c.nome as cliente_nome, u.nome as responsavel_nome, o.nome as orcamentista_nome
+    `SELECT ${PROPOSAL_BASE_SELECT_COLUMNS}
      FROM propostas p
      LEFT JOIN clientes c ON p.cliente_id = c.id
      LEFT JOIN usuarios u ON p.responsavel_id = u.id
@@ -305,9 +330,10 @@ async function getProposalAttachments(id: string) {
   return query<ProposalAttachmentRecord[]>(
     `SELECT id, nome_original, tipo_mime
      FROM proposta_anexos
-     WHERE proposta_id = ?`,
-    [id]
-  )
+     WHERE proposta_id = ?
+     ORDER BY created_at DESC`,
+     [id]
+   )
 }
 
 async function getProposalDetailPayload(id: string) {

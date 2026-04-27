@@ -137,6 +137,14 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
     errorRetryCount: 0,
     shouldRetryOnError: false,
   })
+  const { data: publicCompanyConfig } = useSWR('/api/configuracoes?chave=empresa', fetcher, {
+    revalidateOnFocus: true,
+    revalidateOnReconnect: true,
+    refreshInterval: 2000,
+    dedupingInterval: 1000,
+    errorRetryCount: 0,
+    shouldRetryOnError: false,
+  })
   const { setTheme } = useTheme()
   const { user } = useSession()
 
@@ -164,6 +172,17 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
     setAppearance(parseJson(configMap.get('aparencia'), defaultAppearance))
     setCompany(normalizeCompanySettings(parseJson(configMap.get('empresa'), defaultCompany)))
   }, [data])
+
+  useEffect(() => {
+    if (!publicCompanyConfig || Array.isArray(publicCompanyConfig)) return
+    if ((publicCompanyConfig as ConfiguracaoRecord).chave !== 'empresa') return
+
+    setCompany(
+      normalizeCompanySettings(
+        parseJson((publicCompanyConfig as ConfiguracaoRecord).valor, defaultCompany)
+      )
+    )
+  }, [publicCompanyConfig])
 
   useEffect(() => {
     const nextTheme =

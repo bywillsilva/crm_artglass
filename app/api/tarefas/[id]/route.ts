@@ -15,6 +15,23 @@ const TAREFA_DETAIL_CACHE_TTL_MS = Math.max(
   1000
 )
 
+const TASK_SELECT_COLUMNS = `
+  t.id,
+  t.titulo,
+  t.descricao,
+  t.tipo,
+  t.data_hora,
+  t.status,
+  t.cliente_id,
+  t.responsavel_id,
+  t.proposta_id,
+  t.automacao_etapa,
+  t.origem,
+  t.created_at,
+  t.updated_at,
+  COALESCE(t.cliente_id, p.cliente_id) as cliente_id_resolvido
+`
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -37,14 +54,9 @@ export async function GET(
 
     const [tarefa] = await query<any[]>(
       `SELECT
-         t.*,
-         COALESCE(t.cliente_id, p.cliente_id) as cliente_id_resolvido,
-         c.nome as cliente_nome,
-         u.nome as responsavel_nome
+         ${TASK_SELECT_COLUMNS}
        FROM tarefas t
        LEFT JOIN propostas p ON t.proposta_id = p.id
-       LEFT JOIN clientes c ON COALESCE(t.cliente_id, p.cliente_id) = c.id
-       LEFT JOIN usuarios u ON t.responsavel_id = u.id
        WHERE t.id = ?`,
       [id]
     )
@@ -93,7 +105,21 @@ export async function PUT(
 
     const { id } = await params
     const data = await request.json()
-    const [tarefaAtual] = await query<any[]>('SELECT * FROM tarefas WHERE id = ?', [id])
+    const [tarefaAtual] = await query<any[]>(
+      `SELECT
+         t.id,
+         t.titulo,
+         t.descricao,
+         t.tipo,
+         t.data_hora,
+         t.status,
+         t.cliente_id,
+         t.responsavel_id,
+         t.proposta_id
+       FROM tarefas t
+       WHERE t.id = ?`,
+      [id]
+    )
 
     if (!tarefaAtual) {
       return NextResponse.json({ error: 'Tarefa nao encontrada' }, { status: 404 })
@@ -152,7 +178,14 @@ export async function PUT(
       action: 'updated',
     })
 
-    const [tarefa] = await query<any[]>('SELECT * FROM tarefas WHERE id = ?', [id])
+    const [tarefa] = await query<any[]>(
+      `SELECT
+         ${TASK_SELECT_COLUMNS}
+       FROM tarefas t
+       LEFT JOIN propostas p ON t.proposta_id = p.id
+       WHERE t.id = ?`,
+      [id]
+    )
     return NextResponse.json(tarefa)
   } catch (error) {
     console.error('Erro ao atualizar tarefa:', error)
@@ -174,7 +207,19 @@ export async function PATCH(
 
     const { id } = await params
     const data = await request.json()
-    const [tarefaAtual] = await query<any[]>('SELECT * FROM tarefas WHERE id = ?', [id])
+    const [tarefaAtual] = await query<any[]>(
+      `SELECT
+         t.id,
+         t.titulo,
+         t.descricao,
+         t.data_hora,
+         t.status,
+         t.cliente_id,
+         t.responsavel_id
+       FROM tarefas t
+       WHERE t.id = ?`,
+      [id]
+    )
 
     if (!tarefaAtual) {
       return NextResponse.json({ error: 'Tarefa nao encontrada' }, { status: 404 })
@@ -222,7 +267,14 @@ export async function PATCH(
       })
     }
 
-    const [tarefa] = await query<any[]>('SELECT * FROM tarefas WHERE id = ?', [id])
+    const [tarefa] = await query<any[]>(
+      `SELECT
+         ${TASK_SELECT_COLUMNS}
+       FROM tarefas t
+       LEFT JOIN propostas p ON t.proposta_id = p.id
+       WHERE t.id = ?`,
+      [id]
+    )
     return NextResponse.json(tarefa)
   } catch (error) {
     console.error('Erro ao atualizar tarefa:', error)

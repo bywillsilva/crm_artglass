@@ -11,6 +11,26 @@ const CLIENTE_DETAIL_CACHE_TTL_MS = Math.max(
   1000
 )
 
+const CLIENT_SELECT_COLUMNS = `
+  c.id,
+  c.nome,
+  c.cpf,
+  c.email,
+  c.telefone,
+  c.empresa,
+  c.cargo,
+  c.endereco,
+  c.cidade,
+  c.estado,
+  c.cep,
+  c.origem,
+  c.status_funil,
+  c.observacoes,
+  c.responsavel_id,
+  c.created_at,
+  c.updated_at
+`
+
 function hasOwn(data: Record<string, unknown>, key: string) {
   return Object.prototype.hasOwnProperty.call(data, key)
 }
@@ -65,7 +85,7 @@ export async function GET(
     }
 
     const [cliente] = await query<any[]>(
-      `SELECT c.*
+      `SELECT ${CLIENT_SELECT_COLUMNS}
        FROM clientes c
        WHERE c.id = ?`,
       [id]
@@ -203,7 +223,12 @@ export async function PUT(
       resourceId: id,
     })
 
-    const [cliente] = await query<any[]>('SELECT * FROM clientes WHERE id = ?', [id])
+    const [cliente] = await query<any[]>(
+      `SELECT ${CLIENT_SELECT_COLUMNS}
+       FROM clientes c
+       WHERE c.id = ?`,
+      [id]
+    )
     invalidateRuntimeCache('clientes:list:')
     invalidateRuntimeCache(`cliente:detail:${id}`)
     invalidateRuntimeCache('crm-bootstrap:')

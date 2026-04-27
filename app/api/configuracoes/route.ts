@@ -15,6 +15,8 @@ const GLOBAL_KEYS = ['empresa', 'funil']
 const CONFIG_SCHEMA_CACHE_MS = 60 * 60 * 1000
 const CONFIG_CACHE_TTL_MS = Math.max(Number(process.env.CONFIG_CACHE_TTL_MS || 30_000), 1000)
 
+const CONFIG_SELECT_COLUMNS = 'id, chave, scope, user_id, valor'
+
 let configuracoesSchemaCheckedAt = 0
 let configuracoesSchemaPromise: Promise<void> | null = null
 
@@ -89,16 +91,27 @@ export async function GET(request: NextRequest) {
       const scopedCacheKey = `config:${chave}:${GLOBAL_KEYS.includes(chave) ? 'global' : (user?.id || 'anon')}`
       const cachedConfig = getRuntimeCache<any>(scopedCacheKey)
       if (cachedConfig !== undefined) {
-        return NextResponse.json(cachedConfig)
+        return NextResponse.json(cachedConfig, {
+          headers: {
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          },
+        })
       }
 
       if (GLOBAL_KEYS.includes(chave)) {
         const [config] = await query<any[]>(
-          `SELECT * FROM configuracoes WHERE chave = ? AND scope = 'global' AND user_id = '' LIMIT 1`,
+          `SELECT ${CONFIG_SELECT_COLUMNS}
+           FROM configuracoes
+           WHERE chave = ? AND scope = 'global' AND user_id = ''
+           LIMIT 1`,
           [chave]
         )
         setRuntimeCache(scopedCacheKey, config || null, CONFIG_CACHE_TTL_MS)
-        return NextResponse.json(config || null)
+        return NextResponse.json(config || null, {
+          headers: {
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          },
+        })
       }
 
       if (!user) {
@@ -106,7 +119,7 @@ export async function GET(request: NextRequest) {
       }
 
       const [config] = await query<any[]>(
-        `SELECT *
+        `SELECT ${CONFIG_SELECT_COLUMNS}
          FROM configuracoes
          WHERE chave = ?
            AND (
@@ -118,7 +131,11 @@ export async function GET(request: NextRequest) {
         [chave, user.id]
       )
       setRuntimeCache(scopedCacheKey, config || null, CONFIG_CACHE_TTL_MS)
-      return NextResponse.json(config || null)
+      return NextResponse.json(config || null, {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        },
+      })
     }
 
     if (!user) {
@@ -128,11 +145,15 @@ export async function GET(request: NextRequest) {
     const listCacheKey = `config:list:${user.id}`
     const cachedConfigs = getRuntimeCache<any[]>(listCacheKey)
     if (cachedConfigs !== undefined) {
-      return NextResponse.json(cachedConfigs)
+      return NextResponse.json(cachedConfigs, {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        },
+      })
     }
 
     const configs = await query<any[]>(
-      `SELECT *
+      `SELECT ${CONFIG_SELECT_COLUMNS}
        FROM configuracoes
        WHERE (chave = 'empresa' AND scope = 'global' AND user_id = '')
           OR (chave IN ('geral', 'notificacoes', 'aparencia') AND (
@@ -152,12 +173,20 @@ export async function GET(request: NextRequest) {
 
     const payload = Array.from(byKey.values())
     setRuntimeCache(listCacheKey, payload, CONFIG_CACHE_TTL_MS)
-    return NextResponse.json(payload)
+    return NextResponse.json(payload, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      },
+    })
   } catch (error) {
     if (!isTransientDatabaseError(error)) {
       logDatabaseError('Erro ao buscar configuracoes', error)
     }
-    return NextResponse.json([])
+    return NextResponse.json([], {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      },
+    })
   }
 }
 
@@ -184,7 +213,10 @@ export async function POST(request: NextRequest) {
     const userId = isCompanyConfig ? '' : user.id
 
     const [existing] = await query<any[]>(
-      'SELECT * FROM configuracoes WHERE chave = ? AND scope = ? AND user_id = ? LIMIT 1',
+      `SELECT ${CONFIG_SELECT_COLUMNS}
+       FROM configuracoes
+       WHERE chave = ? AND scope = ? AND user_id = ?
+       LIMIT 1`,
       [data.chave, scope, userId]
     )
 
@@ -201,7 +233,10 @@ export async function POST(request: NextRequest) {
     }
 
     const [config] = await query<any[]>(
-      'SELECT * FROM configuracoes WHERE chave = ? AND scope = ? AND user_id = ? LIMIT 1',
+      `SELECT ${CONFIG_SELECT_COLUMNS}
+       FROM configuracoes
+       WHERE chave = ? AND scope = ? AND user_id = ?
+       LIMIT 1`,
       [data.chave, scope, userId]
     )
 

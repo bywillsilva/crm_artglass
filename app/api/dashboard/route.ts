@@ -5,6 +5,33 @@ import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 
 const DASHBOARD_CACHE_TTL_MS = Math.max(Number(process.env.DASHBOARD_CACHE_TTL_MS || 20_000), 1000)
 
+const DASHBOARD_TASK_SELECT_COLUMNS = `
+  t.id,
+  t.titulo,
+  t.data_hora,
+  t.cliente_id,
+  COALESCE(t.cliente_id, p.cliente_id) as cliente_id_resolvido,
+  c.nome as cliente_nome
+`
+
+const DASHBOARD_CLIENT_ALERT_SELECT_COLUMNS = `
+  c.id,
+  c.nome,
+  c.status_funil,
+  c.updated_at
+`
+
+const DASHBOARD_PROPOSAL_ALERT_SELECT_COLUMNS = `
+  p.id,
+  p.numero,
+  p.cliente_id,
+  p.valor,
+  p.valor_final,
+  p.status,
+  p.updated_at,
+  c.nome as cliente_nome
+`
+
 async function getAuthenticatedUser() {
   return getAuthenticatedServerUser()
 }
@@ -162,14 +189,10 @@ export async function GET(request: NextRequest) {
       ),
       query<any[]>(
         `SELECT
-           t.*,
-           COALESCE(t.cliente_id, p.cliente_id) as cliente_id_resolvido,
-           c.nome as cliente_nome,
-           u.nome as responsavel_nome
+           ${DASHBOARD_TASK_SELECT_COLUMNS}
          FROM tarefas t
          LEFT JOIN propostas p ON t.proposta_id = p.id
          LEFT JOIN clientes c ON COALESCE(t.cliente_id, p.cliente_id) = c.id
-         LEFT JOIN usuarios u ON t.responsavel_id = u.id
          WHERE t.status <> 'concluida'${taskFilter}
          ORDER BY t.data_hora ASC
          LIMIT 10`,
@@ -177,12 +200,9 @@ export async function GET(request: NextRequest) {
       ),
       query<any[]>(
         `SELECT
-           t.*,
-           COALESCE(t.cliente_id, p.cliente_id) as cliente_id_resolvido,
-           c.nome as cliente_nome
+           t.id
          FROM tarefas t
          LEFT JOIN propostas p ON t.proposta_id = p.id
-         LEFT JOIN clientes c ON COALESCE(t.cliente_id, p.cliente_id) = c.id
          WHERE t.data_hora < NOW()
            AND t.status = 'pendente'${taskFilter}
          ORDER BY t.data_hora ASC`,
@@ -190,7 +210,7 @@ export async function GET(request: NextRequest) {
       ),
       query<any[]>(
         isAdmin
-          ? `SELECT DISTINCT c.*
+          ? `SELECT DISTINCT ${DASHBOARD_CLIENT_ALERT_SELECT_COLUMNS}
              FROM clientes c
              INNER JOIN propostas p
                ON p.cliente_id = c.id
@@ -204,7 +224,7 @@ export async function GET(request: NextRequest) {
                  AND t.data_hora BETWEEN ? AND ?
              )
              LIMIT 10`
-          : `SELECT DISTINCT c.*
+          : `SELECT DISTINCT ${DASHBOARD_CLIENT_ALERT_SELECT_COLUMNS}
              FROM clientes c
              INNER JOIN propostas p
                ON p.cliente_id = c.id
@@ -225,7 +245,7 @@ export async function GET(request: NextRequest) {
           : [user.id, startDateTime, endDateTime, user.id, startDateTime, endDateTime]
       ),
       query<any[]>(
-        `SELECT p.*, c.nome as cliente_nome
+        `SELECT ${DASHBOARD_PROPOSAL_ALERT_SELECT_COLUMNS}
          FROM propostas p
          LEFT JOIN clientes c ON p.cliente_id = c.id
          WHERE p.status IN ('novo_cliente', 'em_orcamento', 'aguardando_aprovacao', 'enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'aguardando_follow_up_3_dias', 'follow_up_3_dias', 'aguardando_follow_up_7_dias', 'follow_up_7_dias', 'stand_by', 'em_retificacao')${proposalAliasedFilter}

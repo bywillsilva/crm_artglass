@@ -51,10 +51,10 @@ export async function POST(request: NextRequest) {
     }
 
     const [pendingRegistration] = await query<any[]>(
-      `SELECT *
-       FROM email_verification_tokens
-       WHERE email = ?
-         AND token_hash = ?
+      `SELECT id, nome, email, senha_hash
+        FROM email_verification_tokens
+        WHERE email = ?
+          AND token_hash = ?
          AND used_at IS NULL
          AND expires_at > NOW()
        ORDER BY created_at DESC

@@ -19,6 +19,31 @@ import {
 
 const PROPOSTAS_CACHE_TTL_MS = Math.max(Number(process.env.PROPOSTAS_CACHE_TTL_MS || 30_000), 1000)
 
+const PROPOSAL_LIST_SELECT_COLUMNS = `
+  p.id,
+  p.numero,
+  p.cliente_id,
+  p.responsavel_id,
+  p.orcamentista_id,
+  p.retificacoes_count,
+  p.titulo,
+  p.descricao,
+  p.valor,
+  p.desconto,
+  p.valor_final,
+  p.status,
+  p.validade,
+  p.follow_up_base_at,
+  p.follow_up_time,
+  p.created_at,
+  p.updated_at,
+  c.nome as cliente_nome,
+  u.nome as responsavel_nome,
+  o.nome as orcamentista_nome,
+  COALESCE(pa.anexos_count, 0) as anexos_count,
+  COALESCE(pc.comentarios_count, 0) as comentarios_count
+`
+
 type ProposalPayload = {
   clienteId: string
   titulo?: string
@@ -285,12 +310,7 @@ export async function GET(request: NextRequest) {
 
     let sql = `
       SELECT
-        p.*,
-        c.nome as cliente_nome,
-        u.nome as responsavel_nome,
-        o.nome as orcamentista_nome,
-        COALESCE(pa.anexos_count, 0) as anexos_count,
-        COALESCE(pc.comentarios_count, 0) as comentarios_count
+        ${PROPOSAL_LIST_SELECT_COLUMNS}
       FROM propostas p
       LEFT JOIN clientes c ON p.cliente_id = c.id
       LEFT JOIN usuarios u ON p.responsavel_id = u.id
@@ -518,7 +538,16 @@ export async function POST(request: NextRequest) {
       resourceId: propostaId,
     })
 
-    const [proposta] = await query<any[]>('SELECT * FROM propostas WHERE id = ?', [propostaId])
+    const [proposta] = await query<any[]>(
+      `SELECT
+         p.id,
+         p.cliente_id,
+         p.status,
+         p.orcamentista_id
+       FROM propostas p
+       WHERE p.id = ?`,
+      [propostaId]
+    )
     return NextResponse.json(proposta, { status: 201 })
   } catch (error) {
     console.error('Erro ao criar proposta:', error)

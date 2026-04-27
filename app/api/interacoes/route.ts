@@ -8,6 +8,16 @@ import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/
 
 const INTERACOES_CACHE_TTL_MS = Math.max(Number(process.env.INTERACOES_CACHE_TTL_MS || 10_000), 1000)
 
+const INTERACTION_SELECT_COLUMNS = `
+  i.id,
+  i.cliente_id,
+  i.usuario_id,
+  i.tipo,
+  i.descricao,
+  i.dados,
+  i.created_at
+`
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const clienteId = searchParams.get('cliente_id')
@@ -31,7 +41,7 @@ export async function GET(request: NextRequest) {
     }
 
     let sql = `
-      SELECT i.*, u.nome as usuario_nome
+      SELECT ${INTERACTION_SELECT_COLUMNS}, u.nome as usuario_nome
       FROM interacoes i
       LEFT JOIN usuarios u ON i.usuario_id = u.id
       ${whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : ''}
@@ -95,7 +105,12 @@ export async function POST(request: NextRequest) {
     invalidateRuntimeCache(`interacoes:${data.clienteId || 'all'}:`)
     invalidateRuntimeCache('interacoes:all:')
 
-    const [interacao] = await query<any[]>('SELECT * FROM interacoes WHERE id = ?', [id])
+    const [interacao] = await query<any[]>(
+      `SELECT ${INTERACTION_SELECT_COLUMNS}
+       FROM interacoes i
+       WHERE i.id = ?`,
+      [id]
+    )
     return NextResponse.json(interacao, { status: 201 })
   } catch (error) {
     console.error('Erro ao criar interacao:', error)

@@ -12,6 +12,23 @@ import {
 
 const TAREFAS_CACHE_TTL_MS = Math.max(Number(process.env.TAREFAS_CACHE_TTL_MS || 30_000), 1000)
 
+const TASK_SELECT_COLUMNS = `
+  t.id,
+  t.titulo,
+  t.descricao,
+  t.tipo,
+  t.data_hora,
+  t.status,
+  t.cliente_id,
+  t.responsavel_id,
+  t.proposta_id,
+  t.automacao_etapa,
+  t.origem,
+  t.created_at,
+  t.updated_at,
+  COALESCE(t.cliente_id, p.cliente_id) as cliente_id_resolvido
+`
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const status = searchParams.get('status')
@@ -39,14 +56,9 @@ export async function GET(request: NextRequest) {
 
     let sql = `
       SELECT
-        t.*,
-        COALESCE(t.cliente_id, p.cliente_id) as cliente_id_resolvido,
-        c.nome as cliente_nome,
-        u.nome as responsavel_nome
+        ${TASK_SELECT_COLUMNS}
       FROM tarefas t
       LEFT JOIN propostas p ON t.proposta_id = p.id
-      LEFT JOIN clientes c ON COALESCE(t.cliente_id, p.cliente_id) = c.id
-      LEFT JOIN usuarios u ON t.responsavel_id = u.id
       WHERE 1=1
     `
     const params: unknown[] = []
@@ -162,7 +174,14 @@ export async function POST(request: NextRequest) {
       action: 'created',
     })
 
-    const [tarefa] = await query<any[]>('SELECT * FROM tarefas WHERE id = ?', [id])
+    const [tarefa] = await query<any[]>(
+      `SELECT
+         ${TASK_SELECT_COLUMNS}
+       FROM tarefas t
+       LEFT JOIN propostas p ON t.proposta_id = p.id
+       WHERE t.id = ?`,
+      [id]
+    )
     return NextResponse.json(tarefa, { status: 201 })
   } catch (error) {
     console.error('Erro ao criar tarefa:', error)

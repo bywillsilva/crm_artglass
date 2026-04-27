@@ -12,6 +12,26 @@ import {
 
 const CLIENTES_CACHE_TTL_MS = Math.max(Number(process.env.CLIENTES_CACHE_TTL_MS || 30_000), 1000)
 
+const CLIENT_SELECT_COLUMNS = `
+  c.id,
+  c.nome,
+  c.cpf,
+  c.telefone,
+  c.email,
+  c.empresa,
+  c.cargo,
+  c.endereco,
+  c.cidade,
+  c.estado,
+  c.cep,
+  c.origem,
+  c.observacoes,
+  c.status_funil,
+  c.responsavel_id,
+  c.created_at,
+  c.updated_at
+`
+
 function normalizeNullableText(value: unknown) {
   if (typeof value !== 'string') {
     return value == null ? null : String(value)
@@ -190,7 +210,7 @@ export async function GET(request: NextRequest) {
     }
 
     let sql = `
-      SELECT c.*
+      SELECT ${CLIENT_SELECT_COLUMNS}
       FROM clientes c
       WHERE 1=1
     `
@@ -319,7 +339,12 @@ export async function POST(request: NextRequest) {
       resourceId: id,
     })
 
-    const [cliente] = await query<any[]>('SELECT * FROM clientes WHERE id = ?', [id])
+    const [cliente] = await query<any[]>(
+      `SELECT ${CLIENT_SELECT_COLUMNS}
+       FROM clientes c
+       WHERE c.id = ?`,
+      [id]
+    )
     return NextResponse.json(cliente, { status: 201 })
   } catch (error) {
     if (connection) {
