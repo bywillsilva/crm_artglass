@@ -40,7 +40,7 @@ const READ_ONLY_SWR_OPTIONS = {
   revalidateOnReconnect: false,
   revalidateOnFocus: false,
   revalidateIfStale: false,
-  dedupingInterval: 30000,
+  dedupingInterval: 2000,
 } as const
 
 const REALTIME_REVALIDATE_PREFIXES = [
@@ -490,6 +490,17 @@ function updateCachedEntity(current: any, id: string, patch: JsonRecord) {
   return current
 }
 
+function mergeEntitySnapshot(current: any, patch: JsonRecord) {
+  if (!current || typeof current !== 'object' || Array.isArray(current)) {
+    return current
+  }
+
+  return {
+    ...current,
+    ...patch,
+  }
+}
+
 function compactObject<T extends JsonRecord>(value: T) {
   return Object.fromEntries(
     Object.entries(value).filter(([, entry]) => entry !== undefined)
@@ -549,6 +560,10 @@ function dedupeEntitiesById(items: JsonRecord[]) {
   }
 
   return deduped
+}
+
+function getUniqueEntities(items: unknown) {
+  return Array.isArray(items) ? dedupeEntitiesById(items as JsonRecord[]) : []
 }
 
 function mergeCachedEntities(current: any, incoming: JsonRecord[]) {
@@ -768,13 +783,13 @@ export function useCrmBootstrap(sections?: BootstrapCollectionKey[]) {
       : '/api/crm/bootstrap'
   const { data, error, isLoading, mutate: localMutate } = useSWR(key, fetcher, {
     ...READ_ONLY_SWR_OPTIONS,
-    dedupingInterval: 45000,
+    dedupingInterval: 2000,
   })
 
-  const clientes = useMemo(() => (data?.clientes || []).map(normalizeCliente), [data?.clientes])
-  const usuarios = useMemo(() => (data?.usuarios || []).map(normalizeUsuario), [data?.usuarios])
-  const tarefas = useMemo(() => (data?.tarefas || []).map(normalizeTarefa), [data?.tarefas])
-  const propostas = useMemo(() => (data?.propostas || []).map(normalizeProposta), [data?.propostas])
+  const clientes = useMemo(() => getUniqueEntities(data?.clientes).map(normalizeCliente), [data?.clientes])
+  const usuarios = useMemo(() => getUniqueEntities(data?.usuarios).map(normalizeUsuario), [data?.usuarios])
+  const tarefas = useMemo(() => getUniqueEntities(data?.tarefas).map(normalizeTarefa), [data?.tarefas])
+  const propostas = useMemo(() => getUniqueEntities(data?.propostas).map(normalizeProposta), [data?.propostas])
 
   return {
     clientes,
@@ -804,7 +819,7 @@ export function useClientes(params?: { status?: string; responsavel?: string; se
     ...READ_ONLY_SWR_OPTIONS,
     fallbackData,
   })
-  const clientes = useMemo(() => (data || []).map(normalizeCliente), [data])
+  const clientes = useMemo(() => getUniqueEntities(data).map(normalizeCliente), [data])
 
   return {
     clientes,
@@ -845,7 +860,7 @@ export function useTarefas(params?: { status?: string; tipo?: string; responsave
     ...READ_ONLY_SWR_OPTIONS,
     fallbackData,
   })
-  const tarefas = useMemo(() => (data || []).map(normalizeTarefa), [data])
+  const tarefas = useMemo(() => getUniqueEntities(data).map(normalizeTarefa), [data])
 
   return {
     tarefas,
@@ -871,7 +886,7 @@ export function usePropostas(params?: { status?: string; clienteId?: string }) {
     ...READ_ONLY_SWR_OPTIONS,
     fallbackData,
   })
-  const propostas = useMemo(() => (data || []).map(normalizeProposta), [data])
+  const propostas = useMemo(() => getUniqueEntities(data).map(normalizeProposta), [data])
 
   return {
     propostas,
@@ -888,6 +903,7 @@ export function useProposta(id: string | null) {
   const { data, error, isLoading } = useSWR(key, fetcher, {
     ...READ_ONLY_SWR_OPTIONS,
     fallbackData,
+    revalidateOnMount: true,
   })
   const proposta = useMemo(() => (data ? normalizeProposta(data) : undefined), [data])
 
@@ -912,7 +928,7 @@ export function useUsuarios(params?: { role?: string; ativo?: string }) {
     ...READ_ONLY_SWR_OPTIONS,
     fallbackData,
   })
-  const usuarios = useMemo(() => (data || []).map(normalizeUsuario), [data])
+  const usuarios = useMemo(() => getUniqueEntities(data).map(normalizeUsuario), [data])
 
   return {
     usuarios,
@@ -1419,7 +1435,7 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     follow_up_time: payload.followUpTime,
   })
 
-  await mutate(`/api/propostas/${id}`, (current) => updateCachedEntity(current, id, optimisticPatch), {
+  await mutate(`/api/propostas/${id}`, (current) => mergeEntitySnapshot(current, optimisticPatch), {
     revalidate: false,
   })
   await mutateEntityByPrefix('/api/propostas', id, optimisticPatch)
@@ -1432,7 +1448,9 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
       body,
     })
 
-    await mutate(`/api/propostas/${id}`, updated as JsonRecord, { revalidate: false })
+    await mutate(`/api/propostas/${id}`, (current) => mergeEntitySnapshot(current, updated as JsonRecord), {
+      revalidate: false,
+    })
     await mutateEntityByPrefix('/api/propostas', id, updated as JsonRecord)
     await patchBootstrapEntity('propostas', id, updated as JsonRecord)
     mutateByPrefix('/api/tarefas')

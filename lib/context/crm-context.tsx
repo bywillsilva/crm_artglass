@@ -116,6 +116,7 @@ export function CRMProvider({ children }: { children: ReactNode }) {
     const interacoesByClienteId = new Map<string, Interacao[]>()
     const tarefasByClienteId = new Map<string, Tarefa[]>()
     const propostasByClienteId = new Map<string, Proposta[]>()
+    const propostasById = new Map<string, Proposta>()
 
     for (const cliente of clientes) {
       clientesById.set(cliente.id, cliente)
@@ -123,6 +124,13 @@ export function CRMProvider({ children }: { children: ReactNode }) {
 
     for (const usuario of usuarios) {
       usuariosById.set(usuario.id, usuario)
+    }
+
+    for (const proposta of propostas) {
+      propostasById.set(proposta.id, proposta)
+      const grouped = propostasByClienteId.get(proposta.clienteId) || []
+      grouped.push(proposta)
+      propostasByClienteId.set(proposta.clienteId, grouped)
     }
 
     for (const interacao of interacoes) {
@@ -139,7 +147,7 @@ export function CRMProvider({ children }: { children: ReactNode }) {
       }
 
       if (tarefa.propostaId) {
-        const proposalClientId = propostas.find((proposta: Proposta) => proposta.id === tarefa.propostaId)?.clienteId
+        const proposalClientId = propostasById.get(tarefa.propostaId)?.clienteId
         if (proposalClientId) {
           relatedClienteIds.add(proposalClientId)
         }
@@ -150,12 +158,6 @@ export function CRMProvider({ children }: { children: ReactNode }) {
         grouped.push(tarefa)
         tarefasByClienteId.set(relatedClienteId, grouped)
       }
-    }
-
-    for (const proposta of propostas) {
-      const grouped = propostasByClienteId.get(proposta.clienteId) || []
-      grouped.push(proposta)
-      propostasByClienteId.set(proposta.clienteId, grouped)
     }
 
     for (const [clienteId, grouped] of interacoesByClienteId.entries()) {
