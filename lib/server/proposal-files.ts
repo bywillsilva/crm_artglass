@@ -18,6 +18,24 @@ function sanitizeFileName(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]/g, '_')
 }
 
+function toStoredRelativeProposalPath(propostaId: string, nomeArquivo: string) {
+  return path.posix.join('uploads', 'propostas', propostaId, nomeArquivo)
+}
+
+export function resolveStoredProposalFilePath(filePath: string | null | undefined) {
+  if (!filePath) return null
+
+  const normalized = String(filePath).trim()
+  if (!normalized) return null
+
+  if (path.isAbsolute(normalized)) {
+    return normalized
+  }
+
+  const withoutLeadingSlashes = normalized.replace(/^[/\\]+/, '')
+  return path.join(process.cwd(), 'public', withoutLeadingSlashes.replace(/\//g, path.sep))
+}
+
 export async function saveProposalFiles(propostaId: string, files: File[]) {
   if (!files.length) {
     return []
@@ -41,7 +59,7 @@ export async function saveProposalFiles(propostaId: string, files: File[]) {
       id: uuidv4(),
       nomeOriginal: file.name,
       nomeArquivo,
-      caminho: absolutePath,
+      caminho: toStoredRelativeProposalPath(propostaId, nomeArquivo),
       url: `/uploads/propostas/${propostaId}/${nomeArquivo}`,
       tipoMime: file.type || 'application/octet-stream',
       tamanho: file.size,
@@ -54,7 +72,12 @@ export async function saveProposalFiles(propostaId: string, files: File[]) {
 export async function deleteStoredFiles(paths: string[]) {
   for (const filePath of paths) {
     try {
-      await fs.unlink(filePath)
+      const resolvedPath = resolveStoredProposalFilePath(filePath)
+      if (!resolvedPath) {
+        continue
+      }
+
+      await fs.unlink(resolvedPath)
     } catch {
       // Ignore missing files during cleanup.
     }

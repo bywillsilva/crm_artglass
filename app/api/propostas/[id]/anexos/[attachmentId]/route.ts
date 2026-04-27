@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { getServerSession } from '@/lib/auth/session'
-import { deleteStoredFiles } from '@/lib/server/proposal-files'
+import { deleteStoredFiles, resolveStoredProposalFilePath } from '@/lib/server/proposal-files'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { invalidateRuntimeCache } from '@/lib/server/runtime-cache'
 import {
@@ -62,10 +62,18 @@ async function touchProposalUpdatedAt(propostaId: string) {
 }
 
 async function resolveStoredAttachmentPath(propostaId: string, attachment: any) {
+  const legacyFileNameFromPath =
+    typeof attachment.caminho === 'string' && attachment.caminho.trim()
+      ? basename(String(attachment.caminho))
+      : null
+
   const candidates = [
-    typeof attachment.caminho === 'string' ? attachment.caminho : null,
+    resolveStoredProposalFilePath(attachment.caminho),
     attachment.nome_arquivo
       ? path.join(process.cwd(), 'public', 'uploads', 'propostas', propostaId, String(attachment.nome_arquivo))
+      : null,
+    legacyFileNameFromPath
+      ? path.join(process.cwd(), 'public', 'uploads', 'propostas', propostaId, legacyFileNameFromPath)
       : null,
   ].filter((value): value is string => Boolean(value))
 
