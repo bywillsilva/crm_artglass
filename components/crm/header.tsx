@@ -107,7 +107,6 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
   const { state } = useCRM()
   const { notifications } = useAppSettings()
   const { user } = useSession()
-  const [notificationMenuOpen, setNotificationMenuOpen] = useState(false)
   const [shouldLoadProposalNotifications, setShouldLoadProposalNotifications] = useState(false)
   const {
     readNotificationIds,
@@ -441,9 +440,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
             )}
 
             <DropdownMenu
-              open={notificationMenuOpen}
               onOpenChange={(open) => {
-                setNotificationMenuOpen(open)
                 if (open) {
                   setShouldLoadProposalNotifications(true)
                 }
@@ -491,7 +488,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
                       {items.slice(0, 5).map((item) => (
                         <DropdownMenuItem
                           key={item.id}
-                          onClick={() => {
+                          onSelect={() => {
                             void markNotificationAsRead(item)
                             router.push(item.href)
                           }}
@@ -589,9 +586,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
           )}
 
           <DropdownMenu
-            open={notificationMenuOpen}
             onOpenChange={(open) => {
-              setNotificationMenuOpen(open)
               if (open) {
                 setShouldLoadProposalNotifications(true)
               }
@@ -639,7 +634,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
                     {items.slice(0, 5).map((item) => (
                       <DropdownMenuItem
                         key={item.id}
-                        onClick={() => {
+                        onSelect={() => {
                           void markNotificationAsRead(item)
                           router.push(item.href)
                         }}
