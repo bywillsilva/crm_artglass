@@ -38,6 +38,10 @@ async function getProposal(id: string) {
   return proposta
 }
 
+async function touchProposalUpdatedAt(propostaId: string) {
+  await query('UPDATE propostas SET updated_at = NOW() WHERE id = ?', [propostaId])
+}
+
 function canViewProposal(user: any, proposta: any) {
   if (user.role === 'admin' || user.role === 'gerente') return true
   if (user.role === 'vendedor') return proposta.responsavel_id === user.id
@@ -81,6 +85,7 @@ export async function POST(
        VALUES (?, ?, ?, ?)`,
       [commentId, id, user.id, comentario]
     )
+    await touchProposalUpdatedAt(id)
 
     await query(
       `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)

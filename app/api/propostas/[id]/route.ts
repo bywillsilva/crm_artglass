@@ -111,13 +111,13 @@ const SELLER_ALLOWED_TRANSITIONS: Partial<Record<ProposalWorkflowStatus, Proposa
 
 const ORCAMENTISTA_ALLOWED_TRANSITIONS: Partial<Record<ProposalWorkflowStatus, ProposalWorkflowStatus[]>> = {
   novo_cliente: ['em_orcamento'],
-  em_orcamento: ['aguardando_aprovacao', 'em_retificacao'],
+  em_orcamento: ['novo_cliente', 'aguardando_aprovacao', 'em_retificacao'],
   em_retificacao: ['aguardando_aprovacao', 'em_orcamento'],
 }
 
 const WORKFLOW_ALLOWED_TRANSITIONS: Partial<Record<ProposalWorkflowStatus, ProposalWorkflowStatus[]>> = {
   novo_cliente: ['em_orcamento'],
-  em_orcamento: ['aguardando_aprovacao', 'em_retificacao'],
+  em_orcamento: ['novo_cliente', 'aguardando_aprovacao', 'em_retificacao'],
   em_retificacao: ['aguardando_aprovacao', 'em_orcamento'],
   aguardando_aprovacao: ['enviar_ao_cliente', 'em_retificacao'],
   enviar_ao_cliente: ['enviado_ao_cliente', 'aguardando_aprovacao', 'em_retificacao', 'em_orcamento'],
@@ -373,6 +373,10 @@ function isTransitionAllowed(user: any, currentStatus: ProposalWorkflowStatus, n
   }
 
   if (user.role === 'gerente') {
+    if (currentStatus === 'aguardando_aprovacao') {
+      return nextStatus === 'em_retificacao'
+    }
+
     if (currentStatus === 'enviar_ao_cliente') {
       return nextStatus === 'enviado_ao_cliente'
     }
@@ -615,7 +619,7 @@ export async function PUT(
       }
     }
 
-    if (previousStatus === 'aguardando_aprovacao' && nextStatus === 'enviar_ao_cliente' && !['admin', 'gerente'].includes(user.role)) {
+    if (previousStatus === 'aguardando_aprovacao' && nextStatus === 'enviar_ao_cliente' && user.role !== 'admin') {
       return NextResponse.json(
         { error: 'Apenas administradores podem aprovar o orcamento pronto.' },
         { status: 403 }

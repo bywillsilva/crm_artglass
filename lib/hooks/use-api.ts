@@ -699,7 +699,16 @@ async function syncIncrementalModule(
         result
           .filter((entity) => entity?.id)
           .map((entity) =>
-            mutate(`${detailPrefix}${entity.id}`, entity, {
+            mutate(`${detailPrefix}${entity.id}`, (current) => {
+              if (current && typeof current === 'object' && !Array.isArray(current)) {
+                return {
+                  ...current,
+                  ...entity,
+                }
+              }
+
+              return entity
+            }, {
               revalidate: false,
             })
           )

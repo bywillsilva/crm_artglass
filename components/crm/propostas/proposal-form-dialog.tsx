@@ -189,10 +189,19 @@ export function ProposalFormDialog({
       return
     }
 
+    const clienteResponsavelInicial =
+      state.clientes.find((cliente) => cliente.id === clienteIdInicial)?.responsavelId || ''
+
     hydratedKeyRef.current = nextCreateKey
     setClienteId(clienteIdInicial || '')
     setClienteSearch('')
-    setResponsavelId(isAdmin ? '' : user?.id || '')
+    setResponsavelId(
+      isAdmin
+        ? ''
+        : user?.role === 'orcamentista'
+          ? clienteResponsavelInicial
+          : user?.id || ''
+    )
     setOrcamentistaId('')
     latestValorRef.current = ''
     setValor('')
@@ -200,7 +209,7 @@ export function ProposalFormDialog({
     setStatus('novo_cliente')
     setFiles([])
     isDirtyRef.current = false
-  }, [clienteIdInicial, isAdmin, isEditing, open, propostaHydrationKey, propostaSource, user?.id])
+  }, [clienteIdInicial, isAdmin, isEditing, open, propostaHydrationKey, propostaSource, state.clientes, user?.id, user?.role])
 
   useEffect(() => {
     latestValorRef.current = valor
@@ -243,7 +252,11 @@ export function ProposalFormDialog({
 
   const editStatusOptions = useMemo(() => {
     if (isAdmin) {
-      return workflowStatusOptionsByCurrentStatus[currentWorkflowStatus] || [currentWorkflowStatus]
+      const baseOptions = workflowStatusOptionsByCurrentStatus[currentWorkflowStatus] || [currentWorkflowStatus]
+      if (user?.role === 'gerente' && currentWorkflowStatus === 'aguardando_aprovacao') {
+        return baseOptions.filter((option) => option !== 'enviar_ao_cliente')
+      }
+      return baseOptions
     }
     if (user?.role === 'orcamentista') {
       return ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'] as StatusProposta[]
@@ -308,12 +321,19 @@ export function ProposalFormDialog({
       return
     }
 
+    const clienteResponsavelSelecionado =
+      state.clientes.find((cliente) => cliente.id === clienteId)?.responsavelId || ''
+
     const payload = {
       clienteId,
       valor: rawValor.trim() ? rawValor : null,
       descricao,
       status,
-      responsavelId: isAdmin ? responsavelId : user?.id,
+      responsavelId: isAdmin
+        ? responsavelId
+        : user?.role === 'orcamentista'
+          ? clienteResponsavelSelecionado || propostaSource?.responsavelId || ''
+          : user?.id,
       orcamentistaId: orcamentistaId || null,
       anexos: files,
       dataEnvio: new Date(),

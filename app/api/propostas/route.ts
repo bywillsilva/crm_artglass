@@ -190,7 +190,11 @@ async function getAuthenticatedUser() {
 
 async function validateResponsavel(responsavelId: string | null, sessionUser: any) {
   const resolvedId =
-    sessionUser.role === 'admin' || sessionUser.role === 'gerente' ? responsavelId : sessionUser.id
+    sessionUser.role === 'admin' || sessionUser.role === 'gerente'
+      ? responsavelId
+      : sessionUser.role === 'orcamentista'
+        ? responsavelId
+        : sessionUser.id
 
   if (!resolvedId) {
     throw new Error('Selecione um vendedor responsavel para a proposta.')
@@ -361,21 +365,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
 
-    if (user.role === 'orcamentista') {
-      return NextResponse.json({ error: 'Orcamentistas nao podem criar propostas' }, { status: 403 })
-    }
-
     const data = await parseProposalPayload(request)
     const id = uuidv4()
     const now = new Date()
     const status = normalizeProposalStatus(data.status)
-    const responsavelId = await validateResponsavel(data.responsavelId || null, user)
-    const orcamentistaId = await validateOrcamentista(data.orcamentistaId || null)
-    const [cliente] = await query<any[]>('SELECT id, nome FROM clientes WHERE id = ? LIMIT 1', [data.clienteId])
+    const [cliente] = await query<any[]>(
+      'SELECT id, nome, responsavel_id FROM clientes WHERE id = ? LIMIT 1',
+      [data.clienteId]
+    )
 
     if (!cliente) {
       return NextResponse.json({ error: 'Cliente nao encontrado para a proposta' }, { status: 404 })
     }
+
+    const responsavelBase =
+      user.role === 'orcamentista'
+        ? String(data.responsavelId || cliente.responsavel_id || '')
+        : (data.responsavelId || null)
+    const responsavelId = await validateResponsavel(responsavelBase, user)
+    const orcamentistaId = await validateOrcamentista(
+      user.role === 'orcamentista'
+        ? (data.orcamentistaId || user.id)
+        : (data.orcamentistaId || null)
+    )
 
     if (requiresOrcamentistaAssignment(status) && !orcamentistaId) {
       return NextResponse.json(

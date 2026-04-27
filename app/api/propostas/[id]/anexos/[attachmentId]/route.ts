@@ -57,6 +57,10 @@ function buildAttachmentFileName(attachment: any) {
   return basename(String(attachment.caminho || 'anexo'))
 }
 
+async function touchProposalUpdatedAt(propostaId: string) {
+  await query('UPDATE propostas SET updated_at = NOW() WHERE id = ?', [propostaId])
+}
+
 async function resolveStoredAttachmentPath(propostaId: string, attachment: any) {
   const candidates = [
     typeof attachment.caminho === 'string' ? attachment.caminho : null,
@@ -166,6 +170,7 @@ export async function DELETE(
     }
 
     await query('DELETE FROM proposta_anexos WHERE id = ?', [attachmentId])
+    await touchProposalUpdatedAt(id)
     await deleteStoredFiles([attachment.caminho])
     invalidateRuntimeCache('proposta:detail:')
     invalidateRuntimeCache('crm-bootstrap:')

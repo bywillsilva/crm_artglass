@@ -53,6 +53,10 @@ function canManageComment(user: any, comment: any) {
   return comment.usuario_id === user.id
 }
 
+async function touchProposalUpdatedAt(propostaId: string) {
+  await query('UPDATE propostas SET updated_at = NOW() WHERE id = ?', [propostaId])
+}
+
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; commentId: string }> }
@@ -85,6 +89,7 @@ export async function PUT(
       comentario,
       commentId,
     ])
+    await touchProposalUpdatedAt(id)
 
     await query(
       `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
@@ -150,6 +155,7 @@ export async function DELETE(
     }
 
     await query('DELETE FROM proposta_comentarios WHERE id = ?', [commentId])
+    await touchProposalUpdatedAt(id)
 
     await query(
       `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
