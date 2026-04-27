@@ -3,7 +3,7 @@ import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
-import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
+import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { notifyTaskEmail } from '@/lib/server/email-notifications'
 import {
   ensureCrmRuntimeSchema,
@@ -163,6 +163,10 @@ export async function POST(request: NextRequest) {
       resource: 'tarefa',
       resourceId: id,
     })
+    invalidateRuntimeCache('tarefas:list:')
+    invalidateRuntimeCache('tarefa:detail:')
+    invalidateRuntimeCache('dashboard:')
+    invalidateRuntimeCache('crm-bootstrap:')
 
     await notifyTaskEmail({
       responsavelId: data.responsavelId,

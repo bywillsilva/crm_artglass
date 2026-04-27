@@ -914,6 +914,9 @@ export async function PUT(
       )
     }
 
+    invalidateRuntimeCache('propostas:list:')
+    invalidateRuntimeCache('tarefas:list:')
+    invalidateRuntimeCache('dashboard:')
     invalidateRuntimeCache('crm-bootstrap:')
     invalidateRuntimeCache('proposta:detail:')
     await publishRealtimeEvent({
@@ -994,6 +997,9 @@ export async function DELETE(
 
     await deleteStoredFiles(anexos.map((item) => item.caminho))
 
+    invalidateRuntimeCache('propostas:list:')
+    invalidateRuntimeCache('tarefas:list:')
+    invalidateRuntimeCache('dashboard:')
     invalidateRuntimeCache('crm-bootstrap:')
     invalidateRuntimeCache('proposta:detail:')
     await publishRealtimeEvent({

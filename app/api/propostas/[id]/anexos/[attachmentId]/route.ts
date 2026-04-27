@@ -218,6 +218,8 @@ export async function DELETE(
     await query('DELETE FROM proposta_anexos WHERE id = ?', [attachmentId])
     await touchProposalUpdatedAt(id)
     await deleteStoredFiles([attachment.caminho])
+    invalidateRuntimeCache('propostas:list:')
+    invalidateRuntimeCache('dashboard:')
     invalidateRuntimeCache('proposta:detail:')
     invalidateRuntimeCache('crm-bootstrap:')
 

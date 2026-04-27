@@ -113,6 +113,8 @@ export async function POST(
       [commentId]
     )
 
+    invalidateRuntimeCache('propostas:list:')
+    invalidateRuntimeCache('dashboard:')
     invalidateRuntimeCache('proposta:detail:')
     invalidateRuntimeCache('crm-bootstrap:')
     await publishRealtimeEvent({

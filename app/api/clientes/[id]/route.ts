@@ -230,7 +230,8 @@ export async function PUT(
       [id]
     )
     invalidateRuntimeCache('clientes:list:')
-    invalidateRuntimeCache(`cliente:detail:${id}`)
+    invalidateRuntimeCache('cliente:detail:')
+    invalidateRuntimeCache('dashboard:')
     invalidateRuntimeCache('crm-bootstrap:')
     return NextResponse.json(cliente)
   } catch (error) {
@@ -256,7 +257,8 @@ export async function DELETE(
     await query('DELETE FROM clientes WHERE id = ?', [id])
 
     invalidateRuntimeCache('clientes:list:')
-    invalidateRuntimeCache(`cliente:detail:${id}`)
+    invalidateRuntimeCache('cliente:detail:')
+    invalidateRuntimeCache('dashboard:')
     invalidateRuntimeCache('crm-bootstrap:')
 
     await publishRealtimeEvent({

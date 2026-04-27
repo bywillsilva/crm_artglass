@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
-import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
+import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { notifyTaskEmail } from '@/lib/server/email-notifications'
 import {
   ensureCrmRuntimeSchema,
@@ -167,6 +167,10 @@ export async function PUT(
       resource: 'tarefa',
       resourceId: id,
     })
+    invalidateRuntimeCache('tarefas:list:')
+    invalidateRuntimeCache('tarefa:detail:')
+    invalidateRuntimeCache('dashboard:')
+    invalidateRuntimeCache('crm-bootstrap:')
 
     await notifyTaskEmail({
       responsavelId: data.responsavelId || tarefaAtual.responsavel_id,
@@ -255,6 +259,10 @@ export async function PATCH(
         resource: 'tarefa',
         resourceId: id,
       })
+      invalidateRuntimeCache('tarefas:list:')
+      invalidateRuntimeCache('tarefa:detail:')
+      invalidateRuntimeCache('dashboard:')
+      invalidateRuntimeCache('crm-bootstrap:')
 
       await notifyTaskEmail({
         responsavelId: tarefaAtual.responsavel_id,
@@ -313,6 +321,10 @@ export async function DELETE(
 
     await query('DELETE FROM tarefas WHERE id = ?', [id])
 
+    invalidateRuntimeCache('tarefas:list:')
+    invalidateRuntimeCache('tarefa:detail:')
+    invalidateRuntimeCache('dashboard:')
+    invalidateRuntimeCache('crm-bootstrap:')
     await publishRealtimeEvent({
       actorUserId: user.id,
       resource: 'tarefa',

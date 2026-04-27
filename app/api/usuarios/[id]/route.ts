@@ -7,7 +7,7 @@ import { ensureUserManagementSchema } from '@/lib/server/proposal-workflow'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
 import { hasModuleAccess } from '@/lib/auth/module-access'
-import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
+import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 
 const USUARIO_DETAIL_CACHE_TTL_MS = Math.max(
   Number(process.env.USUARIO_DETAIL_CACHE_TTL_MS || 30_000),
@@ -196,6 +196,9 @@ export async function PUT(
       resource: 'usuario',
       resourceId: id,
     })
+    invalidateRuntimeCache('usuarios:list:')
+    invalidateRuntimeCache('usuario:detail:')
+    invalidateRuntimeCache('crm-bootstrap:')
 
     return NextResponse.json(usuario)
   } catch (error: any) {
@@ -274,6 +277,9 @@ export async function DELETE(
 
     await query('DELETE FROM usuarios WHERE id = ?', [id])
 
+    invalidateRuntimeCache('usuarios:list:')
+    invalidateRuntimeCache('usuario:detail:')
+    invalidateRuntimeCache('crm-bootstrap:')
     await publishRealtimeEvent({
       actorUserId: session?.userId || null,
       resource: 'usuario',
