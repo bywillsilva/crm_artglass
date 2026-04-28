@@ -3,6 +3,7 @@ import { isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysq
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
+import { ensureCrmRuntimeSchema } from '@/lib/server/proposal-workflow'
 
 type AuthenticatedUser = {
   id: string
@@ -102,6 +103,7 @@ export async function GET(request: Request) {
   let isAuthenticated = false
 
   try {
+    await ensureCrmRuntimeSchema()
     const authenticatedUser = await getAuthenticatedServerUser()
     if (!authenticatedUser?.ativo) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
@@ -201,11 +203,20 @@ export async function GET(request: Request) {
     }
 
     if (isAuthenticated) {
+      const authenticatedUser = await getAuthenticatedServerUser().catch(() => null)
       const sections = parseSectionsParam(request)
-      const payload = Object.fromEntries(
-        sections.map((section) => [section, []])
-      ) as Partial<Record<BootstrapSection, any[]>>
-      return jsonNoStore({ ...payload, degraded: true })
+      if (authenticatedUser?.ativo) {
+        const cacheKey = `crm-bootstrap:${authenticatedUser.role}:${authenticatedUser.id}:${sections.join(',')}`
+        const cachedResponse = getRuntimeCache<Partial<Record<BootstrapSection, any[]>>>(cacheKey)
+        if (cachedResponse) {
+          return jsonNoStore(cachedResponse)
+        }
+      }
+
+      return jsonNoStore(
+        { error: 'Bootstrap do CRM temporariamente indisponivel', degraded: true },
+        { status: 503 }
+      )
     }
 
     return jsonNoStore({ error: 'Erro ao carregar bootstrap do CRM' }, { status: 500 })

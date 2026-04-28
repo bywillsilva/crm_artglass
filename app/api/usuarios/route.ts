@@ -94,7 +94,15 @@ export async function GET(request: NextRequest) {
         return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
       }
       const cacheKey = `usuarios:list:${user.id}:${user.role}:${role || 'todos'}:${ativo || 'todos'}`
-      return jsonNoStore(getRuntimeCache<any[]>(cacheKey) || [], { status: 200 })
+      const cachedUsuarios = getRuntimeCache<any[]>(cacheKey)
+      if (cachedUsuarios) {
+        return jsonNoStore(cachedUsuarios)
+      }
+
+      return jsonNoStore(
+        { error: 'Lista de usuarios temporariamente indisponivel', degraded: true },
+        { status: 503 }
+      )
     }
 
     return jsonNoStore({ error: 'Erro ao buscar usuarios' }, { status: 500 })

@@ -399,7 +399,18 @@ function mutateByPrefix(prefix: string) {
   mutate((key) => typeof key === 'string' && key.startsWith(prefix))
 }
 
+function matchesCollectionKey(key: unknown, prefix: string) {
+  return typeof key === 'string' && (key === prefix || key.startsWith(`${prefix}?`))
+}
+
 type BootstrapCollectionKey = 'clientes' | 'usuarios' | 'tarefas' | 'propostas'
+
+const BOOTSTRAP_COLLECTION_ENDPOINTS: Record<BootstrapCollectionKey, string> = {
+  clientes: '/api/clientes',
+  usuarios: '/api/usuarios',
+  tarefas: '/api/tarefas',
+  propostas: '/api/propostas',
+}
 
 function mutateBootstrapCollection(
   collection: BootstrapCollectionKey,
@@ -510,7 +521,7 @@ function compactObject<T extends JsonRecord>(value: T) {
 
 function mutateEntityByPrefix(prefix: string, id: string, patch: JsonRecord) {
   return mutate(
-    (key) => typeof key === 'string' && key.startsWith(prefix),
+    (key) => matchesCollectionKey(key, prefix),
     (current) => updateCachedEntity(current, id, patch),
     { revalidate: false }
   )
@@ -538,7 +549,9 @@ function removeCachedEntity(current: any, id: string) {
 }
 
 function prependEntityToKey(key: string, entity: JsonRecord) {
-  return mutate(key, (current) => prependCachedEntity(current, entity), { revalidate: false })
+  return mutate((cacheKey) => matchesCollectionKey(cacheKey, key), (current) => prependCachedEntity(current, entity), {
+    revalidate: false,
+  })
 }
 
 function dedupeEntitiesById(items: JsonRecord[]) {
@@ -601,7 +614,7 @@ function mergeCachedEntities(current: any, incoming: JsonRecord[]) {
 
 function removeEntityFromPrefix(prefix: string, id: string) {
   return mutate(
-    (key) => typeof key === 'string' && key.startsWith(prefix),
+    (key) => matchesCollectionKey(key, prefix),
     (current) => removeCachedEntity(current, id),
     { revalidate: false }
   )
@@ -629,6 +642,46 @@ function getBootstrapCollectionFromCache(
   }
 
   return undefined
+}
+
+function getCollectionListFromCache(
+  cache: ReturnType<typeof useSWRConfig>['cache'],
+  prefix: string
+) {
+  const candidates = Array.from(cache.keys()).filter(
+    (key): key is string => typeof key === 'string' && matchesCollectionKey(key, prefix)
+  )
+
+  const prioritizedKeys = [prefix, ...candidates.filter((key) => key !== prefix)]
+
+  for (const key of prioritizedKeys) {
+    const cachedValue = cache.get(key)
+    if (Array.isArray(cachedValue)) {
+      return cachedValue as JsonRecord[]
+    }
+  }
+
+  return undefined
+}
+
+function getBootstrapFallbackData(
+  cache: ReturnType<typeof useSWRConfig>['cache'],
+  sections?: BootstrapCollectionKey[]
+) {
+  const resolvedSections: BootstrapCollectionKey[] =
+    sections && sections.length > 0 ? [...sections] : ['clientes', 'usuarios', 'tarefas', 'propostas']
+  const fallback = resolvedSections.reduce((acc, section) => {
+    const bootstrapItems = getBootstrapCollectionFromCache(cache, section)
+    const collectionItems =
+      bootstrapItems ??
+      getCollectionListFromCache(cache, BOOTSTRAP_COLLECTION_ENDPOINTS[section]) ??
+      []
+
+    acc[section] = collectionItems
+    return acc
+  }, {} as Partial<Record<BootstrapCollectionKey, JsonRecord[]>>)
+
+  return Object.keys(fallback).length > 0 ? fallback : undefined
 }
 
 function getProposalSnapshotFromCache(
@@ -728,7 +781,7 @@ async function syncIncrementalModule(
     }
 
     await mutate(
-      (key) => typeof key === 'string' && key.startsWith(endpoint),
+      (key) => matchesCollectionKey(key, endpoint),
       (current) => mergeCachedEntities(current, result),
       { revalidate: false }
     )
@@ -778,13 +831,16 @@ export function useDashboard(filter?: DateFilterValue) {
 }
 
 export function useCrmBootstrap(sections?: BootstrapCollectionKey[]) {
+  const { cache } = useSWRConfig()
   const key =
     sections && sections.length > 0
       ? `/api/crm/bootstrap?sections=${sections.join(',')}`
       : '/api/crm/bootstrap'
+  const fallbackData = getBootstrapFallbackData(cache, sections)
   const { data, error, isLoading, mutate: localMutate } = useSWR(key, fetcher, {
     ...READ_ONLY_SWR_OPTIONS,
     dedupingInterval: 2000,
+    fallbackData,
   })
 
   const clientes = useMemo(() => getUniqueEntities(data?.clientes).map(normalizeCliente), [data?.clientes])

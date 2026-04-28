@@ -370,7 +370,15 @@ export async function GET(request: NextRequest) {
       }
 
       const cacheKey = `propostas:list:${user.id}:${user.role}:${status || 'todos'}:${clienteId || ''}:${updatedSince || ''}`
-      return jsonNoStore(getRuntimeCache<any[]>(cacheKey) || [], { status: 200 })
+      const cachedPropostas = getRuntimeCache<any[]>(cacheKey)
+      if (cachedPropostas) {
+        return jsonNoStore(cachedPropostas)
+      }
+
+      return jsonNoStore(
+        { error: 'Lista de propostas temporariamente indisponivel', degraded: true },
+        { status: 503 }
+      )
     }
 
     return jsonNoStore({ error: 'Erro ao buscar propostas' }, { status: 500 })

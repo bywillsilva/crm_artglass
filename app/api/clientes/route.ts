@@ -253,7 +253,15 @@ export async function GET(request: NextRequest) {
       const cacheKey = user
         ? `clientes:list:${user.role}:${user.id}:${status || 'todos'}:${search || ''}:${updatedSince || ''}`
         : null
-      return jsonNoStore((cacheKey && getRuntimeCache<any[]>(cacheKey)) || [], { status: 200 })
+      const cachedClientes = cacheKey ? getRuntimeCache<any[]>(cacheKey) : null
+      if (cachedClientes) {
+        return jsonNoStore(cachedClientes)
+      }
+
+      return jsonNoStore(
+        { error: 'Lista de clientes temporariamente indisponivel', degraded: true },
+        { status: 503 }
+      )
     }
 
     return jsonNoStore({ error: 'Erro ao buscar clientes' }, { status: 500 })

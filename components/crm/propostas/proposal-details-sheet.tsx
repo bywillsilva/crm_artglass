@@ -58,6 +58,10 @@ interface ProposalDetailsSheetProps {
   propostaInicial?: Proposta | null
 }
 
+function isProposalCollectionKey(key: unknown) {
+  return typeof key === 'string' && (key === '/api/propostas' || key.startsWith('/api/propostas?'))
+}
+
 function pickProposalValue<T>(primary: T | null | undefined, fallback: T | null | undefined) {
   if (typeof primary === 'string') {
     return (primary.trim() ? primary : fallback) as T | null | undefined
@@ -174,12 +178,15 @@ export function ProposalDetailsSheet({
     const hasCommentDetails = Array.isArray(proposalSnapshot.comentarios)
     const hasDetailedCollections = hasAttachmentDetails || hasCommentDetails
     const proposalPatch: Record<string, unknown> = {}
+    const proposalCollectionPatch: Record<string, unknown> = {}
 
     if (hasAttachmentDetails) {
       const anexos = proposalSnapshot.anexos as any[]
       proposalPatch.anexos = anexos
       proposalPatch.anexosCount = anexos.length
       proposalPatch.anexos_count = anexos.length
+      proposalCollectionPatch.anexosCount = anexos.length
+      proposalCollectionPatch.anexos_count = anexos.length
     }
 
     if (hasCommentDetails) {
@@ -187,6 +194,8 @@ export function ProposalDetailsSheet({
       proposalPatch.comentarios = comentarios
       proposalPatch.comentariosCount = comentarios.length
       proposalPatch.comentarios_count = comentarios.length
+      proposalCollectionPatch.comentariosCount = comentarios.length
+      proposalCollectionPatch.comentarios_count = comentarios.length
     }
 
     if (!hasDetailedCollections) {
@@ -218,7 +227,7 @@ export function ProposalDetailsSheet({
         return {
           ...current,
           propostas: propostas.map((item: any) =>
-            item?.id === propostaId ? { ...item, ...proposalPatch } : item
+            item?.id === propostaId ? { ...item, ...proposalCollectionPatch } : item
           ),
         }
       },
@@ -226,14 +235,12 @@ export function ProposalDetailsSheet({
     )
 
     await mutate(
-      (key) => typeof key === 'string' && key.startsWith('/api/propostas'),
+      (key) => isProposalCollectionKey(key),
       (current) => {
         if (Array.isArray(current)) {
-          return current.map((item: any) => (item?.id === propostaId ? { ...item, ...proposalPatch } : item))
-        }
-
-        if (current && typeof current === 'object' && (current as any).id === propostaId) {
-          return { ...current, ...proposalPatch }
+          return current.map((item: any) =>
+            item?.id === propostaId ? { ...item, ...proposalCollectionPatch } : item
+          )
         }
 
         return current
@@ -245,7 +252,7 @@ export function ProposalDetailsSheet({
   const refreshProposalData = async () => {
     const refreshed = await mutateProposta()
     await syncProposalSnapshot(refreshed)
-    void mutate((key) => typeof key === 'string' && key.startsWith('/api/propostas'))
+    void mutate((key) => isProposalCollectionKey(key))
   }
 
   const applyCommentSnapshot = async (
@@ -296,11 +303,12 @@ export function ProposalDetailsSheet({
             const nextComments = updater(
               Array.isArray(item?.comentarios) ? (item.comentarios as ProposalCommentSnapshot[]) : []
             )
-            const nextCount = Array.isArray(item?.comentarios) ? nextComments.length : Math.max(nextComments.length, currentCount)
+            const nextCount = Array.isArray(item?.comentarios)
+              ? nextComments.length
+              : Math.max(nextComments.length, currentCount)
 
             return {
               ...item,
-              ...(Array.isArray(item?.comentarios) ? { comentarios: nextComments } : {}),
               comentariosCount: nextCount,
               comentarios_count: nextCount,
             }
@@ -357,11 +365,12 @@ export function ProposalDetailsSheet({
             const nextAttachments = updater(
               Array.isArray(item?.anexos) ? (item.anexos as ProposalAttachmentSnapshot[]) : []
             )
-            const nextCount = Array.isArray(item?.anexos) ? nextAttachments.length : Math.max(nextAttachments.length, currentCount)
+            const nextCount = Array.isArray(item?.anexos)
+              ? nextAttachments.length
+              : Math.max(nextAttachments.length, currentCount)
 
             return {
               ...item,
-              ...(Array.isArray(item?.anexos) ? { anexos: nextAttachments } : {}),
               anexosCount: nextCount,
               anexos_count: nextCount,
             }

@@ -108,7 +108,15 @@ export async function GET(request: NextRequest) {
           ? searchParams.get('responsavel')
           : user.id
       const cacheKey = `tarefas:list:${user.id}:${user.role}:${status || 'todos'}:${tipo || 'todos'}:${responsavel || 'todos'}:${clienteId || ''}:${updatedSince || ''}`
-      return jsonNoStore(getRuntimeCache<any[]>(cacheKey) || [], { status: 200 })
+      const cachedTarefas = getRuntimeCache<any[]>(cacheKey)
+      if (cachedTarefas) {
+        return jsonNoStore(cachedTarefas)
+      }
+
+      return jsonNoStore(
+        { error: 'Lista de tarefas temporariamente indisponivel', degraded: true },
+        { status: 503 }
+      )
     }
 
     return jsonNoStore({ error: 'Erro ao buscar tarefas' }, { status: 500 })
