@@ -674,10 +674,12 @@ function getBootstrapFallbackData(
     const bootstrapItems = getBootstrapCollectionFromCache(cache, section)
     const collectionItems =
       bootstrapItems ??
-      getCollectionListFromCache(cache, BOOTSTRAP_COLLECTION_ENDPOINTS[section]) ??
-      []
+      getCollectionListFromCache(cache, BOOTSTRAP_COLLECTION_ENDPOINTS[section])
 
-    acc[section] = collectionItems
+    if (Array.isArray(collectionItems)) {
+      acc[section] = collectionItems
+    }
+
     return acc
   }, {} as Partial<Record<BootstrapCollectionKey, JsonRecord[]>>)
 
