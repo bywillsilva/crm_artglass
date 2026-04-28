@@ -33,6 +33,12 @@ const defaultNotifications: EffectiveNotificationSettings = {
   novosLeads: true,
 }
 
+const USER_SETTINGS_SCHEMA_CACHE_MS = 60 * 60 * 1000
+
+let configuracoesColumnsCheckedAt = 0
+let configuracoesColumnsPromise: Promise<Set<string>> | null = null
+let cachedConfiguracoesColumns = new Set<string>()
+
 function parseJson<T extends Record<string, unknown>>(value: unknown, fallback: T): T {
   if (!value) return fallback
 
@@ -52,29 +58,84 @@ function parseJson<T extends Record<string, unknown>>(value: unknown, fallback: 
   return fallback
 }
 
-export async function getEffectiveUserSettings(userId: string) {
-  const configs = await query<any[]>(
-    `SELECT chave, scope, valor
-     FROM configuracoes
-     WHERE chave IN ('geral', 'notificacoes')
-       AND (
-         (scope = 'user' AND user_id = ?)
-         OR (scope = 'global' AND user_id = '')
-       )
-     ORDER BY chave, CASE WHEN scope = 'user' THEN 0 ELSE 1 END`,
-    [userId]
-  )
+async function getConfiguracoesColumns() {
+  const now = Date.now()
+  if (now - configuracoesColumnsCheckedAt < USER_SETTINGS_SCHEMA_CACHE_MS) {
+    return cachedConfiguracoesColumns
+  }
 
-  const byKey = new Map<string, any>()
-  configs.forEach((config) => {
-    if (!byKey.has(config.chave)) {
-      byKey.set(config.chave, config.valor)
+  if (configuracoesColumnsPromise) {
+    return configuracoesColumnsPromise
+  }
+
+  configuracoesColumnsPromise = (async () => {
+    try {
+      const columns = await query<any[]>(
+        `SELECT COLUMN_NAME
+         FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = 'configuracoes'
+           AND COLUMN_NAME IN ('scope', 'user_id')`
+      )
+
+      cachedConfiguracoesColumns = new Set(columns.map((column) => String(column.COLUMN_NAME)))
+    } catch {
+      cachedConfiguracoesColumns = new Set<string>()
     }
-  })
 
-  return {
-    general: parseJson(byKey.get('geral'), defaultGeneral),
-    notifications: parseJson(byKey.get('notificacoes'), defaultNotifications),
+    configuracoesColumnsCheckedAt = Date.now()
+    return cachedConfiguracoesColumns
+  })()
+
+  try {
+    return await configuracoesColumnsPromise
+  } finally {
+    configuracoesColumnsPromise = null
+  }
+}
+
+export async function getEffectiveUserSettings(userId: string) {
+  try {
+    const configColumns = await getConfiguracoesColumns()
+    const hasScopedConfiguracoes =
+      configColumns.has('scope') && configColumns.has('user_id')
+
+    const configs = hasScopedConfiguracoes
+      ? await query<any[]>(
+          `SELECT chave, scope, valor
+           FROM configuracoes
+           WHERE chave IN ('geral', 'notificacoes')
+             AND (
+               (scope = 'user' AND user_id = ?)
+               OR (scope = 'global' AND user_id = '')
+             )
+           ORDER BY chave, CASE WHEN scope = 'user' THEN 0 ELSE 1 END`,
+          [userId]
+        )
+      : await query<any[]>(
+          `SELECT chave, 'global' as scope, valor
+           FROM configuracoes
+           WHERE chave IN ('geral', 'notificacoes')
+           ORDER BY chave`,
+          []
+        )
+
+    const byKey = new Map<string, any>()
+    configs.forEach((config) => {
+      if (!byKey.has(config.chave)) {
+        byKey.set(config.chave, config.valor)
+      }
+    })
+
+    return {
+      general: parseJson(byKey.get('geral'), defaultGeneral),
+      notifications: parseJson(byKey.get('notificacoes'), defaultNotifications),
+    }
+  } catch {
+    return {
+      general: defaultGeneral,
+      notifications: defaultNotifications,
+    }
   }
 }
 

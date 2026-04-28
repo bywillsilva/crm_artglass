@@ -68,15 +68,20 @@ export async function getOptionalUserColumns() {
   }
 
   userOptionalColumnsPromise = (async () => {
-    const columns = await query<any[]>(
-      `SELECT COLUMN_NAME
-       FROM INFORMATION_SCHEMA.COLUMNS
-       WHERE TABLE_SCHEMA = DATABASE()
-         AND TABLE_NAME = 'usuarios'
-         AND COLUMN_NAME IN ('module_permissions')`
-    )
+    try {
+      const columns = await query<any[]>(
+        `SELECT COLUMN_NAME
+         FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = 'usuarios'
+           AND COLUMN_NAME IN ('module_permissions')`
+      )
 
-    cachedUserOptionalColumns = new Set(columns.map((column) => String(column.COLUMN_NAME)))
+      cachedUserOptionalColumns = new Set(columns.map((column) => String(column.COLUMN_NAME)))
+    } catch {
+      cachedUserOptionalColumns = new Set<string>()
+    }
+
     userOptionalColumnsCheckedAt = Date.now()
     return cachedUserOptionalColumns
   })()
