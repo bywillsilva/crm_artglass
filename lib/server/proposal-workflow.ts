@@ -590,18 +590,27 @@ export async function ensureUserManagementSchema() {
   await runCached('ensureUserManagementSchema', SCHEMA_CACHE_MS, async () => {
     await ensureUserRoleSchema()
 
-    const metaVendasColumns = await query<any[]>(
+    const userColumns = await query<any[]>(
       `SELECT COLUMN_NAME
        FROM INFORMATION_SCHEMA.COLUMNS
        WHERE TABLE_SCHEMA = DATABASE()
          AND TABLE_NAME = 'usuarios'
-         AND COLUMN_NAME = 'meta_vendas'`
+         AND COLUMN_NAME IN ('meta_vendas', 'updated_at')`
     )
 
-    if (!metaVendasColumns.length) {
+    const existingColumns = new Set(userColumns.map((column) => column.COLUMN_NAME))
+
+    if (!existingColumns.has('meta_vendas')) {
       await query(`
         ALTER TABLE usuarios
         ADD COLUMN meta_vendas DECIMAL(15, 2) NOT NULL DEFAULT 0
+      `)
+    }
+
+    if (!existingColumns.has('updated_at')) {
+      await query(`
+        ALTER TABLE usuarios
+        ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       `)
     }
 
