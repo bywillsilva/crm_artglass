@@ -43,12 +43,6 @@ type AuthenticatedUserCacheEntry = {
 }
 
 const authenticatedUserCache = new Map<string, AuthenticatedUserCacheEntry>()
-const USER_OPTIONAL_COLUMNS_CACHE_MS = 60 * 60 * 1000
-
-let userOptionalColumnsCheckedAt = 0
-let userOptionalColumnsPromise: Promise<Set<string>> | null = null
-let cachedUserOptionalColumns = new Set<string>()
-
 function getSecret() {
   return process.env.AUTH_SECRET || 'solarcrm-dev-secret'
 }
@@ -57,39 +51,44 @@ function sign(value: string) {
   return createHmac('sha256', getSecret()).update(value).digest('hex')
 }
 
-export async function getOptionalUserColumns() {
-  const now = Date.now()
-  if (now - userOptionalColumnsCheckedAt < USER_OPTIONAL_COLUMNS_CACHE_MS) {
-    return cachedUserOptionalColumns
-  }
+function isUnknownColumnError(error: unknown) {
+  const code =
+    typeof error === 'object' && error && 'code' in error ? String((error as any).code) : ''
+  const message =
+    typeof error === 'object' && error && 'sqlMessage' in error
+      ? String((error as any).sqlMessage || '')
+      : typeof error === 'object' && error && 'message' in error
+        ? String((error as any).message || '')
+        : ''
 
-  if (userOptionalColumnsPromise) {
-    return userOptionalColumnsPromise
-  }
+  return code === 'ER_BAD_FIELD_ERROR' || /unknown column/i.test(message)
+}
 
-  userOptionalColumnsPromise = (async () => {
-    try {
-      const columns = await query<any[]>(
-        `SELECT COLUMN_NAME
-         FROM INFORMATION_SCHEMA.COLUMNS
-         WHERE TABLE_SCHEMA = DATABASE()
-           AND TABLE_NAME = 'usuarios'
-           AND COLUMN_NAME IN ('module_permissions')`
-      )
+export async function queryAuthenticatedUserById(userId: string) {
+  try {
+    const [user] = await query<any[]>(
+      `SELECT id, nome, email, avatar, role, ativo, module_permissions
+       FROM usuarios
+       WHERE id = ?
+       LIMIT 1`,
+      [userId]
+    )
 
-      cachedUserOptionalColumns = new Set(columns.map((column) => String(column.COLUMN_NAME)))
-    } catch {
-      cachedUserOptionalColumns = new Set<string>()
+    return user ?? null
+  } catch (error) {
+    if (!isUnknownColumnError(error)) {
+      throw error
     }
 
-    userOptionalColumnsCheckedAt = Date.now()
-    return cachedUserOptionalColumns
-  })()
+    const [user] = await query<any[]>(
+      `SELECT id, nome, email, avatar, role, ativo
+       FROM usuarios
+       WHERE id = ?
+       LIMIT 1`,
+      [userId]
+    )
 
-  try {
-    return await userOptionalColumnsPromise
-  } finally {
-    userOptionalColumnsPromise = null
+    return user ? { ...user, module_permissions: null } : null
   }
 }
 
@@ -178,17 +177,7 @@ export async function getAuthenticatedServerUser() {
   }
 
   try {
-    const optionalColumns = await getOptionalUserColumns()
-    const modulePermissionsSelect = optionalColumns.has('module_permissions')
-      ? ', module_permissions'
-      : ''
-    const [user] = await query<any[]>(
-      `SELECT id, nome, email, avatar, role, ativo${modulePermissionsSelect}
-       FROM usuarios
-       WHERE id = ?
-       LIMIT 1`,
-      [session.userId]
-    )
+    const user = await queryAuthenticatedUserById(session.userId)
 
     if (!user || !user.ativo) {
       cacheAuthenticatedUser(session.userId, null)

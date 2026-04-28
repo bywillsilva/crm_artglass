@@ -4,7 +4,7 @@ import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
-import { ensureCrmRuntimeSchema, formatDateTime } from '@/lib/server/proposal-workflow'
+import { formatDateTime } from '@/lib/server/proposal-workflow'
 import { jsonNoStore } from '@/lib/server/http-cache'
 
 const CLIENTE_DETAIL_CACHE_TTL_MS = Math.max(
@@ -118,7 +118,6 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureCrmRuntimeSchema()
     const user = await getAuthenticatedServerUser()
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })

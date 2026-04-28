@@ -13,12 +13,7 @@ import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { invalidateRuntimeCache } from '@/lib/server/runtime-cache'
 import {
   canOrcamentistaAccessProposal,
-  ensureCrmRuntimeSchema,
 } from '@/lib/server/proposal-workflow'
-
-async function ensureBaseSchema() {
-  await ensureCrmRuntimeSchema()
-}
 
 async function getAuthenticatedUser() {
   const session = await getServerSession()
@@ -116,8 +111,6 @@ export async function GET(
   { params }: { params: Promise<{ id: string; attachmentId: string }> }
 ) {
   try {
-    await ensureBaseSchema()
-
     const user = await getAuthenticatedServerUser()
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
@@ -187,8 +180,6 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string; attachmentId: string }> }
 ) {
   try {
-    await ensureBaseSchema()
-
     const user = await getAuthenticatedUser()
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })

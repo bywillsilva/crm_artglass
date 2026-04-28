@@ -6,7 +6,6 @@ import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
 import {
-  ensureCrmRuntimeSchema,
   getNextProposalNumber,
   formatDateTime,
   setProposalKanbanPosition,
@@ -62,10 +61,6 @@ function parseNullableNumber(value: unknown, fallback = 0) {
   }
 
   return fallback
-}
-
-async function ensureBaseSchema() {
-  await ensureCrmRuntimeSchema()
 }
 
 async function getDefaultProposalResponsavel(userId: string) {
@@ -278,7 +273,6 @@ export async function POST(request: NextRequest) {
   let connection: Awaited<ReturnType<typeof getConnection>> | null = null
 
   try {
-    await ensureBaseSchema()
     const user = await getAuthenticatedServerUser()
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })

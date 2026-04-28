@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server'
 import { isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysql'
-import { getAuthenticatedServerUser, getOptionalUserColumns } from '@/lib/auth/session'
+import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
-import { ensureProposalKanbanOrderColumn, ensureProposalMaterialTagColumn } from '@/lib/server/proposal-workflow'
 
 type AuthenticatedUser = {
   id: string
@@ -101,6 +100,39 @@ function parseSectionsParam(request: Request) {
   return requestedSections.length > 0 ? requestedSections : [...BOOTSTRAP_SECTIONS]
 }
 
+function isUnknownColumnError(error: unknown) {
+  const code =
+    typeof error === 'object' && error && 'code' in error ? String((error as any).code) : ''
+  const message =
+    typeof error === 'object' && error && 'sqlMessage' in error
+      ? String((error as any).sqlMessage || '')
+      : typeof error === 'object' && error && 'message' in error
+        ? String((error as any).message || '')
+        : ''
+
+  return code === 'ER_BAD_FIELD_ERROR' || /unknown column/i.test(message)
+}
+
+async function queryBootstrapUsers() {
+  try {
+    return await query<any[]>(
+      `SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, created_at
+       FROM usuarios
+       ORDER BY nome ASC`
+    )
+  } catch (error) {
+    if (!isUnknownColumnError(error)) {
+      throw error
+    }
+
+    return query<any[]>(
+      `SELECT id, nome, email, avatar, role, ativo, meta_vendas, created_at
+       FROM usuarios
+       ORDER BY nome ASC`
+    )
+  }
+}
+
 export async function GET(request: Request) {
   let isAuthenticated = false
 
@@ -110,14 +142,7 @@ export async function GET(request: Request) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
     isAuthenticated = true
-    await ensureProposalMaterialTagColumn()
-    await ensureProposalKanbanOrderColumn()
-
     const isAdmin = authenticatedUser.role === 'admin' || authenticatedUser.role === 'gerente'
-    const optionalUserColumns = await getOptionalUserColumns()
-    const bootstrapUserModulePermissionsSelect = optionalUserColumns.has('module_permissions')
-      ? ', module_permissions'
-      : ''
     const sections = parseSectionsParam(request)
     const cacheKey = `crm-bootstrap:${authenticatedUser.role}:${authenticatedUser.id}:${sections.join(',')}`
     const cachedResponse = getRuntimeCache<Partial<Record<BootstrapSection, any[]>>>(cacheKey)
@@ -142,11 +167,7 @@ export async function GET(request: Request) {
           case 'usuarios':
             return [
               section,
-              await query<any[]>(
-                `SELECT id, nome, email, avatar, role, ativo, meta_vendas${bootstrapUserModulePermissionsSelect}, created_at
-                 FROM usuarios
-                 ORDER BY nome ASC`
-              ),
+              await queryBootstrapUsers(),
             ] as const
           case 'tarefas':
             return [

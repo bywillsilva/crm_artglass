@@ -10,9 +10,6 @@ import { notifyProposalEmail } from '@/lib/server/email-notifications'
 import { jsonNoStore } from '@/lib/server/http-cache'
 import {
   canOrcamentistaAccessProposal,
-  ensureCrmRuntimeSchema,
-  ensureProposalKanbanOrderColumn,
-  ensureProposalMaterialTagColumn,
   formatDateTime,
   normalizeProposalStatus,
   parseDatabaseDateTime,
@@ -166,7 +163,6 @@ const WORKFLOW_ALLOWED_TRANSITIONS: Partial<Record<ProposalWorkflowStatus, Propo
 }
 
 async function ensureBaseSchema() {
-  await ensureCrmRuntimeSchema()
   await syncDueFollowUpStatuses()
 }
 
@@ -523,9 +519,6 @@ export async function GET(
     if (!user) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
-    await ensureProposalMaterialTagColumn()
-    await ensureProposalKanbanOrderColumn()
-
     const cacheKey = `proposta:detail:${user.id}:${user.role}:${id}`
     const cachedProposta = getRuntimeCache<any>(cacheKey)
     if (cachedProposta !== undefined) {

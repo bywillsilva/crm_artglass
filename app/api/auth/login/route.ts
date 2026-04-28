@@ -2,7 +2,7 @@ import { createHash, randomInt, randomUUID } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { isTransientDatabaseError, query } from '@/lib/db/mysql'
-import { createSessionToken, getOptionalUserColumns, SESSION_COOKIE } from '@/lib/auth/session'
+import { createSessionToken, SESSION_COOKIE } from '@/lib/auth/session'
 import { buildEmailTemplate } from '@/lib/email'
 import { getEmailBranding } from '@/lib/server/email-branding'
 import { safeSendEmail, userHasTwoFactorEnabled } from '@/lib/server/user-settings'
@@ -48,12 +48,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Email e senha sao obrigatorios' }, { status: 400 })
     }
 
-    const optionalColumns = await getOptionalUserColumns()
-    const modulePermissionsSelect = optionalColumns.has('module_permissions')
-      ? ', module_permissions'
-      : ''
     const [user] = await query<any[]>(
-      `SELECT id, nome, email, senha, avatar, role, ativo${modulePermissionsSelect}
+      `SELECT id, nome, email, senha, avatar, role, ativo
        FROM usuarios
        WHERE email = ?
        LIMIT 1`,
@@ -131,7 +127,7 @@ export async function POST(request: NextRequest) {
         email: user.email,
         avatar: user.avatar,
         role: user.role,
-        modulePermissions: user.module_permissions,
+        modulePermissions: null,
       },
     })
 

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
 import bcrypt from 'bcryptjs'
-import { ensureUserManagementSchema } from '@/lib/server/proposal-workflow'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
 import { hasModuleAccess } from '@/lib/auth/module-access'
@@ -49,8 +48,6 @@ export async function GET(request: NextRequest) {
   const ativo = searchParams.get('ativo')
 
   try {
-    await ensureUserManagementSchema()
-
     const user = await getAuthenticatedServerUser()
     if (!user) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
@@ -111,8 +108,6 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    await ensureUserManagementSchema()
-
     const user = await getAuthenticatedServerUser()
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })

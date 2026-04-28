@@ -7,9 +7,6 @@ import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
 import {
-  ensureCrmRuntimeSchema,
-  ensureProposalKanbanOrderColumn,
-  ensureProposalMaterialTagColumn,
   getNextProposalNumber,
   formatDateTime,
   handleProposalAutomationOnCreate,
@@ -242,7 +239,6 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
 }
 
 async function ensureBaseSchema() {
-  await ensureCrmRuntimeSchema()
   await syncDueFollowUpStatuses()
 }
 
@@ -336,9 +332,6 @@ export async function GET(request: NextRequest) {
     if (!user) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
-    await ensureProposalMaterialTagColumn()
-    await ensureProposalKanbanOrderColumn()
-
     const cacheKey = `propostas:list:${user.id}:${user.role}:${status || 'todos'}:${clienteId || ''}:${updatedSince || ''}`
     const cachedPropostas = getRuntimeCache<any[]>(cacheKey)
     if (cachedPropostas !== undefined) {

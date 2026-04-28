@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
-import { createSessionToken, getOptionalUserColumns, SESSION_COOKIE } from '@/lib/auth/session'
+import { createSessionToken, SESSION_COOKIE } from '@/lib/auth/session'
 import { query } from '@/lib/db/mysql'
 
 async function ensureLoginVerificationTable() {
@@ -21,6 +21,19 @@ function hashToken(token: string) {
   return createHash('sha256').update(token).digest('hex')
 }
 
+function isUnknownColumnError(error: unknown) {
+  const code =
+    typeof error === 'object' && error && 'code' in error ? String((error as any).code) : ''
+  const message =
+    typeof error === 'object' && error && 'sqlMessage' in error
+      ? String((error as any).sqlMessage || '')
+      : typeof error === 'object' && error && 'message' in error
+        ? String((error as any).message || '')
+        : ''
+
+  return code === 'ER_BAD_FIELD_ERROR' || /unknown column/i.test(message)
+}
+
 export async function POST(request: NextRequest) {
   try {
     await ensureLoginVerificationTable()
@@ -35,21 +48,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Codigo de verificacao invalido' }, { status: 400 })
     }
 
-    const optionalColumns = await getOptionalUserColumns()
-    const modulePermissionsSelect = optionalColumns.has('module_permissions')
-      ? ', u.module_permissions'
-      : ''
-    const [challenge] = await query<any[]>(
-      `SELECT lvt.id, lvt.usuario_id, u.id as user_id, u.nome, u.email, u.avatar, u.role, u.ativo${modulePermissionsSelect}
-       FROM login_verification_tokens lvt
-       INNER JOIN usuarios u ON u.id = lvt.usuario_id
-       WHERE lvt.id = ?
-         AND lvt.token_hash = ?
-         AND lvt.used_at IS NULL
-         AND lvt.expires_at > NOW()
-       LIMIT 1`,
-      [challengeId.trim(), hashToken(token.trim())]
-    )
+    let challenge: any
+
+    try {
+      ;[challenge] = await query<any[]>(
+        `SELECT lvt.id, lvt.usuario_id, u.id as user_id, u.nome, u.email, u.avatar, u.role, u.ativo, u.module_permissions
+         FROM login_verification_tokens lvt
+         INNER JOIN usuarios u ON u.id = lvt.usuario_id
+         WHERE lvt.id = ?
+           AND lvt.token_hash = ?
+           AND lvt.used_at IS NULL
+           AND lvt.expires_at > NOW()
+         LIMIT 1`,
+        [challengeId.trim(), hashToken(token.trim())]
+      )
+    } catch (error) {
+      if (!isUnknownColumnError(error)) {
+        throw error
+      }
+
+      ;[challenge] = await query<any[]>(
+        `SELECT lvt.id, lvt.usuario_id, u.id as user_id, u.nome, u.email, u.avatar, u.role, u.ativo
+         FROM login_verification_tokens lvt
+         INNER JOIN usuarios u ON u.id = lvt.usuario_id
+         WHERE lvt.id = ?
+           AND lvt.token_hash = ?
+           AND lvt.used_at IS NULL
+           AND lvt.expires_at > NOW()
+         LIMIT 1`,
+        [challengeId.trim(), hashToken(token.trim())]
+      )
+    }
 
     if (!challenge || !challenge.ativo) {
       return NextResponse.json({ error: 'Codigo invalido ou expirado' }, { status: 400 })

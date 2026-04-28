@@ -3,7 +3,6 @@ import bcrypt from 'bcryptjs'
 import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
-import { ensureUserManagementSchema } from '@/lib/server/proposal-workflow'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
 import { hasModuleAccess } from '@/lib/auth/module-access'
@@ -60,8 +59,6 @@ export async function GET(
   const { id } = await params
 
   try {
-    await ensureUserManagementSchema()
-
     const user = await getAuthenticatedServerUser()
     if (!user) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
@@ -112,8 +109,6 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureUserManagementSchema()
-
     const authenticatedUser = await getAuthenticatedServerUser()
     if (!authenticatedUser) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })

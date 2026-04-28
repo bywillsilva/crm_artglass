@@ -4,14 +4,7 @@ import { query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { invalidateRuntimeCache } from '@/lib/server/runtime-cache'
-import {
-  canOrcamentistaAccessProposal,
-  ensureCrmRuntimeSchema,
-} from '@/lib/server/proposal-workflow'
-
-async function ensureBaseSchema() {
-  await ensureCrmRuntimeSchema()
-}
+import { canOrcamentistaAccessProposal } from '@/lib/server/proposal-workflow'
 
 async function getAuthenticatedUser() {
   const session = await getServerSession()
@@ -56,8 +49,6 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await ensureBaseSchema()
-
     const user = await getAuthenticatedUser()
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
