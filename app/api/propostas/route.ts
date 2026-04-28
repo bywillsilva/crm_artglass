@@ -6,7 +6,6 @@ import { persistSavedProposalFiles, saveProposalFiles } from '@/lib/server/propo
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
-import { getEffectiveUserSettings } from '@/lib/server/user-settings'
 import {
   ensureCrmRuntimeSchema,
   ensureProposalMaterialTagColumn,
@@ -418,8 +417,6 @@ export async function POST(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
-    const settings = await getEffectiveUserSettings(user.id)
-
     const data = await parseProposalPayload(request)
     const id = uuidv4()
     const now = new Date()
@@ -454,7 +451,7 @@ export async function POST(request: NextRequest) {
     const valor = parseNumberLike(data.valor) ?? 0
     const desconto = parseNumberLike(data.desconto) ?? 0
     const valorFinal = valor - (valor * desconto) / 100
-    const materialTag = settings.general.demoMode ? normalizeMaterialTag(data.materialTag) : null
+    const materialTag = normalizeMaterialTag(data.materialTag)
 
     if (status === 'aguardando_aprovacao' && !data.anexos.some(isPdfFile)) {
       return NextResponse.json(

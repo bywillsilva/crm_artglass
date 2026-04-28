@@ -202,11 +202,7 @@ function getProposalCardTitle(proposta: Proposta, clientName: string) {
   return rawTitle || 'Proposta Comercial'
 }
 
-function ProposalMaterialTagList({ enabled, value }: { enabled: boolean; value?: string | null }) {
-  if (!enabled) {
-    return null
-  }
-
+function ProposalMaterialTagList({ value }: { value?: string | null }) {
   const tags = parseProposalMaterialTags(value)
 
   if (!tags.length) {
@@ -333,7 +329,7 @@ function getDeadlineBannerStyles(cardStateClasses: string) {
 
 export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const { state, lookups, updateProposta } = useCRM()
-  const { general, formatCurrency, formatDateTime } = useAppSettings()
+  const { formatCurrency, formatDateTime } = useAppSettings()
   const { user } = useSession()
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
   const [sellerAction, setSellerAction] = useState<SellerMoveAction | ''>('')
@@ -1259,7 +1255,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                           {formatCurrency(proposta.valor)}
                         </p>
 
-                        <ProposalMaterialTagList enabled={general.demoMode} value={proposta.materialTag} />
+                        <ProposalMaterialTagList value={proposta.materialTag} />
 
                         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                           <span>Vend.: {proposta.responsavelNome || '-'}</span>

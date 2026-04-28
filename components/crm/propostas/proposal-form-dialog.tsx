@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Paperclip, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { useCRM } from '@/lib/context/crm-context'
-import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useProposta, useSession } from '@/lib/hooks/use-api'
 import { statusPropostaLabels, type Proposta, type StatusProposta } from '@/lib/data/types'
 import { parseProposalMaterialTags } from '@/lib/utils/proposal-material-tags'
@@ -123,7 +122,6 @@ export function ProposalFormDialog({
   propostaInicial,
 }: ProposalFormDialogProps) {
   const { state, lookups, addProposta, updateProposta } = useCRM()
-  const { general } = useAppSettings()
   const { user } = useSession()
   const { proposta, isLoading } = useProposta(open && propostaId ? propostaId : null)
   const propostaSource = proposta || propostaInicial || null
@@ -332,7 +330,20 @@ export function ProposalFormDialog({
       toast.error('Vendedores nao podem editar propostas fora do fluxo do funil.')
       return
     }
-    if (!clienteId || (!responsavelId && isAdmin) || (orcamentistaObrigatorio && !orcamentistaId) || !submitHasRequiredValue) {
+    if (!clienteId) {
+      toast.error('Selecione um cliente para continuar.')
+      return
+    }
+    if (!responsavelId && isAdmin) {
+      toast.error('Selecione um vendedor responsavel para a proposta.')
+      return
+    }
+    if (orcamentistaObrigatorio && !orcamentistaId) {
+      toast.error('Selecione um orcamentista para seguir com esta proposta.')
+      return
+    }
+    if (!submitHasRequiredValue) {
+      toast.error('Informe o valor do orcamento antes de avancar esta proposta.')
       return
     }
 
@@ -348,7 +359,7 @@ export function ProposalFormDialog({
       clienteId,
       valor: rawValor.trim() ? rawValor : null,
       descricao,
-        materialTag: general.demoMode ? materialTag : undefined,
+      materialTag,
       status,
       responsavelId: isAdmin
         ? responsavelId
@@ -530,23 +541,21 @@ export function ProposalFormDialog({
                 ) : null}
               </div>
 
-                    {general.demoMode ? (
-                      <div className="space-y-2 md:col-span-2">
-                        <Label>Tag de material</Label>
-                        <Input
-                          placeholder="Ex.: Vidro temperado, aluminio premium, ACM preto"
-                          value={materialTag}
-                          maxLength={80}
-                          onChange={(event) => {
-                            isDirtyRef.current = true
-                            setMaterialTag(event.target.value)
-                          }}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Classifique o tipo de material principal desta proposta. Separe varias tags por virgula.
-                        </p>
-                      </div>
-                    ) : null}
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Tag de material</Label>
+                      <Input
+                        placeholder="Ex.: Vidro temperado, aluminio premium, ACM preto"
+                        value={materialTag}
+                        maxLength={80}
+                        onChange={(event) => {
+                          isDirtyRef.current = true
+                          setMaterialTag(event.target.value)
+                        }}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Classifique o tipo de material principal desta proposta. Separe varias tags por virgula.
+                      </p>
+                    </div>
                   </div>
                 </div>
 
@@ -649,7 +658,7 @@ export function ProposalFormDialog({
                       <span>Status</span>
                       <span className="font-medium text-foreground">{statusPropostaLabels[status]}</span>
                     </div>
-                    {general.demoMode && materialTags.length ? (
+                    {materialTags.length ? (
                       <div className="flex items-start justify-between gap-3">
                         <span>Material</span>
                         <div className="flex max-w-[15rem] flex-wrap justify-end gap-1.5">

@@ -76,7 +76,7 @@ function getDescriptionPreview(value?: string | null, maxLength = 72) {
 
 export default function PropostasPage() {
   const { state, getCliente, deleteProposta } = useCRM()
-  const { general, formatCurrency, formatDate } = useAppSettings()
+  const { formatCurrency, formatDate } = useAppSettings()
   const { user } = useSession()
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editingPropostaId, setEditingPropostaId] = useState<string | null>(null)
@@ -168,7 +168,7 @@ export default function PropostasPage() {
                   <span className="block truncate font-medium text-foreground">{clientName}</span>
                 )}
               </div>
-              {general.demoMode && visibleMaterialTags.length ? (
+              {visibleMaterialTags.length ? (
                 <div className="flex max-w-[12rem] flex-wrap justify-end gap-1">
                   {visibleMaterialTags.map((tag) => (
                     <Badge
@@ -289,7 +289,7 @@ export default function PropostasPage() {
                     <p className="truncate text-sm text-foreground">{clientName}</p>
                   )}
                 </div>
-                {general.demoMode && visibleMaterialTags.length ? (
+                {visibleMaterialTags.length ? (
                   <div className="flex max-w-[9rem] flex-wrap justify-end gap-1">
                     {visibleMaterialTags.map((tag) => (
                       <Badge

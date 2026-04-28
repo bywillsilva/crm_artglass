@@ -8,7 +8,6 @@ import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/
 import { statusPropostaLabels } from '@/lib/data/types'
 import { notifyProposalEmail } from '@/lib/server/email-notifications'
 import { jsonNoStore } from '@/lib/server/http-cache'
-import { getEffectiveUserSettings } from '@/lib/server/user-settings'
 import {
   canOrcamentistaAccessProposal,
   ensureCrmRuntimeSchema,
@@ -565,8 +564,6 @@ export async function PUT(
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
-    const settings = await getEffectiveUserSettings(user.id)
-
     const { id } = await params
     const data = await parseProposalPayload(request)
     const propostaAtual = await getProposal(id)
@@ -730,9 +727,7 @@ export async function PUT(
     const requestedProposalValue = parseNullableNumber(data.valor)
     const requestedDiscount = parseNullableNumber(data.desconto)
     const materialTag =
-      !settings.general.demoMode
-        ? normalizeMaterialTag(propostaAtual.material_tag)
-        : data.materialTag === undefined
+      data.materialTag === undefined
         ? normalizeMaterialTag(propostaAtual.material_tag)
         : normalizeMaterialTag(data.materialTag)
     const valor = requestedClosedValue ?? requestedProposalValue ?? parseNullableNumber(propostaAtual.valor) ?? 0

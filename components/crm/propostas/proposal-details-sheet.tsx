@@ -124,7 +124,7 @@ export function ProposalDetailsSheet({
   propostaId,
   propostaInicial,
 }: ProposalDetailsSheetProps) {
-  const { general, formatCurrency, formatDateTime } = useAppSettings()
+  const { formatCurrency, formatDateTime } = useAppSettings()
   const { user } = useSession()
   const {
     proposta,
@@ -549,7 +549,7 @@ export function ProposalDetailsSheet({
                       {statusPropostaLabels[propostaSource.status]}
                     </Badge>
                   </div>
-                  {general.demoMode && materialTags.length ? (
+                  {materialTags.length ? (
                     <div className="flex flex-wrap gap-2">
                       {materialTags.map((tag) => (
                         <Badge key={tag} variant="secondary" className="h-auto px-2 py-0.5 text-[10px] uppercase tracking-wide">
