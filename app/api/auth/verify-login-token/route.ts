@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
-import { createSessionToken, SESSION_COOKIE } from '@/lib/auth/session'
+import { createSessionToken, getOptionalUserColumns, SESSION_COOKIE } from '@/lib/auth/session'
 import { query } from '@/lib/db/mysql'
 
 async function ensureLoginVerificationTable() {
@@ -35,8 +35,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Codigo de verificacao invalido' }, { status: 400 })
     }
 
+    const optionalColumns = await getOptionalUserColumns()
+    const modulePermissionsSelect = optionalColumns.has('module_permissions')
+      ? ', u.module_permissions'
+      : ''
     const [challenge] = await query<any[]>(
-      `SELECT lvt.id, lvt.usuario_id, u.id as user_id, u.nome, u.email, u.avatar, u.role, u.ativo, u.module_permissions
+      `SELECT lvt.id, lvt.usuario_id, u.id as user_id, u.nome, u.email, u.avatar, u.role, u.ativo${modulePermissionsSelect}
        FROM login_verification_tokens lvt
        INNER JOIN usuarios u ON u.id = lvt.usuario_id
        WHERE lvt.id = ?

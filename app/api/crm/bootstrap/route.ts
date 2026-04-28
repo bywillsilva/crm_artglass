@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysql'
-import { getAuthenticatedServerUser } from '@/lib/auth/session'
+import { getAuthenticatedServerUser, getOptionalUserColumns } from '@/lib/auth/session'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
 import { ensureProposalKanbanOrderColumn, ensureProposalMaterialTagColumn } from '@/lib/server/proposal-workflow'
@@ -114,6 +114,10 @@ export async function GET(request: Request) {
     await ensureProposalKanbanOrderColumn()
 
     const isAdmin = authenticatedUser.role === 'admin' || authenticatedUser.role === 'gerente'
+    const optionalUserColumns = await getOptionalUserColumns()
+    const bootstrapUserModulePermissionsSelect = optionalUserColumns.has('module_permissions')
+      ? ', module_permissions'
+      : ''
     const sections = parseSectionsParam(request)
     const cacheKey = `crm-bootstrap:${authenticatedUser.role}:${authenticatedUser.id}:${sections.join(',')}`
     const cachedResponse = getRuntimeCache<Partial<Record<BootstrapSection, any[]>>>(cacheKey)
@@ -139,7 +143,7 @@ export async function GET(request: Request) {
             return [
               section,
               await query<any[]>(
-                `SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, created_at
+                `SELECT id, nome, email, avatar, role, ativo, meta_vendas${bootstrapUserModulePermissionsSelect}, created_at
                  FROM usuarios
                  ORDER BY nome ASC`
               ),

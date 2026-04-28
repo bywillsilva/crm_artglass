@@ -2,10 +2,9 @@ import { createHash, randomInt, randomUUID } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { query } from '@/lib/db/mysql'
-import { createSessionToken, SESSION_COOKIE } from '@/lib/auth/session'
+import { createSessionToken, getOptionalUserColumns, SESSION_COOKIE } from '@/lib/auth/session'
 import { buildEmailTemplate } from '@/lib/email'
 import { getEmailBranding } from '@/lib/server/email-branding'
-import { ensureUserManagementSchema } from '@/lib/server/proposal-workflow'
 import { safeSendEmail, userHasTwoFactorEnabled } from '@/lib/server/user-settings'
 
 function generateToken() {
@@ -43,15 +42,21 @@ async function ensureLoginVerificationTable() {
 
 export async function POST(request: NextRequest) {
   try {
-    await ensureUserManagementSchema()
     const { email, senha } = await request.json()
 
     if (!email || !senha) {
       return NextResponse.json({ error: 'Email e senha sao obrigatorios' }, { status: 400 })
     }
 
+    const optionalColumns = await getOptionalUserColumns()
+    const modulePermissionsSelect = optionalColumns.has('module_permissions')
+      ? ', module_permissions'
+      : ''
     const [user] = await query<any[]>(
-      'SELECT id, nome, email, senha, avatar, role, ativo, module_permissions FROM usuarios WHERE email = ? LIMIT 1',
+      `SELECT id, nome, email, senha, avatar, role, ativo${modulePermissionsSelect}
+       FROM usuarios
+       WHERE email = ?
+       LIMIT 1`,
       [email]
     )
 

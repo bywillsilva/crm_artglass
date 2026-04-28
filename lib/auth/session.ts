@@ -43,6 +43,11 @@ type AuthenticatedUserCacheEntry = {
 }
 
 const authenticatedUserCache = new Map<string, AuthenticatedUserCacheEntry>()
+const USER_OPTIONAL_COLUMNS_CACHE_MS = 60 * 60 * 1000
+
+let userOptionalColumnsCheckedAt = 0
+let userOptionalColumnsPromise: Promise<Set<string>> | null = null
+let cachedUserOptionalColumns = new Set<string>()
 
 function getSecret() {
   return process.env.AUTH_SECRET || 'solarcrm-dev-secret'
@@ -50,6 +55,37 @@ function getSecret() {
 
 function sign(value: string) {
   return createHmac('sha256', getSecret()).update(value).digest('hex')
+}
+
+export async function getOptionalUserColumns() {
+  const now = Date.now()
+  if (now - userOptionalColumnsCheckedAt < USER_OPTIONAL_COLUMNS_CACHE_MS) {
+    return cachedUserOptionalColumns
+  }
+
+  if (userOptionalColumnsPromise) {
+    return userOptionalColumnsPromise
+  }
+
+  userOptionalColumnsPromise = (async () => {
+    const columns = await query<any[]>(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'usuarios'
+         AND COLUMN_NAME IN ('module_permissions')`
+    )
+
+    cachedUserOptionalColumns = new Set(columns.map((column) => String(column.COLUMN_NAME)))
+    userOptionalColumnsCheckedAt = Date.now()
+    return cachedUserOptionalColumns
+  })()
+
+  try {
+    return await userOptionalColumnsPromise
+  } finally {
+    userOptionalColumnsPromise = null
+  }
 }
 
 export function createSessionToken(userId: string, role: string, maxAgeSeconds = 60 * 60 * 12) {
@@ -137,8 +173,12 @@ export async function getAuthenticatedServerUser() {
   }
 
   try {
+    const optionalColumns = await getOptionalUserColumns()
+    const modulePermissionsSelect = optionalColumns.has('module_permissions')
+      ? ', module_permissions'
+      : ''
     const [user] = await query<any[]>(
-      `SELECT id, nome, email, avatar, role, ativo, module_permissions
+      `SELECT id, nome, email, avatar, role, ativo${modulePermissionsSelect}
        FROM usuarios
        WHERE id = ?
        LIMIT 1`,
