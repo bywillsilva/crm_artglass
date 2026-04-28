@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
@@ -7,6 +7,7 @@ import { hasModuleAccess } from '@/lib/auth/module-access'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useSession } from '@/lib/hooks/use-api'
+import { parseProposalMaterialTags } from '@/lib/utils/proposal-material-tags'
 import { CRMHeader } from '@/components/crm/header'
 import { ModuleAccessState } from '@/components/crm/module-access-state'
 import { Card, CardContent } from '@/components/ui/card'
@@ -66,9 +67,16 @@ const tabs: { key: string; label: string; statuses?: StatusProposta[] }[] = [
   { key: 'perdidas', label: 'Perdidas', statuses: ['perdido'] },
 ]
 
+function getDescriptionPreview(value?: string | null, maxLength = 72) {
+  const normalized = (value || '').replace(/\s+/g, ' ').trim()
+  if (!normalized) return ''
+  if (normalized.length <= maxLength) return normalized
+  return `${normalized.slice(0, maxLength).trimEnd()}...`
+}
+
 export default function PropostasPage() {
   const { state, getCliente, deleteProposta } = useCRM()
-  const { formatCurrency, formatDate } = useAppSettings()
+  const { general, formatCurrency, formatDate } = useAppSettings()
   const { user } = useSession()
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editingPropostaId, setEditingPropostaId] = useState<string | null>(null)
@@ -121,6 +129,11 @@ export default function PropostasPage() {
 
   const renderPropostaRow = (proposta: typeof state.propostas[number]) => {
     const cliente = getCliente(proposta.clienteId)
+    const materialTags = parseProposalMaterialTags(proposta.materialTag)
+    const visibleMaterialTags = materialTags.slice(0, 2)
+    const extraMaterialTagsCount = Math.max(materialTags.length - visibleMaterialTags.length, 0)
+    const descriptionPreview = getDescriptionPreview(proposta.descricao)
+    const clientName = cliente?.nome || proposta.clienteNome || 'Cliente nao encontrado'
     const canDeleteProposal =
       user?.role === 'admin' ||
       user?.role === 'gerente' ||
@@ -139,43 +152,70 @@ export default function PropostasPage() {
       )
 
     return (
-        <TableRow key={proposta.id} className="hover:bg-secondary/30">
-          <TableCell>
-            {cliente ? (
-              <div className="space-y-1">
-                <Link
-                  href={`/clientes/${cliente.id}`}
-                  className="font-medium text-foreground transition-colors hover:text-primary"
-                >
-                  {cliente.nome}
-                </Link>
-                {proposta.materialTag ? (
-                  <Badge variant="secondary" className="h-auto max-w-max px-2 py-0.5 text-[10px] uppercase tracking-wide">
-                    {proposta.materialTag}
-                  </Badge>
-                ) : null}
+      <TableRow key={proposta.id} className="hover:bg-secondary/30">
+        <TableCell className="min-w-[20rem]">
+          <div className="space-y-1.5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                {cliente ? (
+                  <Link
+                    href={`/clientes/${cliente.id}`}
+                    className="block truncate font-medium text-foreground transition-colors hover:text-primary"
+                  >
+                    {clientName}
+                  </Link>
+                ) : (
+                  <span className="block truncate font-medium text-foreground">{clientName}</span>
+                )}
               </div>
-            ) : (
-              <div className="space-y-1">
-                <span className="text-muted-foreground">{proposta.clienteNome || 'Cliente nao encontrado'}</span>
-                {proposta.materialTag ? (
-                  <Badge variant="secondary" className="h-auto max-w-max px-2 py-0.5 text-[10px] uppercase tracking-wide">
-                    {proposta.materialTag}
-                  </Badge>
-                ) : null}
-              </div>
-            )}
-          </TableCell>
-        <TableCell className="font-semibold">{formatCurrency(proposta.valor)}</TableCell>
-        <TableCell className="max-w-xs truncate text-muted-foreground">{proposta.descricao || '-'}</TableCell>
+              {general.demoMode && visibleMaterialTags.length ? (
+                <div className="flex max-w-[12rem] flex-wrap justify-end gap-1">
+                  {visibleMaterialTags.map((tag) => (
+                    <Badge
+                      key={tag}
+                      variant="secondary"
+                      className="h-auto border border-border/60 bg-secondary/55 px-2 py-0.5 text-[10px] uppercase tracking-wide text-secondary-foreground/90"
+                    >
+                      {tag}
+                    </Badge>
+                  ))}
+                  {extraMaterialTagsCount > 0 ? (
+                    <Badge variant="outline" className="h-auto px-2 py-0.5 text-[10px]">
+                      +{extraMaterialTagsCount}
+                    </Badge>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+            {descriptionPreview ? (
+              <p className="max-w-[28rem] text-xs leading-relaxed text-muted-foreground">{descriptionPreview}</p>
+            ) : null}
+          </div>
+        </TableCell>
+        <TableCell className="whitespace-nowrap font-semibold">{formatCurrency(proposta.valor)}</TableCell>
         <TableCell>
           <Badge variant="outline" className={statusPropostaColors[proposta.status]}>
             {statusPropostaLabels[proposta.status]}
           </Badge>
         </TableCell>
-        <TableCell className="text-muted-foreground">{formatDate(proposta.dataEnvio)}</TableCell>
-        <TableCell className="text-muted-foreground">{proposta.responsavelNome || '-'}</TableCell>
-        <TableCell className="text-muted-foreground">{proposta.orcamentistaNome || '-'}</TableCell>
+        <TableCell className="min-w-[12rem]">
+          <div className="space-y-1 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted-foreground">Vend.</span>
+              <span className="truncate text-right text-foreground">{proposta.responsavelNome || '-'}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted-foreground">Orc.</span>
+              <span className="truncate text-right text-foreground">{proposta.orcamentistaNome || '-'}</span>
+            </div>
+          </div>
+        </TableCell>
+        <TableCell className="min-w-[9rem] text-sm">
+          <div className="space-y-1">
+            <p className="font-medium text-foreground">{proposta.numero}</p>
+            <p className="text-muted-foreground">{formatDate(proposta.dataEnvio)}</p>
+          </div>
+        </TableCell>
         <TableCell>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -209,6 +249,11 @@ export default function PropostasPage() {
 
   const renderPropostaCard = (proposta: typeof state.propostas[number]) => {
     const cliente = getCliente(proposta.clienteId)
+    const materialTags = parseProposalMaterialTags(proposta.materialTag)
+    const visibleMaterialTags = materialTags.slice(0, 2)
+    const extraMaterialTagsCount = Math.max(materialTags.length - visibleMaterialTags.length, 0)
+    const descriptionPreview = getDescriptionPreview(proposta.descricao, 96)
+    const clientName = cliente?.nome || proposta.clienteNome || 'Cliente nao encontrado'
     const canDeleteProposal =
       user?.role === 'admin' ||
       user?.role === 'gerente' ||
@@ -231,19 +276,39 @@ export default function PropostasPage() {
         <CardContent className="space-y-4 p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 space-y-1">
-              {cliente ? (
-                <Link
-                  href={`/clientes/${cliente.id}`}
-                  className="block truncate font-medium text-foreground transition-colors hover:text-primary"
-                >
-                  {cliente.nome}
-                </Link>
-              ) : (
-                <p className="truncate text-sm text-muted-foreground">
-                  {proposta.clienteNome || 'Cliente nao encontrado'}
-                </p>
-              )}
-              <p className="text-xs text-muted-foreground">{formatDate(proposta.dataEnvio)}</p>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  {cliente ? (
+                    <Link
+                      href={`/clientes/${cliente.id}`}
+                      className="block truncate font-medium text-foreground transition-colors hover:text-primary"
+                    >
+                      {clientName}
+                    </Link>
+                  ) : (
+                    <p className="truncate text-sm text-foreground">{clientName}</p>
+                  )}
+                </div>
+                {general.demoMode && visibleMaterialTags.length ? (
+                  <div className="flex max-w-[9rem] flex-wrap justify-end gap-1">
+                    {visibleMaterialTags.map((tag) => (
+                      <Badge
+                        key={tag}
+                        variant="secondary"
+                        className="h-auto border border-border/60 bg-secondary/55 px-2 py-0.5 text-[10px] uppercase tracking-wide text-secondary-foreground/90"
+                      >
+                        {tag}
+                      </Badge>
+                    ))}
+                    {extraMaterialTagsCount > 0 ? (
+                      <Badge variant="outline" className="h-auto px-2 py-0.5 text-[10px]">
+                        +{extraMaterialTagsCount}
+                      </Badge>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+              <p className="text-xs text-muted-foreground">{proposta.numero} - {formatDate(proposta.dataEnvio)}</p>
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -276,18 +341,24 @@ export default function PropostasPage() {
             <Badge variant="outline" className={statusPropostaColors[proposta.status]}>
               {statusPropostaLabels[proposta.status]}
             </Badge>
-            {proposta.materialTag ? (
-              <Badge variant="secondary" className="h-auto px-2 py-0.5 text-[10px] uppercase tracking-wide">
-                {proposta.materialTag}
-              </Badge>
-            ) : null}
-            <span className="text-sm font-semibold text-foreground">{formatCurrency(proposta.valor)}</span>
           </div>
 
-          <div className="grid grid-cols-1 gap-2 text-sm text-muted-foreground">
-            <p className="truncate">Descricao: {proposta.descricao || '-'}</p>
-            <p className="truncate">Vendedor: {proposta.responsavelNome || '-'}</p>
-            <p className="truncate">Orcamentista: {proposta.orcamentistaNome || '-'}</p>
+          <div className="space-y-2">
+            <p className="text-sm font-semibold text-foreground">{formatCurrency(proposta.valor)}</p>
+            {descriptionPreview ? (
+              <p className="text-sm leading-relaxed text-muted-foreground">{descriptionPreview}</p>
+            ) : null}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="space-y-1">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Vendedor</p>
+              <p className="truncate text-foreground">{proposta.responsavelNome || '-'}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Orcamentista</p>
+              <p className="truncate text-foreground">{proposta.orcamentistaNome || '-'}</p>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -408,11 +479,9 @@ export default function PropostasPage() {
                             <TableRow className="bg-secondary/50 hover:bg-secondary/50">
                               <TableHead className="text-foreground">Cliente</TableHead>
                               <TableHead className="text-foreground">Valor</TableHead>
-                              <TableHead className="text-foreground">Descricao</TableHead>
                               <TableHead className="text-foreground">Status</TableHead>
-                              <TableHead className="text-foreground">Data</TableHead>
-                              <TableHead className="text-foreground">Vendedor</TableHead>
-                              <TableHead className="text-foreground">Orcamentista</TableHead>
+                              <TableHead className="text-foreground">Responsaveis</TableHead>
+                              <TableHead className="text-foreground">Registro</TableHead>
                               <TableHead className="w-12 text-foreground"></TableHead>
                             </TableRow>
                           </TableHeader>

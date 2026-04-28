@@ -16,6 +16,7 @@ import { toast } from 'sonner'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useProposta, useSession } from '@/lib/hooks/use-api'
 import { statusPropostaColors, statusPropostaLabels, type Proposta } from '@/lib/data/types'
+import { parseProposalMaterialTags } from '@/lib/utils/proposal-material-tags'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -123,7 +124,7 @@ export function ProposalDetailsSheet({
   propostaId,
   propostaInicial,
 }: ProposalDetailsSheetProps) {
-  const { formatCurrency, formatDateTime } = useAppSettings()
+  const { general, formatCurrency, formatDateTime } = useAppSettings()
   const { user } = useSession()
   const {
     proposta,
@@ -159,6 +160,10 @@ export function ProposalDetailsSheet({
   }, [error])
   const displayTitle = useMemo(() => getProposalDisplayTitle(propostaSource), [propostaSource])
   const displayClientName = useMemo(() => propostaSource?.clienteNome?.trim() || '', [propostaSource])
+  const materialTags = useMemo(
+    () => parseProposalMaterialTags(propostaSource?.materialTag),
+    [propostaSource?.materialTag]
+  )
   const shouldShowClientLine = useMemo(() => {
     if (!displayClientName) return false
     return displayTitle.trim() !== displayClientName
@@ -544,11 +549,13 @@ export function ProposalDetailsSheet({
                       {statusPropostaLabels[propostaSource.status]}
                     </Badge>
                   </div>
-                  {propostaSource.materialTag ? (
+                  {general.demoMode && materialTags.length ? (
                     <div className="flex flex-wrap gap-2">
-                      <Badge variant="secondary" className="h-auto px-2 py-0.5 text-[10px] uppercase tracking-wide">
-                        {propostaSource.materialTag}
-                      </Badge>
+                      {materialTags.map((tag) => (
+                        <Badge key={tag} variant="secondary" className="h-auto px-2 py-0.5 text-[10px] uppercase tracking-wide">
+                          {tag}
+                        </Badge>
+                      ))}
                     </div>
                   ) : null}
                   <p className="text-3xl font-bold text-foreground">

@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
 import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
-import { deleteStoredFiles, saveProposalFiles } from '@/lib/server/proposal-files'
+import { deleteStoredFiles, persistSavedProposalFiles, saveProposalFiles } from '@/lib/server/proposal-files'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { statusPropostaLabels } from '@/lib/data/types'
 import { notifyProposalEmail } from '@/lib/server/email-notifications'
 import { jsonNoStore } from '@/lib/server/http-cache'
+import { getEffectiveUserSettings } from '@/lib/server/user-settings'
 import {
   canOrcamentistaAccessProposal,
   ensureCrmRuntimeSchema,
@@ -460,6 +461,10 @@ async function persistProposalComment(propostaId: string, usuarioId: string, com
   )
 }
 
+async function touchProposalUpdatedAt(propostaId: string) {
+  await query('UPDATE propostas SET updated_at = NOW() WHERE id = ?', [propostaId])
+}
+
 function formatWorkflowComment(
   action: SellerWorkflowAction | null,
   nextStatus: ProposalWorkflowStatus,
@@ -560,6 +565,7 @@ export async function PUT(
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
+    const settings = await getEffectiveUserSettings(user.id)
 
     const { id } = await params
     const data = await parseProposalPayload(request)
@@ -724,7 +730,9 @@ export async function PUT(
     const requestedProposalValue = parseNullableNumber(data.valor)
     const requestedDiscount = parseNullableNumber(data.desconto)
     const materialTag =
-      data.materialTag === undefined
+      !settings.general.demoMode
+        ? normalizeMaterialTag(propostaAtual.material_tag)
+        : data.materialTag === undefined
         ? normalizeMaterialTag(propostaAtual.material_tag)
         : normalizeMaterialTag(data.materialTag)
     const valor = requestedClosedValue ?? requestedProposalValue ?? parseNullableNumber(propostaAtual.valor) ?? 0
@@ -855,26 +863,8 @@ export async function PUT(
     ])
 
     if (savedFiles.length > 0) {
-      await Promise.all(
-        savedFiles.map((file) =>
-          query(
-            `INSERT INTO proposta_anexos (
-              id, proposta_id, nome_original, nome_arquivo, caminho, tipo_mime, tamanho, conteudo, usuario_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              file.id,
-              id,
-              file.nomeOriginal,
-              file.nomeArquivo,
-              file.caminho,
-              file.tipoMime,
-              file.tamanho,
-              file.conteudo,
-              user.id,
-            ]
-          )
-        )
-      )
+      await persistSavedProposalFiles(id, user.id, savedFiles)
+      await touchProposalUpdatedAt(id)
     }
 
     const cliente = clienteRows[0]
@@ -939,6 +929,14 @@ export async function PUT(
       resource: 'proposta',
       resourceId: id,
     })
+
+    if (savedFiles.length > 0) {
+      await publishRealtimeEvent({
+        actorUserId: user.id,
+        resource: 'proposta_anexo',
+        resourceId: id,
+      })
+    }
 
     if (previousStatus !== storedStatus) {
       await publishRealtimeEvent({

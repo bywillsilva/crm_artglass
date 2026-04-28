@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs'
 import path from 'path'
 import { v4 as uuidv4 } from 'uuid'
+import { query } from '@/lib/db/mysql'
 
 export type SavedProposalFile = {
   id: string
@@ -69,6 +70,37 @@ export async function saveProposalFiles(propostaId: string, files: File[]) {
   }
 
   return savedFiles
+}
+
+export async function persistSavedProposalFiles(
+  propostaId: string,
+  usuarioId: string,
+  files: SavedProposalFile[]
+) {
+  if (!files.length) {
+    return
+  }
+
+  await Promise.all(
+    files.map((file) =>
+      query(
+        `INSERT INTO proposta_anexos (
+          id, proposta_id, nome_original, nome_arquivo, caminho, tipo_mime, tamanho, conteudo, usuario_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          file.id,
+          propostaId,
+          file.nomeOriginal,
+          file.nomeArquivo,
+          file.caminho,
+          file.tipoMime,
+          file.tamanho,
+          file.conteudo,
+          usuarioId,
+        ]
+      )
+    )
+  )
 }
 
 export async function deleteStoredFiles(paths: string[]) {

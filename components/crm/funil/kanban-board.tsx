@@ -17,6 +17,7 @@ import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useProposta, useSession } from '@/lib/hooks/use-api'
 import { formatBrazilPhone } from '@/lib/utils/phone'
+import { parseProposalMaterialTags } from '@/lib/utils/proposal-material-tags'
 import {
   getProposalCardVisualState,
   getProposalTaskStage,
@@ -201,6 +202,31 @@ function getProposalCardTitle(proposta: Proposta, clientName: string) {
   return rawTitle || 'Proposta Comercial'
 }
 
+function ProposalMaterialTagList({ enabled, value }: { enabled: boolean; value?: string | null }) {
+  if (!enabled) {
+    return null
+  }
+
+  const tags = parseProposalMaterialTags(value)
+
+  if (!tags.length) {
+    return null
+  }
+
+  return (
+    <div className="mt-3 flex flex-wrap gap-1.5">
+      {tags.map((tag) => (
+        <span
+          key={tag}
+          className="inline-flex rounded-full bg-secondary px-2.5 py-1 text-[10px] font-medium uppercase tracking-wide text-secondary-foreground"
+        >
+          {tag}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function getSellerActionOptions(status: StatusProposta): SellerMoveAction[] {
   switch (status) {
     case 'enviar_ao_cliente':
@@ -307,7 +333,7 @@ function getDeadlineBannerStyles(cardStateClasses: string) {
 
 export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const { state, lookups, updateProposta } = useCRM()
-  const { formatCurrency, formatDateTime } = useAppSettings()
+  const { general, formatCurrency, formatDateTime } = useAppSettings()
   const { user } = useSession()
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
   const [sellerAction, setSellerAction] = useState<SellerMoveAction | ''>('')
@@ -1106,7 +1132,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     <>
       <div
         ref={scrollContainerRef}
-        className={`flex min-h-[calc(100vh-12rem)] gap-4 overflow-x-auto pb-4 ${dragState ? 'touch-none' : ''}`}
+        className={`flex min-h-[calc(100vh-12rem)] items-stretch gap-4 overflow-x-auto pb-4 ${dragState ? 'touch-none' : ''}`}
       >
         {visibleColumns.map((status) => {
           const propostasDaColuna = columnSummaries[status].propostas
@@ -1117,7 +1143,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
             <div
               key={status}
               data-kanban-column-status={status}
-              className={`flex w-80 min-w-80 flex-col rounded-lg border-t-4 bg-card transition-colors ${
+              className={`flex h-[calc(100vh-14rem)] min-h-[30rem] w-80 min-w-80 flex-col rounded-lg border-t-4 bg-card transition-colors ${
                 columnBorderColors[status]
               } ${isTouchDropTarget ? 'ring-2 ring-primary/60 ring-offset-2 ring-offset-background' : ''}`}
             >
@@ -1131,7 +1157,8 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                 <p className="text-sm text-muted-foreground">{formatCurrency(valorTotal)}</p>
               </div>
 
-              <div className="flex-1 space-y-3 p-3">
+              <div className="flex-1 overflow-y-auto p-3 min-h-0">
+                <div className="space-y-3">
                 {propostasDaColuna.length === 0 ? (
                   <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
                     Nenhuma proposta nesta etapa
@@ -1232,13 +1259,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                           {formatCurrency(proposta.valor)}
                         </p>
 
-                        {proposta.materialTag ? (
-                          <div className="mt-3">
-                            <span className="inline-flex rounded-full bg-secondary px-2.5 py-1 text-[10px] font-medium uppercase tracking-wide text-secondary-foreground">
-                              {proposta.materialTag}
-                            </span>
-                          </div>
-                        ) : null}
+                        <ProposalMaterialTagList enabled={general.demoMode} value={proposta.materialTag} />
 
                         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                           <span>Vend.: {proposta.responsavelNome || '-'}</span>
@@ -1290,6 +1311,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                     )
                   })
                 )}
+                </div>
               </div>
             </div>
           )

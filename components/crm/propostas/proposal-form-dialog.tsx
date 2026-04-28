@@ -4,8 +4,10 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Paperclip, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { useCRM } from '@/lib/context/crm-context'
+import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useProposta, useSession } from '@/lib/hooks/use-api'
 import { statusPropostaLabels, type Proposta, type StatusProposta } from '@/lib/data/types'
+import { parseProposalMaterialTags } from '@/lib/utils/proposal-material-tags'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -121,6 +123,7 @@ export function ProposalFormDialog({
   propostaInicial,
 }: ProposalFormDialogProps) {
   const { state, lookups, addProposta, updateProposta } = useCRM()
+  const { general } = useAppSettings()
   const { user } = useSession()
   const { proposta, isLoading } = useProposta(open && propostaId ? propostaId : null)
   const propostaSource = proposta || propostaInicial || null
@@ -304,6 +307,7 @@ export function ProposalFormDialog({
   const hasRequiredProposalPdf = !requiresProposalPdf || hasExistingProposalPdf || hasNewProposalPdf
   const buildAttachmentHref = (attachmentId: string) =>
     propostaId ? `/api/propostas/${propostaId}/anexos/${attachmentId}` : '#'
+  const materialTags = useMemo(() => parseProposalMaterialTags(materialTag), [materialTag])
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -344,7 +348,7 @@ export function ProposalFormDialog({
       clienteId,
       valor: rawValor.trim() ? rawValor : null,
       descricao,
-      materialTag,
+        materialTag: general.demoMode ? materialTag : undefined,
       status,
       responsavelId: isAdmin
         ? responsavelId
@@ -526,21 +530,23 @@ export function ProposalFormDialog({
                 ) : null}
               </div>
 
-                    <div className="space-y-2 md:col-span-2">
-                      <Label>Tag de material</Label>
-                      <Input
-                        placeholder="Ex.: Vidro temperado, aluminio premium, ACM preto"
-                        value={materialTag}
-                        maxLength={80}
-                        onChange={(event) => {
-                          isDirtyRef.current = true
-                          setMaterialTag(event.target.value)
-                        }}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Classifique o tipo de material principal desta proposta para facilitar a organizacao.
-                      </p>
-                    </div>
+                    {general.demoMode ? (
+                      <div className="space-y-2 md:col-span-2">
+                        <Label>Tag de material</Label>
+                        <Input
+                          placeholder="Ex.: Vidro temperado, aluminio premium, ACM preto"
+                          value={materialTag}
+                          maxLength={80}
+                          onChange={(event) => {
+                            isDirtyRef.current = true
+                            setMaterialTag(event.target.value)
+                          }}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Classifique o tipo de material principal desta proposta. Separe varias tags por virgula.
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
@@ -643,10 +649,19 @@ export function ProposalFormDialog({
                       <span>Status</span>
                       <span className="font-medium text-foreground">{statusPropostaLabels[status]}</span>
                     </div>
-                    {materialTag.trim() ? (
-                      <div className="flex items-center justify-between gap-3">
+                    {general.demoMode && materialTags.length ? (
+                      <div className="flex items-start justify-between gap-3">
                         <span>Material</span>
-                        <span className="font-medium text-foreground">{materialTag.trim()}</span>
+                        <div className="flex max-w-[15rem] flex-wrap justify-end gap-1.5">
+                          {materialTags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="inline-flex rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-secondary-foreground"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     ) : null}
                     <div className="flex items-center justify-between gap-3">

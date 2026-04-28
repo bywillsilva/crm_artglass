@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
 import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
-import { saveProposalFiles } from '@/lib/server/proposal-files'
+import { persistSavedProposalFiles, saveProposalFiles } from '@/lib/server/proposal-files'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
+import { getEffectiveUserSettings } from '@/lib/server/user-settings'
 import {
   ensureCrmRuntimeSchema,
   ensureProposalMaterialTagColumn,
@@ -417,6 +418,7 @@ export async function POST(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
+    const settings = await getEffectiveUserSettings(user.id)
 
     const data = await parseProposalPayload(request)
     const id = uuidv4()
@@ -452,7 +454,7 @@ export async function POST(request: NextRequest) {
     const valor = parseNumberLike(data.valor) ?? 0
     const desconto = parseNumberLike(data.desconto) ?? 0
     const valorFinal = valor - (valor * desconto) / 100
-    const materialTag = normalizeMaterialTag(data.materialTag)
+    const materialTag = settings.general.demoMode ? normalizeMaterialTag(data.materialTag) : null
 
     if (status === 'aguardando_aprovacao' && !data.anexos.some(isPdfFile)) {
       return NextResponse.json(
@@ -524,23 +526,7 @@ export async function POST(request: NextRequest) {
     }
 
     const savedFiles = await saveProposalFiles(propostaId, data.anexos)
-    for (const file of savedFiles) {
-      await query(
-        `INSERT INTO proposta_anexos (
-          id, proposta_id, nome_original, nome_arquivo, caminho, tipo_mime, tamanho, usuario_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          file.id,
-          propostaId,
-          file.nomeOriginal,
-          file.nomeArquivo,
-          file.caminho,
-          file.tipoMime,
-          file.tamanho,
-          user.id,
-        ]
-      )
-    }
+    await persistSavedProposalFiles(propostaId, user.id, savedFiles)
 
     await query(
       `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
