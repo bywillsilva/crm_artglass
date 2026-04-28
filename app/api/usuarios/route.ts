@@ -6,8 +6,9 @@ import { ensureUserManagementSchema } from '@/lib/server/proposal-workflow'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
 import { hasModuleAccess } from '@/lib/auth/module-access'
-import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
+import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
+import { jsonNoStore } from '@/lib/server/http-cache'
 
 const USUARIOS_CACHE_TTL_MS = Math.max(Number(process.env.USUARIOS_CACHE_TTL_MS || 30_000), 1000)
 
@@ -52,17 +53,17 @@ export async function GET(request: NextRequest) {
 
     const user = await getAuthenticatedServerUser()
     if (!user) {
-      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+      return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
     if (!canAccessUsuariosModule(user)) {
-      return NextResponse.json({ error: 'Acesso negado ao modulo de usuarios' }, { status: 403 })
+      return jsonNoStore({ error: 'Acesso negado ao modulo de usuarios' }, { status: 403 })
     }
 
     const cacheKey = `usuarios:list:${user.id}:${user.role}:${role || 'todos'}:${ativo || 'todos'}`
 
     const cachedUsuarios = getRuntimeCache<any[]>(cacheKey)
     if (cachedUsuarios !== undefined) {
-      return NextResponse.json(cachedUsuarios)
+      return jsonNoStore(cachedUsuarios)
     }
 
     let sql =
@@ -83,20 +84,20 @@ export async function GET(request: NextRequest) {
 
     const usuarios = await query(sql, params)
     setRuntimeCache(cacheKey, usuarios, USUARIOS_CACHE_TTL_MS)
-    return NextResponse.json(usuarios)
+    return jsonNoStore(usuarios)
   } catch (error: any) {
     console.error('Erro ao buscar usuarios:', error)
 
     if (isTransientDatabaseError(error)) {
       const user = await getAuthenticatedServerUser().catch(() => null)
       if (!user) {
-        return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+        return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
       }
       const cacheKey = `usuarios:list:${user.id}:${user.role}:${role || 'todos'}:${ativo || 'todos'}`
-      return NextResponse.json(getRuntimeCache<any[]>(cacheKey) || [], { status: 200 })
+      return jsonNoStore(getRuntimeCache<any[]>(cacheKey) || [], { status: 200 })
     }
 
-    return NextResponse.json({ error: 'Erro ao buscar usuarios' }, { status: 500 })
+    return jsonNoStore({ error: 'Erro ao buscar usuarios' }, { status: 500 })
   }
 }
 
@@ -158,6 +159,9 @@ export async function POST(request: NextRequest) {
       resource: 'usuario',
       resourceId: id,
     })
+    invalidateRuntimeCache('usuarios:list:')
+    invalidateRuntimeCache('usuario:detail:')
+    invalidateRuntimeCache('crm-bootstrap:')
 
     return NextResponse.json(usuario, { status: 201 })
   } catch (error: any) {

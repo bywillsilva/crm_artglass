@@ -126,6 +126,7 @@ export function ProposalFormDialog({
   const propostaSource = proposta || propostaInicial || null
   const isEditing = Boolean(propostaId)
   const isAdmin = user?.role === 'admin' || user?.role === 'gerente'
+  const canSelectResponsavel = isAdmin || user?.role === 'orcamentista'
   const canEditProposalDirectly = user?.role !== 'vendedor'
   const canEditStatusDirectly = user?.role !== 'vendedor'
 
@@ -214,6 +215,17 @@ export function ProposalFormDialog({
   useEffect(() => {
     latestValorRef.current = valor
   }, [valor])
+
+  useEffect(() => {
+    if (!open || isEditing || user?.role !== 'orcamentista' || !clienteId) {
+      return
+    }
+
+    const clienteResponsavel = state.clientes.find((cliente) => cliente.id === clienteId)?.responsavelId || ''
+    if (clienteResponsavel && !responsavelId) {
+      setResponsavelId(clienteResponsavel)
+    }
+  }, [clienteId, isEditing, open, responsavelId, state.clientes, user?.role])
 
   const clientesFiltrados = useMemo(
     () =>
@@ -411,7 +423,7 @@ export function ProposalFormDialog({
                 </Select>
               </div>
 
-              {isAdmin && (
+              {canSelectResponsavel && (
                 <div className="space-y-2">
                   <Label><RequiredLabel>Vendedor responsavel</RequiredLabel></Label>
                   <Select value={responsavelId} onValueChange={(value) => {

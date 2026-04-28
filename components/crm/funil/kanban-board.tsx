@@ -185,6 +185,10 @@ function dedupePropostasById(propostas: Proposta[]) {
   })
 }
 
+function shouldReplaceTask(currentTask: { dataHora: Date }, nextTask: { dataHora: Date }) {
+  return nextTask.dataHora.getTime() < currentTask.dataHora.getTime()
+}
+
 function getProposalCardTitle(proposta: Proposta, clientName: string) {
   const rawTitle = (proposta.titulo || '').trim()
   const isLegacyNewClientTitle =
@@ -489,7 +493,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       }
 
       const key = `${tarefa.propostaId}:${tarefa.automacaoEtapa || ''}`
-      if (!taskMap.has(key)) {
+      if (!taskMap.has(key) || shouldReplaceTask(taskMap.get(key)!, tarefa)) {
         taskMap.set(key, tarefa)
       }
     }
@@ -1307,10 +1311,18 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
           <div className="rounded-xl border border-primary/40 bg-card/95 p-4 shadow-2xl backdrop-blur-sm">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-foreground">
-                    {lookups.clientesById.get(draggedTouchProposal.clienteId)?.nome || draggedTouchProposal.clienteNome || 'Cliente'}
+                <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                  {draggedTouchProposal.numero || 'Sem numero'}
                 </p>
-                <p className="mt-1 text-lg font-bold text-foreground">
+                <p className="mt-1 text-sm font-semibold text-foreground">
+                  {getProposalCardTitle(
+                    draggedTouchProposal,
+                    lookups.clientesById.get(draggedTouchProposal.clienteId)?.nome ||
+                      draggedTouchProposal.clienteNome ||
+                      'Cliente'
+                  )}
+                </p>
+                <p className="mt-2 text-lg font-bold text-foreground">
                   {formatCurrency(draggedTouchProposal.valor)}
                 </p>
               </div>

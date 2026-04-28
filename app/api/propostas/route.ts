@@ -5,6 +5,7 @@ import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { saveProposalFiles } from '@/lib/server/proposal-files'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
+import { jsonNoStore } from '@/lib/server/http-cache'
 import {
   ensureCrmRuntimeSchema,
   getNextProposalNumber,
@@ -299,13 +300,13 @@ export async function GET(request: NextRequest) {
 
     const user = await getAuthenticatedUser()
     if (!user) {
-      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+      return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
 
     const cacheKey = `propostas:list:${user.id}:${user.role}:${status || 'todos'}:${clienteId || ''}:${updatedSince || ''}`
     const cachedPropostas = getRuntimeCache<any[]>(cacheKey)
     if (cachedPropostas !== undefined) {
-      return NextResponse.json(cachedPropostas)
+      return jsonNoStore(cachedPropostas)
     }
 
     let sql = `
@@ -358,21 +359,21 @@ export async function GET(request: NextRequest) {
 
     const propostas = await query(sql, params)
     setRuntimeCache(cacheKey, propostas, PROPOSTAS_CACHE_TTL_MS)
-    return NextResponse.json(propostas)
+    return jsonNoStore(propostas)
   } catch (error) {
     console.error('Erro ao buscar propostas:', error)
 
     if (isTransientDatabaseError(error)) {
       const user = await getAuthenticatedUser().catch(() => null)
       if (!user) {
-        return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+        return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
       }
 
       const cacheKey = `propostas:list:${user.id}:${user.role}:${status || 'todos'}:${clienteId || ''}:${updatedSince || ''}`
-      return NextResponse.json(getRuntimeCache<any[]>(cacheKey) || [], { status: 200 })
+      return jsonNoStore(getRuntimeCache<any[]>(cacheKey) || [], { status: 200 })
     }
 
-    return NextResponse.json({ error: 'Erro ao buscar propostas' }, { status: 500 })
+    return jsonNoStore({ error: 'Erro ao buscar propostas' }, { status: 500 })
   }
 }
 
@@ -531,6 +532,10 @@ export async function POST(request: NextRequest) {
       followUpTime: data.followUpTime || null,
     })
 
+    invalidateRuntimeCache('propostas:list:')
+    invalidateRuntimeCache('proposta:detail:')
+    invalidateRuntimeCache('tarefas:list:')
+    invalidateRuntimeCache('dashboard:')
     invalidateRuntimeCache('crm-bootstrap:')
     await publishRealtimeEvent({
       actorUserId: user.id,
@@ -540,12 +545,22 @@ export async function POST(request: NextRequest) {
 
     const [proposta] = await query<any[]>(
       `SELECT
-         p.id,
-         p.cliente_id,
-         p.status,
-         p.orcamentista_id
-       FROM propostas p
-       WHERE p.id = ?`,
+         ${PROPOSAL_LIST_SELECT_COLUMNS}
+        FROM propostas p
+        LEFT JOIN clientes c ON p.cliente_id = c.id
+        LEFT JOIN usuarios u ON p.responsavel_id = u.id
+        LEFT JOIN usuarios o ON p.orcamentista_id = o.id
+        LEFT JOIN (
+          SELECT proposta_id, COUNT(*) as anexos_count
+          FROM proposta_anexos
+          GROUP BY proposta_id
+        ) pa ON pa.proposta_id = p.id
+        LEFT JOIN (
+          SELECT proposta_id, COUNT(*) as comentarios_count
+          FROM proposta_comentarios
+          GROUP BY proposta_id
+        ) pc ON pc.proposta_id = p.id
+        WHERE p.id = ?`,
       [propostaId]
     )
     return NextResponse.json(proposta, { status: 201 })

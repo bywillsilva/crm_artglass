@@ -346,7 +346,7 @@ async function parseResponseBody(res: Response) {
 }
 
 const fetcher = async (url: string) => {
-  const res = await fetch(url)
+  const res = await fetch(url, { cache: 'no-store' })
   const data = await parseResponseBody(res)
 
   if (!res.ok) {
@@ -361,7 +361,8 @@ const fetcher = async (url: string) => {
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init)
+  const method = (init?.method || 'GET').toUpperCase()
+  const res = await fetch(url, method === 'GET' ? { ...init, cache: 'no-store' } : init)
   const data = await parseResponseBody(res)
 
   if (!res.ok) {

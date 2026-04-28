@@ -8,6 +8,7 @@ import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
+import { jsonNoStore } from '@/lib/server/http-cache'
 
 const USUARIO_DETAIL_CACHE_TTL_MS = Math.max(
   Number(process.env.USUARIO_DETAIL_CACHE_TTL_MS || 30_000),
@@ -63,17 +64,17 @@ export async function GET(
 
     const user = await getAuthenticatedServerUser()
     if (!user) {
-      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+      return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
     if (!canAccessOwnProfile(user, id)) {
-      return NextResponse.json({ error: 'Acesso negado ao perfil solicitado' }, { status: 403 })
+      return jsonNoStore({ error: 'Acesso negado ao perfil solicitado' }, { status: 403 })
     }
 
     const cacheKey = `usuario:detail:${user.id}:${user.role}:${id}`
 
     const cachedUsuario = getRuntimeCache<any>(cacheKey)
     if (cachedUsuario !== undefined) {
-      return NextResponse.json(cachedUsuario)
+      return jsonNoStore(cachedUsuario)
     }
 
     const [usuario] = await query<any[]>(
@@ -82,27 +83,27 @@ export async function GET(
     )
 
     if (!usuario) {
-      return NextResponse.json({ error: 'Usuario nao encontrado' }, { status: 404 })
+      return jsonNoStore({ error: 'Usuario nao encontrado' }, { status: 404 })
     }
 
     setRuntimeCache(cacheKey, usuario, USUARIO_DETAIL_CACHE_TTL_MS)
-    return NextResponse.json(usuario)
+    return jsonNoStore(usuario)
   } catch (error) {
     console.error('Erro ao buscar usuario:', error)
 
     if (isTransientDatabaseError(error)) {
       const user = await getAuthenticatedServerUser().catch(() => null)
       if (!user) {
-        return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+        return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
       }
       const cacheKey = `usuario:detail:${user.id}:${user.role}:${id}`
       const cachedUsuario = getRuntimeCache<any>(cacheKey)
       if (cachedUsuario) {
-        return NextResponse.json(cachedUsuario, { status: 200 })
+        return jsonNoStore(cachedUsuario, { status: 200 })
       }
     }
 
-    return NextResponse.json({ error: 'Erro ao buscar usuario' }, { status: 500 })
+    return jsonNoStore({ error: 'Erro ao buscar usuario' }, { status: 500 })
   }
 }
 

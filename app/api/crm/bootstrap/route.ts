@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysql'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
+import { jsonNoStore } from '@/lib/server/http-cache'
 
 type AuthenticatedUser = {
   id: string
@@ -103,7 +104,7 @@ export async function GET(request: Request) {
   try {
     const authenticatedUser = await getAuthenticatedServerUser()
     if (!authenticatedUser?.ativo) {
-      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+      return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
     isAuthenticated = true
 
@@ -113,7 +114,7 @@ export async function GET(request: Request) {
     const cachedResponse = getRuntimeCache<Partial<Record<BootstrapSection, any[]>>>(cacheKey)
 
     if (cachedResponse) {
-      return NextResponse.json(cachedResponse)
+      return jsonNoStore(cachedResponse)
     }
 
     const results = await Promise.all(
@@ -193,7 +194,7 @@ export async function GET(request: Request) {
     const payload = Object.fromEntries(results) as Partial<Record<BootstrapSection, any[]>>
 
     setRuntimeCache(cacheKey, payload, CRM_BOOTSTRAP_CACHE_TTL_MS)
-    return NextResponse.json(payload)
+    return jsonNoStore(payload)
   } catch (error) {
     if (!isTransientDatabaseError(error)) {
       logDatabaseError('Erro ao carregar bootstrap do CRM', error)
@@ -204,9 +205,9 @@ export async function GET(request: Request) {
       const payload = Object.fromEntries(
         sections.map((section) => [section, []])
       ) as Partial<Record<BootstrapSection, any[]>>
-      return NextResponse.json({ ...payload, degraded: true })
+      return jsonNoStore({ ...payload, degraded: true })
     }
 
-    return NextResponse.json({ error: 'Erro ao carregar bootstrap do CRM' }, { status: 500 })
+    return jsonNoStore({ error: 'Erro ao carregar bootstrap do CRM' }, { status: 500 })
   }
 }

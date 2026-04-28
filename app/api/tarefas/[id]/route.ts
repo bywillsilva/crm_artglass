@@ -9,6 +9,7 @@ import {
   ensureCrmRuntimeSchema,
   formatDateTime,
 } from '@/lib/server/proposal-workflow'
+import { jsonNoStore } from '@/lib/server/http-cache'
 
 const TAREFA_DETAIL_CACHE_TTL_MS = Math.max(
   Number(process.env.TAREFA_DETAIL_CACHE_TTL_MS || 30_000),
@@ -43,13 +44,13 @@ export async function GET(
 
     const user = await getAuthenticatedServerUser()
     if (!user) {
-      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+      return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
 
     const cacheKey = `tarefa:detail:${user.id}:${user.role}:${id}`
     const cachedTarefa = getRuntimeCache<any>(cacheKey)
     if (cachedTarefa !== undefined) {
-      return NextResponse.json(cachedTarefa)
+      return jsonNoStore(cachedTarefa)
     }
 
     const [tarefa] = await query<any[]>(
@@ -62,32 +63,32 @@ export async function GET(
     )
 
     if (!tarefa) {
-      return NextResponse.json({ error: 'Tarefa nao encontrada' }, { status: 404 })
+      return jsonNoStore({ error: 'Tarefa nao encontrada' }, { status: 404 })
     }
 
     if (!['admin', 'gerente'].includes(user.role) && tarefa.responsavel_id !== user.id) {
-      return NextResponse.json({ error: 'Acesso negado a esta tarefa' }, { status: 403 })
+      return jsonNoStore({ error: 'Acesso negado a esta tarefa' }, { status: 403 })
     }
 
     setRuntimeCache(cacheKey, tarefa, TAREFA_DETAIL_CACHE_TTL_MS)
-    return NextResponse.json(tarefa)
+    return jsonNoStore(tarefa)
   } catch (error) {
     console.error('Erro ao buscar tarefa:', error)
 
     if (isTransientDatabaseError(error)) {
       const user = await getAuthenticatedServerUser().catch(() => null)
       if (!user) {
-        return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+        return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
       }
 
       const cacheKey = `tarefa:detail:${user.id}:${user.role}:${id}`
       const cachedTarefa = getRuntimeCache<any>(cacheKey)
       if (cachedTarefa) {
-        return NextResponse.json(cachedTarefa, { status: 200 })
+        return jsonNoStore(cachedTarefa, { status: 200 })
       }
     }
 
-    return NextResponse.json({ error: 'Erro ao buscar tarefa' }, { status: 500 })
+    return jsonNoStore({ error: 'Erro ao buscar tarefa' }, { status: 500 })
   }
 }
 

@@ -5,6 +5,7 @@ import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { notifyTaskEmail } from '@/lib/server/email-notifications'
+import { jsonNoStore } from '@/lib/server/http-cache'
 import {
   ensureCrmRuntimeSchema,
   formatDateTime,
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest) {
 
     const user = await getAuthenticatedServerUser()
     if (!user) {
-      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+      return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
 
     const responsavel =
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest) {
     const cacheKey = `tarefas:list:${user.id}:${user.role}:${status || 'todos'}:${tipo || 'todos'}:${responsavel || 'todos'}:${clienteId || ''}:${updatedSince || ''}`
     const cachedTarefas = getRuntimeCache<any[]>(cacheKey)
     if (cachedTarefas !== undefined) {
-      return NextResponse.json(cachedTarefas)
+      return jsonNoStore(cachedTarefas)
     }
 
     let sql = `
@@ -92,14 +93,14 @@ export async function GET(request: NextRequest) {
 
     const tarefas = await query(sql, params)
     setRuntimeCache(cacheKey, tarefas, TAREFAS_CACHE_TTL_MS)
-    return NextResponse.json(tarefas)
+    return jsonNoStore(tarefas)
   } catch (error) {
     console.error('Erro ao buscar tarefas:', error)
 
     if (isTransientDatabaseError(error)) {
       const user = await getAuthenticatedServerUser().catch(() => null)
       if (!user) {
-        return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+        return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
       }
 
       const responsavel =
@@ -107,10 +108,10 @@ export async function GET(request: NextRequest) {
           ? searchParams.get('responsavel')
           : user.id
       const cacheKey = `tarefas:list:${user.id}:${user.role}:${status || 'todos'}:${tipo || 'todos'}:${responsavel || 'todos'}:${clienteId || ''}:${updatedSince || ''}`
-      return NextResponse.json(getRuntimeCache<any[]>(cacheKey) || [], { status: 200 })
+      return jsonNoStore(getRuntimeCache<any[]>(cacheKey) || [], { status: 200 })
     }
 
-    return NextResponse.json({ error: 'Erro ao buscar tarefas' }, { status: 500 })
+    return jsonNoStore({ error: 'Erro ao buscar tarefas' }, { status: 500 })
   }
 }
 

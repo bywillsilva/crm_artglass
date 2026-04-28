@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
+import { jsonNoStore } from '@/lib/server/http-cache'
 import {
   ensureCrmRuntimeSchema,
   getNextProposalNumber,
@@ -188,6 +189,13 @@ async function createInitialProposalForClient(
       formatDateTime(new Date()),
     ]
   )
+
+  return {
+    propostaId,
+    numero,
+    responsavelId,
+    orcamentistaId,
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -200,13 +208,13 @@ export async function GET(request: NextRequest) {
     await ensureBaseSchema()
     const user = await getAuthenticatedServerUser()
     if (!user) {
-      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+      return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
 
     const cacheKey = `clientes:list:${user.role}:${user.id}:${status || 'todos'}:${search || ''}:${updatedSince || ''}`
     const cachedClientes = getRuntimeCache<any[]>(cacheKey)
     if (cachedClientes !== undefined) {
-      return NextResponse.json(cachedClientes)
+      return jsonNoStore(cachedClientes)
     }
 
     let sql = `
@@ -236,7 +244,7 @@ export async function GET(request: NextRequest) {
 
     const clientes = await query(sql, params)
     setRuntimeCache(cacheKey, clientes, CLIENTES_CACHE_TTL_MS)
-    return NextResponse.json(clientes)
+    return jsonNoStore(clientes)
   } catch (error) {
     console.error('Erro ao buscar clientes:', error)
 
@@ -245,10 +253,10 @@ export async function GET(request: NextRequest) {
       const cacheKey = user
         ? `clientes:list:${user.role}:${user.id}:${status || 'todos'}:${search || ''}:${updatedSince || ''}`
         : null
-      return NextResponse.json((cacheKey && getRuntimeCache<any[]>(cacheKey)) || [], { status: 200 })
+      return jsonNoStore((cacheKey && getRuntimeCache<any[]>(cacheKey)) || [], { status: 200 })
     }
 
-    return NextResponse.json({ error: 'Erro ao buscar clientes' }, { status: 500 })
+    return jsonNoStore({ error: 'Erro ao buscar clientes' }, { status: 500 })
   }
 }
 
@@ -321,7 +329,7 @@ export async function POST(request: NextRequest) {
       [uuidv4(), id, user.id, formatDateTime(new Date())]
     )
 
-    await createInitialProposalForClient(connection, {
+    const createdProposal = await createInitialProposalForClient(connection, {
       clienteId: id,
       clienteNome: payload.nome,
       usuarioId: user.id,
@@ -331,12 +339,20 @@ export async function POST(request: NextRequest) {
 
     invalidateRuntimeCache('clientes:list:')
     invalidateRuntimeCache('cliente:detail:')
+    invalidateRuntimeCache('propostas:list:')
+    invalidateRuntimeCache('proposta:detail:')
     invalidateRuntimeCache('crm-bootstrap:')
+    invalidateRuntimeCache('dashboard:')
 
     await publishRealtimeEvent({
       actorUserId: user.id,
       resource: 'cliente',
       resourceId: id,
+    })
+    await publishRealtimeEvent({
+      actorUserId: user.id,
+      resource: 'proposta',
+      resourceId: createdProposal.propostaId,
     })
 
     const [cliente] = await query<any[]>(

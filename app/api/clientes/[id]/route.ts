@@ -5,6 +5,7 @@ import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { ensureCrmRuntimeSchema, formatDateTime } from '@/lib/server/proposal-workflow'
+import { jsonNoStore } from '@/lib/server/http-cache'
 
 const CLIENTE_DETAIL_CACHE_TTL_MS = Math.max(
   Number(process.env.CLIENTE_DETAIL_CACHE_TTL_MS || 30_000),
@@ -75,13 +76,13 @@ export async function GET(
     await ensureCrmRuntimeSchema()
     const user = await getAuthenticatedServerUser()
     if (!user) {
-      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+      return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
 
     const cacheKey = `cliente:detail:${user.role}:${user.id}:${id}`
     const cachedCliente = getRuntimeCache<any>(cacheKey)
     if (cachedCliente !== undefined) {
-      return NextResponse.json(cachedCliente)
+      return jsonNoStore(cachedCliente)
     }
 
     const [cliente] = await query<any[]>(
@@ -92,11 +93,11 @@ export async function GET(
     )
 
     if (!cliente) {
-      return NextResponse.json({ error: 'Cliente nao encontrado' }, { status: 404 })
+      return jsonNoStore({ error: 'Cliente nao encontrado' }, { status: 404 })
     }
 
     setRuntimeCache(cacheKey, cliente, CLIENTE_DETAIL_CACHE_TTL_MS)
-    return NextResponse.json(cliente)
+    return jsonNoStore(cliente)
   } catch (error) {
     console.error('Erro ao buscar cliente:', error)
 
@@ -105,11 +106,11 @@ export async function GET(
       const cacheKey = user ? `cliente:detail:${user.role}:${user.id}:${id}` : null
       const cachedCliente = cacheKey ? getRuntimeCache<any>(cacheKey) : null
       if (cachedCliente) {
-        return NextResponse.json(cachedCliente, { status: 200 })
+          return jsonNoStore(cachedCliente, { status: 200 })
       }
     }
 
-    return NextResponse.json({ error: 'Erro ao buscar cliente' }, { status: 500 })
+    return jsonNoStore({ error: 'Erro ao buscar cliente' }, { status: 500 })
   }
 }
 

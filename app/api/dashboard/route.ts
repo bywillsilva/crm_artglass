@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
 import { getAuthenticatedServerUser, getServerSession } from '@/lib/auth/session'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
+import { jsonNoStore } from '@/lib/server/http-cache'
 
 const DASHBOARD_CACHE_TTL_MS = Math.max(Number(process.env.DASHBOARD_CACHE_TTL_MS || 20_000), 1000)
 
@@ -87,14 +88,14 @@ export async function GET(request: NextRequest) {
   try {
     const user = await getAuthenticatedUser()
     if (!user) {
-      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+      return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
 
     const isAdmin = user.role === 'admin' || user.role === 'gerente'
     const cacheKey = `dashboard:${user.role}:${user.id}:${startDate}:${endDate}`
     const cachedResponse = getRuntimeCache<any>(cacheKey)
     if (cachedResponse) {
-      return NextResponse.json(cachedResponse)
+        return jsonNoStore(cachedResponse)
     }
 
     const startDateTime = `${startDate} 00:00:00`
@@ -277,7 +278,7 @@ export async function GET(request: NextRequest) {
     }
 
     setRuntimeCache(cacheKey, payload, DASHBOARD_CACHE_TTL_MS)
-    return NextResponse.json(payload)
+    return jsonNoStore(payload)
   } catch (error) {
     console.error('Erro ao buscar dados do dashboard:', error)
     const sessionUserId = session?.userId || null
@@ -288,7 +289,7 @@ export async function GET(request: NextRequest) {
     const staleCachedResponse = staleCacheKey ? getRuntimeCache<any>(staleCacheKey) : null
 
     if (staleCachedResponse) {
-      return NextResponse.json({
+      return jsonNoStore({
         ...staleCachedResponse,
         degraded: true,
         stale: true,
@@ -296,12 +297,12 @@ export async function GET(request: NextRequest) {
     }
 
     if (session) {
-      return NextResponse.json({
+      return jsonNoStore({
         ...defaults,
         degraded: true,
       })
     }
 
-    return NextResponse.json({ error: 'Erro ao buscar dados do dashboard' }, { status: 500 })
+    return jsonNoStore({ error: 'Erro ao buscar dados do dashboard' }, { status: 500 })
   }
 }

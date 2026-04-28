@@ -58,6 +58,43 @@ interface ProposalDetailsSheetProps {
   propostaInicial?: Proposta | null
 }
 
+function pickProposalValue<T>(primary: T | null | undefined, fallback: T | null | undefined) {
+  if (typeof primary === 'string') {
+    return (primary.trim() ? primary : fallback) as T | null | undefined
+  }
+
+  if (primary === null || primary === undefined) {
+    return fallback
+  }
+
+  return primary
+}
+
+function mergeProposalSnapshot(primary: Proposta, fallback: Proposta) {
+  return {
+    ...fallback,
+    ...primary,
+    clienteId: pickProposalValue(primary.clienteId, fallback.clienteId) || '',
+    clienteNome: pickProposalValue(primary.clienteNome, fallback.clienteNome) || '',
+    numero: pickProposalValue(primary.numero, fallback.numero) || '',
+    titulo: pickProposalValue(primary.titulo, fallback.titulo) || 'Proposta Comercial',
+    descricao: pickProposalValue(primary.descricao, fallback.descricao) || '',
+    status: pickProposalValue(primary.status, fallback.status) || 'novo_cliente',
+    responsavelId: pickProposalValue(primary.responsavelId, fallback.responsavelId) || '',
+    responsavelNome: pickProposalValue(primary.responsavelNome, fallback.responsavelNome) || '',
+    orcamentistaId: pickProposalValue(primary.orcamentistaId, fallback.orcamentistaId) || '',
+    orcamentistaNome: pickProposalValue(primary.orcamentistaNome, fallback.orcamentistaNome) || '',
+    valor:
+      typeof primary.valor === 'number' && primary.valor > 0
+        ? primary.valor
+        : typeof fallback.valor === 'number'
+          ? fallback.valor
+          : 0,
+    anexos: primary.anexos ?? fallback.anexos,
+    comentarios: primary.comentarios ?? fallback.comentarios,
+  } satisfies Proposta
+}
+
 function getProposalDisplayTitle(proposta: Proposta | null) {
   if (!proposta) {
     return 'Proposta Comercial'
@@ -89,7 +126,21 @@ export function ProposalDetailsSheet({
     error,
     mutate: mutateProposta,
   } = useProposta(open && propostaId ? propostaId : null)
-  const propostaSource = proposta || propostaInicial || null
+  const activeProposal = useMemo(
+    () => (proposta && (!propostaId || proposta.id === propostaId) ? proposta : null),
+    [proposta, propostaId]
+  )
+  const activeInitialProposal = useMemo(
+    () => (propostaInicial && (!propostaId || propostaInicial.id === propostaId) ? propostaInicial : null),
+    [propostaId, propostaInicial]
+  )
+  const propostaSource = useMemo(() => {
+    if (activeProposal && activeInitialProposal) {
+      return mergeProposalSnapshot(activeProposal, activeInitialProposal)
+    }
+
+    return activeProposal || activeInitialProposal || null
+  }, [activeInitialProposal, activeProposal])
   const [newComment, setNewComment] = useState('')
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [editingComment, setEditingComment] = useState('')
@@ -108,6 +159,12 @@ export function ProposalDetailsSheet({
     return displayTitle.trim() !== displayClientName
   }, [displayClientName, displayTitle])
 
+  useEffect(() => {
+    setNewComment('')
+    setEditingCommentId(null)
+    setEditingComment('')
+  }, [propostaId])
+
   const buildAttachmentHref = (attachmentId: string) =>
     propostaId ? `/api/propostas/${propostaId}/anexos/${attachmentId}` : '#'
 
@@ -116,9 +173,7 @@ export function ProposalDetailsSheet({
     const hasAttachmentDetails = Array.isArray(proposalSnapshot.anexos)
     const hasCommentDetails = Array.isArray(proposalSnapshot.comentarios)
     const hasDetailedCollections = hasAttachmentDetails || hasCommentDetails
-    const proposalPatch: Record<string, unknown> = {
-      ...proposalSnapshot,
-    }
+    const proposalPatch: Record<string, unknown> = {}
 
     if (hasAttachmentDetails) {
       const anexos = proposalSnapshot.anexos as any[]
@@ -134,9 +189,24 @@ export function ProposalDetailsSheet({
       proposalPatch.comentarios_count = comentarios.length
     }
 
-    if (hasDetailedCollections) {
-      await mutate(`/api/propostas/${propostaId}`, proposalPatch, { revalidate: false })
+    if (!hasDetailedCollections) {
+      return
     }
+
+    await mutate(
+      `/api/propostas/${propostaId}`,
+      (current?: Record<string, unknown> | null) => {
+        if (!current || typeof current !== 'object' || Array.isArray(current)) {
+          return current
+        }
+
+        return {
+          ...current,
+          ...proposalPatch,
+        }
+      },
+      { revalidate: false }
+    )
     await mutate(
       (key) => typeof key === 'string' && key.startsWith('/api/crm/bootstrap'),
       (current?: Record<string, unknown> | null) => {
@@ -155,23 +225,21 @@ export function ProposalDetailsSheet({
       { revalidate: false }
     )
 
-    if (hasDetailedCollections) {
-      await mutate(
-        (key) => typeof key === 'string' && key.startsWith('/api/propostas'),
-        (current) => {
-          if (Array.isArray(current)) {
-            return current.map((item: any) => (item?.id === propostaId ? { ...item, ...proposalPatch } : item))
-          }
+    await mutate(
+      (key) => typeof key === 'string' && key.startsWith('/api/propostas'),
+      (current) => {
+        if (Array.isArray(current)) {
+          return current.map((item: any) => (item?.id === propostaId ? { ...item, ...proposalPatch } : item))
+        }
 
-          if (current && typeof current === 'object' && (current as any).id === propostaId) {
-            return { ...current, ...proposalPatch }
-          }
+        if (current && typeof current === 'object' && (current as any).id === propostaId) {
+          return { ...current, ...proposalPatch }
+        }
 
-          return current
-        },
-        { revalidate: false }
-      )
-    }
+        return current
+      },
+      { revalidate: false }
+    )
   }
 
   const refreshProposalData = async () => {
@@ -435,7 +503,7 @@ export function ProposalDetailsSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full overflow-x-hidden sm:max-w-5xl">
+      <SheetContent key={propostaId || 'proposal-details'} side="right" className="w-full overflow-x-hidden sm:max-w-5xl">
         <SheetHeader>
           <SheetTitle>Detalhes da Proposta</SheetTitle>
           <SheetDescription>

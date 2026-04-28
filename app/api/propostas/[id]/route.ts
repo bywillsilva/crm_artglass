@@ -7,6 +7,7 @@ import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { statusPropostaLabels } from '@/lib/data/types'
 import { notifyProposalEmail } from '@/lib/server/email-notifications'
+import { jsonNoStore } from '@/lib/server/http-cache'
 import {
   canOrcamentistaAccessProposal,
   ensureCrmRuntimeSchema,
@@ -493,49 +494,49 @@ export async function GET(
 
     const user = await getAuthenticatedUser()
     if (!user) {
-      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+      return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
 
     const cacheKey = `proposta:detail:${user.id}:${user.role}:${id}`
     const cachedProposta = getRuntimeCache<any>(cacheKey)
     if (cachedProposta !== undefined) {
-      return NextResponse.json(cachedProposta)
+      return jsonNoStore(cachedProposta)
     }
 
     const proposta = await getProposal(id)
 
     if (!proposta) {
-      return NextResponse.json({ error: 'Proposta nao encontrada' }, { status: 404 })
+      return jsonNoStore({ error: 'Proposta nao encontrada' }, { status: 404 })
     }
 
     if (!canViewProposal(user, proposta)) {
-      return NextResponse.json({ error: 'Acesso negado a esta proposta' }, { status: 403 })
+      return jsonNoStore({ error: 'Acesso negado a esta proposta' }, { status: 403 })
     }
 
     const payload = await getProposalDetailPayload(id)
     if (!payload) {
-      return NextResponse.json({ error: 'Proposta nao encontrada' }, { status: 404 })
+      return jsonNoStore({ error: 'Proposta nao encontrada' }, { status: 404 })
     }
 
     setRuntimeCache(cacheKey, payload, PROPOSTA_DETAIL_CACHE_TTL_MS)
-    return NextResponse.json(payload)
+    return jsonNoStore(payload)
   } catch (error) {
     console.error('Erro ao buscar proposta:', error)
 
     if (isTransientDatabaseError(error)) {
       const user = await getAuthenticatedUser().catch(() => null)
       if (!user) {
-        return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+        return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
       }
 
       const cacheKey = `proposta:detail:${user.id}:${user.role}:${id}`
       const cachedProposta = getRuntimeCache<any>(cacheKey)
       if (cachedProposta) {
-        return NextResponse.json(cachedProposta, { status: 200 })
+        return jsonNoStore(cachedProposta, { status: 200 })
       }
     }
 
-    return NextResponse.json({ error: 'Erro ao buscar proposta' }, { status: 500 })
+    return jsonNoStore({ error: 'Erro ao buscar proposta' }, { status: 500 })
   }
 }
 
