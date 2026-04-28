@@ -272,6 +272,7 @@ function normalizeProposta(row: JsonRecord): Proposta {
     clienteNome: row.clienteNome ?? row.cliente_nome ?? '',
     numero: row.numero ?? '',
     titulo: row.titulo ?? 'Proposta Comercial',
+    materialTag: row.materialTag ?? row.material_tag ?? null,
     valor: toNumber(row.valor ?? row.valor_final),
     descricao: row.descricao ?? '',
     status: mapPropostaStatusFromApi(row.status),
@@ -1410,6 +1411,7 @@ export async function createProposta(data: Partial<Proposta> & JsonRecord) {
   const payload = {
     clienteId: data.clienteId,
     titulo: data.titulo || 'Proposta Comercial',
+    materialTag: data.materialTag === undefined ? undefined : (data.materialTag || null),
     descricao: data.descricao || '',
     valor: parsedValor ?? 0,
     desconto: parsedDesconto ?? 0,
@@ -1450,6 +1452,7 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
   const hasExplicitDesconto = hasFilledValue(data.desconto)
   const payload = {
     titulo: data.titulo || 'Proposta Comercial',
+    materialTag: data.materialTag === undefined ? undefined : (data.materialTag || null),
     descricao: data.descricao || '',
     valor: hasExplicitValor ? (parsedValor ?? 0) : null,
     desconto: hasExplicitDesconto ? (parsedDesconto ?? 0) : null,
@@ -1479,6 +1482,8 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
   const optimisticStatus = mapPropostaStatusToApi(data.status)
   const optimisticPatch = compactObject({
     titulo: payload.titulo,
+    materialTag: payload.materialTag,
+    material_tag: payload.materialTag,
     descricao: payload.descricao,
     valor: payload.valor,
     desconto: payload.desconto,

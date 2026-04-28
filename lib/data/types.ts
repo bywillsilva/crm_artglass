@@ -126,6 +126,7 @@ export interface Proposta {
   clienteNome?: string
   numero?: string
   titulo?: string
+  materialTag?: string | null
   valor: number
   descricao?: string
   status: StatusProposta

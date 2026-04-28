@@ -241,7 +241,7 @@ async function ensureProposalColumns() {
      FROM INFORMATION_SCHEMA.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE()
        AND TABLE_NAME = 'propostas'
-       AND COLUMN_NAME IN ('orcamentista_id', 'retificacoes_count', 'follow_up_base_at', 'follow_up_time')`
+       AND COLUMN_NAME IN ('orcamentista_id', 'retificacoes_count', 'follow_up_base_at', 'follow_up_time', 'material_tag')`
   )
 
   const existing = new Set(columns.map((column) => column.COLUMN_NAME))
@@ -261,6 +261,26 @@ async function ensureProposalColumns() {
   if (!existing.has('follow_up_time')) {
     await query(`ALTER TABLE propostas ADD COLUMN follow_up_time TIME NULL AFTER follow_up_base_at`)
   }
+
+  if (!existing.has('material_tag')) {
+    await query(`ALTER TABLE propostas ADD COLUMN material_tag VARCHAR(80) NULL AFTER titulo`)
+  }
+}
+
+export async function ensureProposalMaterialTagColumn() {
+  await runCached('ensureProposalMaterialTagColumn', RUNTIME_BOOTSTRAP_CACHE_MS, async () => {
+    const columns = await query<any[]>(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'propostas'
+         AND COLUMN_NAME = 'material_tag'`
+    )
+
+    if (!columns.length) {
+      await query(`ALTER TABLE propostas ADD COLUMN material_tag VARCHAR(80) NULL AFTER titulo`)
+    }
+  })
 }
 
 async function ensureProposalSupportTables() {

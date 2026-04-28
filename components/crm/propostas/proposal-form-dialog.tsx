@@ -135,6 +135,7 @@ export function ProposalFormDialog({
   const [responsavelId, setResponsavelId] = useState('')
   const [orcamentistaId, setOrcamentistaId] = useState('')
   const [valor, setValor] = useState('')
+  const [materialTag, setMaterialTag] = useState('')
   const [descricao, setDescricao] = useState('')
   const [status, setStatus] = useState<StatusProposta>('novo_cliente')
   const [files, setFiles] = useState<File[]>([])
@@ -151,6 +152,7 @@ export function ProposalFormDialog({
         propostaSource.orcamentistaId,
         propostaSource.valor,
         propostaSource.status,
+        propostaSource.materialTag || '',
         propostaSource.descricao || '',
       ].join(':')
     : null
@@ -174,6 +176,7 @@ export function ProposalFormDialog({
       const hydratedValor = formatEditableProposalValue(propostaSource.valor)
       latestValorRef.current = hydratedValor
       setValor(hydratedValor)
+      setMaterialTag(propostaSource.materialTag || '')
       setDescricao(propostaSource.descricao || '')
       setStatus(propostaSource.status)
       setFiles([])
@@ -206,6 +209,7 @@ export function ProposalFormDialog({
     setOrcamentistaId('')
     latestValorRef.current = ''
     setValor('')
+    setMaterialTag('')
     setDescricao('')
     setStatus('novo_cliente')
     setFiles([])
@@ -340,6 +344,7 @@ export function ProposalFormDialog({
       clienteId,
       valor: rawValor.trim() ? rawValor : null,
       descricao,
+      materialTag,
       status,
       responsavelId: isAdmin
         ? responsavelId
@@ -520,6 +525,22 @@ export function ProposalFormDialog({
                   </p>
                 ) : null}
               </div>
+
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Tag de material</Label>
+                      <Input
+                        placeholder="Ex.: Vidro temperado, aluminio premium, ACM preto"
+                        value={materialTag}
+                        maxLength={80}
+                        onChange={(event) => {
+                          isDirtyRef.current = true
+                          setMaterialTag(event.target.value)
+                        }}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Classifique o tipo de material principal desta proposta para facilitar a organizacao.
+                      </p>
+                    </div>
                   </div>
                 </div>
 
@@ -622,6 +643,12 @@ export function ProposalFormDialog({
                       <span>Status</span>
                       <span className="font-medium text-foreground">{statusPropostaLabels[status]}</span>
                     </div>
+                    {materialTag.trim() ? (
+                      <div className="flex items-center justify-between gap-3">
+                        <span>Material</span>
+                        <span className="font-medium text-foreground">{materialTag.trim()}</span>
+                      </div>
+                    ) : null}
                     <div className="flex items-center justify-between gap-3">
                       <span>Valor</span>
                       <span className="font-medium text-foreground">{valor || '0,00'}</span>

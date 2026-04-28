@@ -1232,10 +1232,12 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                           {formatCurrency(proposta.valor)}
                         </p>
 
-                        {proposta.descricao?.trim() ? (
-                          <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">
-                            {proposta.descricao}
-                          </p>
+                        {proposta.materialTag ? (
+                          <div className="mt-3">
+                            <span className="inline-flex rounded-full bg-secondary px-2.5 py-1 text-[10px] font-medium uppercase tracking-wide text-secondary-foreground">
+                              {proposta.materialTag}
+                            </span>
+                          </div>
                         ) : null}
 
                         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">

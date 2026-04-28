@@ -82,6 +82,7 @@ function mergeProposalSnapshot(primary: Proposta, fallback: Proposta) {
     clienteNome: pickProposalValue(primary.clienteNome, fallback.clienteNome) || '',
     numero: pickProposalValue(primary.numero, fallback.numero) || '',
     titulo: pickProposalValue(primary.titulo, fallback.titulo) || 'Proposta Comercial',
+    materialTag: pickProposalValue(primary.materialTag, fallback.materialTag) || null,
     descricao: pickProposalValue(primary.descricao, fallback.descricao) || '',
     status: pickProposalValue(primary.status, fallback.status) || 'novo_cliente',
     responsavelId: pickProposalValue(primary.responsavelId, fallback.responsavelId) || '',
@@ -543,6 +544,13 @@ export function ProposalDetailsSheet({
                       {statusPropostaLabels[propostaSource.status]}
                     </Badge>
                   </div>
+                  {propostaSource.materialTag ? (
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="secondary" className="h-auto px-2 py-0.5 text-[10px] uppercase tracking-wide">
+                        {propostaSource.materialTag}
+                      </Badge>
+                    </div>
+                  ) : null}
                   <p className="text-3xl font-bold text-foreground">
                     {formatCurrency(propostaSource.valor)}
                   </p>

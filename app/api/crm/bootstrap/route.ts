@@ -3,7 +3,7 @@ import { isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysq
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
-import { ensureCrmRuntimeSchema } from '@/lib/server/proposal-workflow'
+import { ensureProposalMaterialTagColumn } from '@/lib/server/proposal-workflow'
 
 type AuthenticatedUser = {
   id: string
@@ -64,6 +64,7 @@ const BOOTSTRAP_PROPOSAL_SELECT_COLUMNS = `
   p.orcamentista_id,
   p.retificacoes_count,
   p.titulo,
+  p.material_tag,
   p.descricao,
   p.valor,
   p.desconto,
@@ -108,6 +109,7 @@ export async function GET(request: Request) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
     isAuthenticated = true
+    await ensureProposalMaterialTagColumn()
 
     const isAdmin = authenticatedUser.role === 'admin' || authenticatedUser.role === 'gerente'
     const sections = parseSectionsParam(request)

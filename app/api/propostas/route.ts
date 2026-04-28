@@ -8,6 +8,7 @@ import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/
 import { jsonNoStore } from '@/lib/server/http-cache'
 import {
   ensureCrmRuntimeSchema,
+  ensureProposalMaterialTagColumn,
   getNextProposalNumber,
   formatDateTime,
   handleProposalAutomationOnCreate,
@@ -28,6 +29,7 @@ const PROPOSAL_LIST_SELECT_COLUMNS = `
   p.orcamentista_id,
   p.retificacoes_count,
   p.titulo,
+  p.material_tag,
   p.descricao,
   p.valor,
   p.desconto,
@@ -48,6 +50,7 @@ const PROPOSAL_LIST_SELECT_COLUMNS = `
 type ProposalPayload = {
   clienteId: string
   titulo?: string
+  materialTag?: string | null
   descricao?: string
   valor?: number | null
   desconto?: number | null
@@ -87,6 +90,20 @@ function parseNumberLike(value: unknown) {
   return null
 }
 
+function normalizeMaterialTag(value: unknown) {
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed ? trimmed.slice(0, 80) : null
+  }
+
+  if (value == null) {
+    return null
+  }
+
+  const normalized = String(value).trim()
+  return normalized ? normalized.slice(0, 80) : null
+}
+
 async function insertProposalWithUniqueNumber(params: {
   id: string
   clienteId: string
@@ -101,6 +118,7 @@ async function insertProposalWithUniqueNumber(params: {
   validade: string | null
   servicos: unknown[]
   condicoes: string | null
+  materialTag: string | null
   now: Date
   followUpTime: string | null
 }) {
@@ -113,8 +131,8 @@ async function insertProposalWithUniqueNumber(params: {
       await query(
         `INSERT INTO propostas (
           id, numero, cliente_id, responsavel_id, orcamentista_id, retificacoes_count, titulo, descricao,
-          valor, desconto, valor_final, status, validade, servicos, condicoes, follow_up_base_at, follow_up_time
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          material_tag, valor, desconto, valor_final, status, validade, servicos, condicoes, follow_up_base_at, follow_up_time
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           params.id,
           numero,
@@ -124,6 +142,7 @@ async function insertProposalWithUniqueNumber(params: {
           0,
           params.titulo,
           params.descricao,
+          params.materialTag,
           params.valor,
           params.desconto,
           params.valorFinal,
@@ -169,6 +188,7 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
       return {
         clienteId: String(formData.get('clienteId') || ''),
         titulo: String(formData.get('titulo') || 'Proposta Comercial'),
+        materialTag: normalizeMaterialTag(formData.get('materialTag')),
         descricao: String(formData.get('descricao') || ''),
         valor: parseNumberLike(formData.get('valor')),
         desconto: parseNumberLike(formData.get('desconto')),
@@ -190,6 +210,7 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
   return {
     clienteId: data.clienteId,
     titulo: data.titulo,
+    materialTag: normalizeMaterialTag(data.materialTag),
     descricao: data.descricao,
     valor: parseNumberLike(data.valor),
     desconto: parseNumberLike(data.desconto),
@@ -300,6 +321,7 @@ export async function GET(request: NextRequest) {
     if (!user) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
+    await ensureProposalMaterialTagColumn()
 
     const cacheKey = `propostas:list:${user.id}:${user.role}:${status || 'todos'}:${clienteId || ''}:${updatedSince || ''}`
     const cachedPropostas = getRuntimeCache<any[]>(cacheKey)
@@ -430,6 +452,7 @@ export async function POST(request: NextRequest) {
     const valor = parseNumberLike(data.valor) ?? 0
     const desconto = parseNumberLike(data.desconto) ?? 0
     const valorFinal = valor - (valor * desconto) / 100
+    const materialTag = normalizeMaterialTag(data.materialTag)
 
     if (status === 'aguardando_aprovacao' && !data.anexos.some(isPdfFile)) {
       return NextResponse.json(
@@ -455,6 +478,7 @@ export async function POST(request: NextRequest) {
         responsavelId,
         orcamentistaId,
         titulo: data.titulo || 'Proposta Comercial',
+        materialTag,
         descricao: data.descricao || null,
         valor,
         desconto,
@@ -471,7 +495,7 @@ export async function POST(request: NextRequest) {
       await query(
         `UPDATE propostas SET
           cliente_id = ?, responsavel_id = ?, orcamentista_id = ?, titulo = ?, descricao = ?,
-          valor = ?, desconto = ?, valor_final = ?, status = ?, validade = ?, servicos = ?,
+          material_tag = ?, valor = ?, desconto = ?, valor_final = ?, status = ?, validade = ?, servicos = ?,
           condicoes = ?, follow_up_base_at = ?, follow_up_time = ?
          WHERE id = ?`,
         [
@@ -480,6 +504,7 @@ export async function POST(request: NextRequest) {
           orcamentistaId,
           data.titulo || 'Proposta Comercial',
           data.descricao || null,
+          materialTag,
           valor,
           desconto,
           valorFinal,

@@ -67,6 +67,7 @@ export async function POST() {
         orcamentista_id VARCHAR(36) NULL,
         retificacoes_count INT NOT NULL DEFAULT 0,
         titulo VARCHAR(255) NOT NULL,
+        material_tag VARCHAR(80) NULL,
         descricao TEXT,
         valor DECIMAL(15, 2) NOT NULL,
         desconto DECIMAL(5, 2) DEFAULT 0,

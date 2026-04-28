@@ -11,6 +11,7 @@ import { jsonNoStore } from '@/lib/server/http-cache'
 import {
   canOrcamentistaAccessProposal,
   ensureCrmRuntimeSchema,
+  ensureProposalMaterialTagColumn,
   formatDateTime,
   normalizeProposalStatus,
   parseDatabaseDateTime,
@@ -34,6 +35,7 @@ const PROPOSAL_BASE_SELECT_COLUMNS = `
   p.orcamentista_id,
   p.retificacoes_count,
   p.titulo,
+  p.material_tag,
   p.descricao,
   p.valor,
   p.desconto,
@@ -53,6 +55,7 @@ const PROPOSAL_BASE_SELECT_COLUMNS = `
 
 type ProposalPayload = {
   titulo?: string
+  materialTag?: string | null
   descricao?: string
   valor?: number | null
   desconto?: number | null
@@ -172,6 +175,11 @@ function normalizeNullableText(value: unknown) {
   return trimmed ? trimmed : null
 }
 
+function normalizeMaterialTag(value: unknown) {
+  const normalized = normalizeNullableText(value)
+  return normalized ? normalized.slice(0, 80) : null
+}
+
 function parseNullableNumber(value: unknown) {
   if (typeof value === 'number') {
     return Number.isFinite(value) ? value : null
@@ -256,6 +264,7 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
 
       return {
         titulo: String(formData.get('titulo') || '') || undefined,
+        materialTag: normalizeMaterialTag(formData.get('materialTag')),
         descricao: String(formData.get('descricao') || '') || undefined,
         valor: parseNullableNumber(formData.get('valor')),
         desconto: parseNullableNumber(formData.get('desconto')),
@@ -285,6 +294,7 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
   const data = await request.json()
   return {
     titulo: data.titulo,
+    materialTag: normalizeMaterialTag(data.materialTag),
     descricao: data.descricao,
     valor: parseNullableNumber(data.valor),
     desconto: parseNullableNumber(data.desconto),
@@ -494,6 +504,7 @@ export async function GET(
     if (!user) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
+    await ensureProposalMaterialTagColumn()
 
     const cacheKey = `proposta:detail:${user.id}:${user.role}:${id}`
     const cachedProposta = getRuntimeCache<any>(cacheKey)
@@ -712,6 +723,10 @@ export async function PUT(
     const requestedClosedValue = parseNullableNumber(data.clienteValorFechado)
     const requestedProposalValue = parseNullableNumber(data.valor)
     const requestedDiscount = parseNullableNumber(data.desconto)
+    const materialTag =
+      data.materialTag === undefined
+        ? normalizeMaterialTag(propostaAtual.material_tag)
+        : normalizeMaterialTag(data.materialTag)
     const valor = requestedClosedValue ?? requestedProposalValue ?? parseNullableNumber(propostaAtual.valor) ?? 0
     const desconto = requestedDiscount ?? parseNullableNumber(propostaAtual.desconto) ?? 0
     const valorFinal = valor - (valor * desconto) / 100
@@ -800,13 +815,14 @@ export async function PUT(
 
     await query(
       `UPDATE propostas SET
-        cliente_id = ?, titulo = ?, descricao = ?, valor = ?, desconto = ?,
+        cliente_id = ?, titulo = ?, material_tag = ?, descricao = ?, valor = ?, desconto = ?,
         valor_final = ?, status = ?, validade = ?, servicos = ?, condicoes = ?,
         responsavel_id = ?, orcamentista_id = ?, follow_up_base_at = ?, follow_up_time = ?
        WHERE id = ?`,
       [
         resolvedClienteId,
         data.titulo || propostaAtual.titulo || 'Proposta Comercial',
+        materialTag,
         data.descricao ?? propostaAtual.descricao ?? null,
         valor,
         desconto,

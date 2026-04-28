@@ -142,14 +142,28 @@ export default function PropostasPage() {
         <TableRow key={proposta.id} className="hover:bg-secondary/30">
           <TableCell>
             {cliente ? (
-              <Link
-                href={`/clientes/${cliente.id}`}
-              className="font-medium text-foreground transition-colors hover:text-primary"
-            >
-                {cliente.nome}
-              </Link>
+              <div className="space-y-1">
+                <Link
+                  href={`/clientes/${cliente.id}`}
+                  className="font-medium text-foreground transition-colors hover:text-primary"
+                >
+                  {cliente.nome}
+                </Link>
+                {proposta.materialTag ? (
+                  <Badge variant="secondary" className="h-auto max-w-max px-2 py-0.5 text-[10px] uppercase tracking-wide">
+                    {proposta.materialTag}
+                  </Badge>
+                ) : null}
+              </div>
             ) : (
-              <span className="text-muted-foreground">{proposta.clienteNome || 'Cliente nao encontrado'}</span>
+              <div className="space-y-1">
+                <span className="text-muted-foreground">{proposta.clienteNome || 'Cliente nao encontrado'}</span>
+                {proposta.materialTag ? (
+                  <Badge variant="secondary" className="h-auto max-w-max px-2 py-0.5 text-[10px] uppercase tracking-wide">
+                    {proposta.materialTag}
+                  </Badge>
+                ) : null}
+              </div>
             )}
           </TableCell>
         <TableCell className="font-semibold">{formatCurrency(proposta.valor)}</TableCell>
@@ -262,6 +276,11 @@ export default function PropostasPage() {
             <Badge variant="outline" className={statusPropostaColors[proposta.status]}>
               {statusPropostaLabels[proposta.status]}
             </Badge>
+            {proposta.materialTag ? (
+              <Badge variant="secondary" className="h-auto px-2 py-0.5 text-[10px] uppercase tracking-wide">
+                {proposta.materialTag}
+              </Badge>
+            ) : null}
             <span className="text-sm font-semibold text-foreground">{formatCurrency(proposta.valor)}</span>
           </div>
 
