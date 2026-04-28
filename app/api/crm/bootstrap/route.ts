@@ -103,7 +103,6 @@ export async function GET(request: Request) {
   let isAuthenticated = false
 
   try {
-    await ensureCrmRuntimeSchema()
     const authenticatedUser = await getAuthenticatedServerUser()
     if (!authenticatedUser?.ativo) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })

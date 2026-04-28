@@ -70,6 +70,8 @@ const MODULE_DETAIL_PREFIXES: Partial<Record<string, string>> = {
   propostas: '/api/propostas/',
 }
 
+const BROWSER_CACHE_PREFIX = 'crm-api-cache:'
+
 function toNumber(value: unknown) {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
@@ -345,6 +347,35 @@ async function parseResponseBody(res: Response) {
   }
 }
 
+function getBrowserCacheKey(url: string) {
+  return `${BROWSER_CACHE_PREFIX}${url}`
+}
+
+function readBrowserCachedData<T>(url: string): T | undefined {
+  if (typeof window === 'undefined') {
+    return undefined
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(getBrowserCacheKey(url))
+    return raw ? (JSON.parse(raw) as T) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function writeBrowserCachedData(url: string, data: unknown) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.sessionStorage.setItem(getBrowserCacheKey(url), JSON.stringify(data))
+  } catch {
+    // Ignora falhas de quota/serializacao para nao afetar a UX.
+  }
+}
+
 const fetcher = async (url: string) => {
   const res = await fetch(url, { cache: 'no-store' })
   const data = await parseResponseBody(res)
@@ -357,6 +388,7 @@ const fetcher = async (url: string) => {
     )
   }
 
+  writeBrowserCachedData(url, data)
   return data
 }
 
@@ -371,6 +403,10 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
         ? data.error
         : null) || `Erro na requisicao (${res.status})`
     )
+  }
+
+  if (method === 'GET') {
+    writeBrowserCachedData(url, data)
   }
 
   return data as T
@@ -641,6 +677,12 @@ function getBootstrapCollectionFromCache(
     }
   }
 
+  const browserBootstrap = readBrowserCachedData<JsonRecord>('/api/crm/bootstrap')
+  const browserSectionItems = browserBootstrap?.[collection]
+  if (Array.isArray(browserSectionItems)) {
+    return browserSectionItems as JsonRecord[]
+  }
+
   return undefined
 }
 
@@ -659,6 +701,11 @@ function getCollectionListFromCache(
     if (Array.isArray(cachedValue)) {
       return cachedValue as JsonRecord[]
     }
+  }
+
+  const browserCachedValue = readBrowserCachedData<JsonRecord[]>(prefix)
+  if (Array.isArray(browserCachedValue)) {
+    return browserCachedValue
   }
 
   return undefined
@@ -694,6 +741,11 @@ function getProposalSnapshotFromCache(
   const direct = cache.get(directKey)
   if (direct && typeof direct === 'object') {
     return direct as JsonRecord
+  }
+
+  const browserDirect = readBrowserCachedData<JsonRecord>(directKey)
+  if (browserDirect && typeof browserDirect === 'object') {
+    return browserDirect
   }
 
   const bootstrapItems = getBootstrapCollectionFromCache(cache, 'propostas')

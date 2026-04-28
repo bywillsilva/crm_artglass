@@ -490,8 +490,6 @@ export async function GET(
   const { id } = await params
 
   try {
-    await ensureBaseSchema()
-
     const user = await getAuthenticatedUser()
     if (!user) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })

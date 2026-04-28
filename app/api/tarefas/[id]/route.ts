@@ -40,8 +40,6 @@ export async function GET(
   const { id } = await params
 
   try {
-    await ensureCrmRuntimeSchema()
-
     const user = await getAuthenticatedServerUser()
     if (!user) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
