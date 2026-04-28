@@ -111,6 +111,10 @@ export async function GET(request: NextRequest) {
         return jsonNoStore(cachedTarefas)
       }
 
+      if (updatedSince) {
+        return jsonNoStore([], { status: 200 })
+      }
+
       return jsonNoStore(
         { error: 'Lista de tarefas temporariamente indisponivel', degraded: true },
         { status: 503 }

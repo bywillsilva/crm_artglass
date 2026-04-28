@@ -5,14 +5,14 @@ const MYSQL_PORT = Math.max(Number(process.env.MYSQL_PORT || 3306), 1)
 const MYSQL_SSL_ENABLED = /^(1|true|required)$/i.test(process.env.MYSQL_SSL || '')
 const MYSQL_CONNECTION_LIMIT = Math.max(Number(process.env.MYSQL_CONNECTION_LIMIT || 12), 1)
 const MYSQL_CONNECT_TIMEOUT = Math.max(Number(process.env.MYSQL_CONNECT_TIMEOUT_MS || 3000), 1000)
-const MYSQL_ACQUIRE_RETRIES = Math.max(Number(process.env.MYSQL_ACQUIRE_RETRIES || 0), 0)
+const MYSQL_ACQUIRE_RETRIES = Math.max(Number(process.env.MYSQL_ACQUIRE_RETRIES || 2), 0)
 const MYSQL_ACQUIRE_RETRY_DELAY_MS = Math.max(
-  Number(process.env.MYSQL_ACQUIRE_RETRY_DELAY_MS || 250),
+  Number(process.env.MYSQL_ACQUIRE_RETRY_DELAY_MS || 150),
   50
 )
 const MYSQL_FAILURE_COOLDOWN_MS = Math.max(
-  Number(process.env.MYSQL_FAILURE_COOLDOWN_MS || 15000),
-  1000
+  Number(process.env.MYSQL_FAILURE_COOLDOWN_MS || 2000),
+  250
 )
 const RETRYABLE_CONNECTION_CODES = new Set([
   'ETIMEDOUT',
@@ -137,12 +137,14 @@ async function acquireConnection() {
       releaseConnectionSafely(connection)
       lastError = error
 
-      if (isRetryableConnectionError(error)) {
+      const retryable = isRetryableConnectionError(error)
+
+      if (retryable && attempt === MYSQL_ACQUIRE_RETRIES) {
         unavailableUntil = Date.now() + MYSQL_FAILURE_COOLDOWN_MS
         lastConnectionError = error
       }
 
-      if (!isRetryableConnectionError(error) || attempt === MYSQL_ACQUIRE_RETRIES) {
+      if (!retryable || attempt === MYSQL_ACQUIRE_RETRIES) {
         throw createDatabaseUnavailableError(error)
       }
 

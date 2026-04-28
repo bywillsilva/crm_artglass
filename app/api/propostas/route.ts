@@ -373,6 +373,10 @@ export async function GET(request: NextRequest) {
         return jsonNoStore(cachedPropostas)
       }
 
+      if (updatedSince) {
+        return jsonNoStore([], { status: 200 })
+      }
+
       return jsonNoStore(
         { error: 'Lista de propostas temporariamente indisponivel', degraded: true },
         { status: 503 }

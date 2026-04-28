@@ -257,6 +257,10 @@ export async function GET(request: NextRequest) {
         return jsonNoStore(cachedClientes)
       }
 
+      if (updatedSince) {
+        return jsonNoStore([], { status: 200 })
+      }
+
       return jsonNoStore(
         { error: 'Lista de clientes temporariamente indisponivel', degraded: true },
         { status: 503 }
