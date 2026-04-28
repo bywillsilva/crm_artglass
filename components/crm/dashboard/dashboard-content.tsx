@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   Clock,
@@ -24,7 +24,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { statusPropostaLabels, type StatusProposta } from '@/lib/data/types'
-import { createDefaultDateFilter } from '@/lib/utils/date-filter'
+import { createDefaultDateFilter, type DateFilterValue } from '@/lib/utils/date-filter'
 
 const DashboardCharts = dynamic(
   () => import('@/components/crm/dashboard/dashboard-charts').then((mod) => mod.DashboardCharts),
@@ -68,11 +68,15 @@ const statusColors: Record<StatusProposta, string> = {
 }
 
 export function DashboardContent() {
-  const [dateFilter, setDateFilter] = useState(createDefaultDateFilter())
-  const { data, isLoading, error } = useDashboard(dateFilter)
+  const [dateFilter, setDateFilter] = useState<DateFilterValue | null>(null)
+  const { data, isLoading, error } = useDashboard(dateFilter ?? undefined)
   const { appearance, formatCurrency, formatTime } = useAppSettings()
   const { user } = useSession()
   const { stats, funilData, vendasPorMes, rankingVendedores, tarefasPeriodo, alertas } = data || {}
+
+  useEffect(() => {
+    setDateFilter(createDefaultDateFilter())
+  }, [])
 
   const funnelChartData = useMemo(
     () =>
@@ -123,7 +127,7 @@ export function DashboardContent() {
       <>
         <CRMHeader title="Dashboard" subtitle="Visao geral do seu negocio" />
         <div className="flex-1 overflow-auto p-6 space-y-6">
-          <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
+          {dateFilter ? <DateRangeFilter value={dateFilter} onChange={setDateFilter} /> : null}
           <DashboardSkeleton />
         </div>
       </>
@@ -135,7 +139,7 @@ export function DashboardContent() {
       <>
         <CRMHeader title="Dashboard" subtitle="Visao geral do seu negocio" />
         <div className="flex-1 overflow-auto p-6">
-          <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
+          {dateFilter ? <DateRangeFilter value={dateFilter} onChange={setDateFilter} /> : null}
           <Card className="bg-card border-border">
             <CardContent className="p-6 text-center">
               <p className="mb-4 text-destructive">Erro ao carregar dados do dashboard</p>
@@ -152,7 +156,7 @@ export function DashboardContent() {
     <>
       <CRMHeader title="Dashboard" subtitle="Visao geral do seu negocio" />
       <div className="flex-1 overflow-auto p-6 space-y-6">
-        <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
+        {dateFilter ? <DateRangeFilter value={dateFilter} onChange={setDateFilter} /> : null}
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           <StatsCard title="Leads em Proposta" value={stats?.totalLeads || 0} icon={Users} color="text-blue-400" bgColor="bg-blue-500/10" />

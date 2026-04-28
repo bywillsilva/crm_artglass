@@ -152,9 +152,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState(defaultNotifications)
   const [appearance, setAppearance] = useState(defaultAppearance)
   const [company, setCompany] = useState(defaultCompany)
-  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(
-    typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported'
-  )
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>('unsupported')
   const logoutInFlightRef = useRef(false)
 
   useEffect(() => {
@@ -183,6 +181,15 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
       )
     )
   }, [publicCompanyConfig])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      setNotificationPermission('unsupported')
+      return
+    }
+
+    setNotificationPermission(Notification.permission)
+  }, [])
 
   useEffect(() => {
     const nextTheme =

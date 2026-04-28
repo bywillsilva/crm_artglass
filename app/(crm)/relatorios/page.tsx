@@ -1,7 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
@@ -43,19 +43,28 @@ export default function RelatoriosPage() {
   const { state } = useCRM()
   const { appearance, formatCurrency } = useAppSettings()
   const { user } = useSession()
-  const [dateFilter, setDateFilter] = useState(createDefaultDateFilter())
+  const [dateFilter, setDateFilter] = useState<DateFilterValue | null>(null)
   const hasRelatoriosAccess = hasModuleAccess(user, 'relatorios')
 
+  useEffect(() => {
+    setDateFilter(createDefaultDateFilter())
+  }, [])
+
   const clientesFiltrados = useMemo(
-    () => state.clientes.filter((cliente) => isWithinDateFilter(cliente.criadoEm, dateFilter)),
+    () =>
+      !dateFilter
+        ? state.clientes
+        : state.clientes.filter((cliente) => isWithinDateFilter(cliente.criadoEm, dateFilter)),
     [dateFilter, state.clientes]
   )
 
   const propostasFiltradas = useMemo(
     () =>
-      state.propostas.filter((proposta) =>
-        isWithinDateFilter(proposta.criadoEm ?? proposta.dataEnvio, dateFilter)
-      ),
+      !dateFilter
+        ? state.propostas
+        : state.propostas.filter((proposta) =>
+            isWithinDateFilter(proposta.criadoEm ?? proposta.dataEnvio, dateFilter)
+          ),
     [dateFilter, state.propostas]
   )
 
@@ -168,9 +177,9 @@ export default function RelatoriosPage() {
         }))
         .sort((a, b) => b.receita - a.receita),
       origensData: Array.from(origemMap.entries()).map(([name, value]) => ({ name, value })),
-      evolucaoData: buildEvolutionData(propostasFiltradas, dateFilter, appearance.idioma),
-    }
-  }, [appearance.idioma, clientesFiltrados, dateFilter, propostasFiltradas, state.usuarios])
+        evolucaoData: dateFilter ? buildEvolutionData(propostasFiltradas, dateFilter, appearance.idioma) : [],
+      }
+    }, [appearance.idioma, clientesFiltrados, dateFilter, propostasFiltradas, state.usuarios])
 
   const stats = useMemo(
     () => [
@@ -217,7 +226,7 @@ export default function RelatoriosPage() {
       <CRMHeader title="Relatorios" subtitle="Analise de performance e metricas" />
 
       <div className="flex-1 overflow-auto space-y-4 p-4 sm:space-y-6 sm:p-6">
-        <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
+        {dateFilter ? <DateRangeFilter value={dateFilter} onChange={setDateFilter} /> : null}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {stats.map((stat) => (

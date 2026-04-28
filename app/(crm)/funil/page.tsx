@@ -1,7 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { CRMHeader } from '@/components/crm/header'
 import { DateRangeFilter } from '@/components/crm/date-range-filter'
@@ -9,7 +9,7 @@ import { ModuleAccessState } from '@/components/crm/module-access-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCRM } from '@/lib/context/crm-context'
 import { useSession } from '@/lib/hooks/use-api'
-import { createDefaultDateFilter, isWithinDateFilter } from '@/lib/utils/date-filter'
+import { createDefaultDateFilter, isWithinDateFilter, type DateFilterValue } from '@/lib/utils/date-filter'
 
 const KanbanBoard = dynamic(
   () => import('@/components/crm/funil/kanban-board').then((mod) => mod.KanbanBoard),
@@ -29,15 +29,21 @@ const ProposalFormDialog = dynamic(
 export default function FunilPage() {
   const { state } = useCRM()
   const { user } = useSession()
-  const [dateFilter, setDateFilter] = useState(createDefaultDateFilter())
+  const [dateFilter, setDateFilter] = useState<DateFilterValue | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const hasFunilAccess = hasModuleAccess(user, 'funil')
 
+  useEffect(() => {
+    setDateFilter(createDefaultDateFilter())
+  }, [])
+
   const propostasFiltradas = useMemo(
     () =>
-      state.propostas.filter((proposta) =>
-        isWithinDateFilter(proposta.criadoEm ?? proposta.dataEnvio, dateFilter)
-      ),
+      !dateFilter
+        ? state.propostas
+        : state.propostas.filter((proposta) =>
+            isWithinDateFilter(proposta.criadoEm ?? proposta.dataEnvio, dateFilter)
+          ),
     [dateFilter, state.propostas]
   )
 
@@ -58,7 +64,7 @@ export default function FunilPage() {
         action={{ label: 'Nova Proposta', onClick: () => setShowCreateDialog(true) }}
       />
       <div className="flex-1 overflow-hidden p-6 space-y-6">
-        <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
+        {dateFilter ? <DateRangeFilter value={dateFilter} onChange={setDateFilter} /> : null}
         <KanbanBoard propostas={propostasFiltradas} />
       </div>
       {showCreateDialog ? (

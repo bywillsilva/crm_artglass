@@ -1,7 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { CRMHeader } from '@/components/crm/header'
 import { DateRangeFilter } from '@/components/crm/date-range-filter'
@@ -20,7 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useSession } from '@/lib/hooks/use-api'
-import { createDefaultDateFilter, isWithinDateFilter } from '@/lib/utils/date-filter'
+import { createDefaultDateFilter, isWithinDateFilter, type DateFilterValue } from '@/lib/utils/date-filter'
 import { Pencil } from 'lucide-react'
 
 const VendorPerformanceCharts = dynamic(
@@ -65,11 +65,15 @@ export default function RelatorioVendedoresPage() {
   const { state, updateUsuario } = useCRM()
   const { formatCurrency } = useAppSettings()
   const { user } = useSession()
-  const [dateFilter, setDateFilter] = useState(createDefaultDateFilter())
+  const [dateFilter, setDateFilter] = useState<DateFilterValue | null>(null)
   const [editingMetaUserId, setEditingMetaUserId] = useState<string | null>(null)
   const [metaInput, setMetaInput] = useState('')
   const hasPerformanceAccess = hasModuleAccess(user, 'performance')
   const canManageSellerGoals = user?.role === 'admin' || user?.role === 'gerente'
+
+  useEffect(() => {
+    setDateFilter(createDefaultDateFilter())
+  }, [])
 
   const vendedores = useMemo(
     () => state.usuarios.filter((usuario) => usuario.role === 'vendedor' || usuario.role === 'gerente'),
@@ -81,9 +85,11 @@ export default function RelatorioVendedoresPage() {
   )
   const propostasFiltradas = useMemo(
     () =>
-      state.propostas.filter((proposta) =>
-        isWithinDateFilter(proposta.criadoEm ?? proposta.dataEnvio, dateFilter)
-      ),
+      !dateFilter
+        ? state.propostas
+        : state.propostas.filter((proposta) =>
+            isWithinDateFilter(proposta.criadoEm ?? proposta.dataEnvio, dateFilter)
+          ),
     [dateFilter, state.propostas]
   )
 
@@ -268,7 +274,7 @@ export default function RelatorioVendedoresPage() {
       />
 
       <div className="flex-1 overflow-auto space-y-4 p-4 sm:space-y-6 sm:p-6">
-        <DateRangeFilter value={dateFilter} onChange={setDateFilter} />
+        {dateFilter ? <DateRangeFilter value={dateFilter} onChange={setDateFilter} /> : null}
 
         <Tabs defaultValue="vendedores" className="space-y-6">
           <TabsList className="grid w-full max-w-[420px] grid-cols-2">

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { createTarefa, updateTarefa, updateTarefaStatus, deleteTarefa, useSession } from '@/lib/hooks/use-api'
 import { useAppSettings } from '@/lib/context/app-settings-context'
@@ -55,10 +55,14 @@ export default function TarefasPage() {
   const [editDataHora, setEditDataHora] = useState('')
   const [editResponsavelId, setEditResponsavelId] = useState('')
   const [editClienteId, setEditClienteId] = useState('')
-  const [currentMonth, setCurrentMonth] = useState(new Date())
+  const [currentMonth, setCurrentMonth] = useState<Date | null>(null)
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [isCreatingTask, setIsCreatingTask] = useState(false)
   const [isSavingTask, setIsSavingTask] = useState(false)
+
+  useEffect(() => {
+    setCurrentMonth(new Date())
+  }, [])
 
   const clienteSearchTerm = clienteSearch.trim().toLowerCase()
 
@@ -286,9 +290,9 @@ export default function TarefasPage() {
     )
   }
 
-  const monthStart = startOfMonth(currentMonth)
-  const monthEnd = endOfMonth(currentMonth)
-  const days = eachDayOfInterval({ start: monthStart, end: monthEnd })
+  const monthStart = currentMonth ? startOfMonth(currentMonth) : null
+  const monthEnd = currentMonth ? endOfMonth(currentMonth) : null
+  const days = monthStart && monthEnd ? eachDayOfInterval({ start: monthStart, end: monthEnd }) : []
 
   return (
     <>
@@ -357,13 +361,15 @@ export default function TarefasPage() {
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg">Calendario</CardTitle>
                   <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setCurrentMonth(subMonths(currentMonth, 1))}>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" disabled={!currentMonth} onClick={() => currentMonth && setCurrentMonth(subMonths(currentMonth, 1))}>
                       <ChevronLeft className="w-4 h-4" />
                     </Button>
                     <span className="text-sm font-medium min-w-[120px] text-center">
-                      {currentMonth.toLocaleDateString(appearance.idioma, { month: 'long', year: 'numeric' })}
+                      {currentMonth
+                        ? currentMonth.toLocaleDateString(appearance.idioma, { month: 'long', year: 'numeric' })
+                        : '...'}
                     </span>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setCurrentMonth(addMonths(currentMonth, 1))}>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" disabled={!currentMonth} onClick={() => currentMonth && setCurrentMonth(addMonths(currentMonth, 1))}>
                       <ChevronRight className="w-4 h-4" />
                     </Button>
                   </div>
@@ -377,7 +383,7 @@ export default function TarefasPage() {
                 </div>
 
                 <div className="grid grid-cols-7 gap-1">
-                  {Array.from({ length: monthStart.getDay() }).map((_, index) => <div key={`pad-${index}`} />)}
+                  {Array.from({ length: monthStart?.getDay() || 0 }).map((_, index) => <div key={`pad-${index}`} />)}
 
                   {days.map((day) => {
                     const tarefasDia = tarefasPorDia.get(format(day, 'yyyy-MM-dd')) || []

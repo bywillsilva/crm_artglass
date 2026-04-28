@@ -124,6 +124,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
   const [commandOpen, setCommandOpen] = useState(false)
   const [query, setQuery] = useState('')
   const deferredQuery = useDeferredValue(query)
+  const [currentTimestamp, setCurrentTimestamp] = useState<number | null>(null)
   const shownBrowserNotificationIds = useRef<Set<string>>(new Set())
 
   useEffect(() => {
@@ -136,6 +137,19 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
       shownBrowserNotificationIds.current = new Set()
     }
   }, [user?.id])
+
+  useEffect(() => {
+    const updateTimestamp = () => {
+      setCurrentTimestamp(Date.now())
+    }
+
+    updateTimestamp()
+    const intervalId = window.setInterval(updateTimestamp, 60 * 1000)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [])
 
   const readNotificationIdsSet = useMemo(() => new Set(readNotificationIds), [readNotificationIds])
 
@@ -150,7 +164,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
   const taskNotifications = useMemo<HeaderNotification[]>(() => {
     if (!notifications.tarefas) return []
 
-    const now = Date.now()
+    const now = currentTimestamp ?? 0
     const tasks = headerTarefas
       .filter((tarefa: Tarefa) => tarefa.status === 'pendente')
       .filter((tarefa: Tarefa) => user?.role === 'admin' || tarefa.responsavelId === user?.id)
@@ -168,7 +182,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
         persistent: true,
       }
     })
-  }, [headerTarefas, notifications.tarefas, user?.id, user?.role])
+  }, [currentTimestamp, headerTarefas, notifications.tarefas, user?.id, user?.role])
 
   const leadNotifications = useMemo<HeaderNotification[]>(() => {
     if (!notifications.novosLeads) return []
