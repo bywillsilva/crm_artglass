@@ -344,7 +344,7 @@ export function ProposalFormDialog({
       responsavelId: isAdmin
         ? responsavelId
         : user?.role === 'orcamentista'
-          ? clienteResponsavelSelecionado || propostaSource?.responsavelId || ''
+          ? responsavelId || clienteResponsavelSelecionado || propostaSource?.responsavelId || ''
           : user?.id,
       orcamentistaId: orcamentistaId || null,
       anexos: files,
