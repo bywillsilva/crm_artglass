@@ -3,15 +3,15 @@ import mysql from 'mysql2/promise'
 const MYSQL_TIMEZONE = process.env.MYSQL_TIMEZONE || '-03:00'
 const MYSQL_PORT = Math.max(Number(process.env.MYSQL_PORT || 3306), 1)
 const MYSQL_SSL_ENABLED = /^(1|true|required)$/i.test(process.env.MYSQL_SSL || '')
-const MYSQL_CONNECTION_LIMIT = Math.max(Number(process.env.MYSQL_CONNECTION_LIMIT || 12), 1)
-const MYSQL_CONNECT_TIMEOUT = Math.max(Number(process.env.MYSQL_CONNECT_TIMEOUT_MS || 3000), 1000)
-const MYSQL_ACQUIRE_RETRIES = Math.max(Number(process.env.MYSQL_ACQUIRE_RETRIES || 2), 0)
+const MYSQL_CONNECTION_LIMIT = Math.max(Number(process.env.MYSQL_CONNECTION_LIMIT || 6), 1)
+const MYSQL_CONNECT_TIMEOUT = Math.max(Number(process.env.MYSQL_CONNECT_TIMEOUT_MS || 10000), 1000)
+const MYSQL_ACQUIRE_RETRIES = Math.max(Number(process.env.MYSQL_ACQUIRE_RETRIES || 3), 0)
 const MYSQL_ACQUIRE_RETRY_DELAY_MS = Math.max(
-  Number(process.env.MYSQL_ACQUIRE_RETRY_DELAY_MS || 150),
+  Number(process.env.MYSQL_ACQUIRE_RETRY_DELAY_MS || 250),
   50
 )
 const MYSQL_FAILURE_COOLDOWN_MS = Math.max(
-  Number(process.env.MYSQL_FAILURE_COOLDOWN_MS || 2000),
+  Number(process.env.MYSQL_FAILURE_COOLDOWN_MS || 750),
   250
 )
 const RETRYABLE_CONNECTION_CODES = new Set([

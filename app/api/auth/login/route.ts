@@ -1,7 +1,7 @@
 import { createHash, randomInt, randomUUID } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { query } from '@/lib/db/mysql'
+import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { createSessionToken, getOptionalUserColumns, SESSION_COOKIE } from '@/lib/auth/session'
 import { buildEmailTemplate } from '@/lib/email'
 import { getEmailBranding } from '@/lib/server/email-branding'
@@ -146,6 +146,13 @@ export async function POST(request: NextRequest) {
     return response
   } catch (error) {
     console.error('Erro ao autenticar usuario:', error)
+    if (isTransientDatabaseError(error)) {
+      return NextResponse.json(
+        { error: 'Banco temporariamente indisponivel. Tente novamente em alguns instantes.' },
+        { status: 503 }
+      )
+    }
+
     return NextResponse.json({ error: 'Erro ao autenticar usuario' }, { status: 500 })
   }
 }

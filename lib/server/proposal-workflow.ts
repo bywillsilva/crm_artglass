@@ -628,14 +628,13 @@ export async function ensureClientSchema() {
       `SELECT COLUMN_NAME, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_TYPE
        FROM INFORMATION_SCHEMA.COLUMNS
        WHERE TABLE_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'clientes'
-          AND COLUMN_NAME IN ('email', 'origem', 'cpf', 'valor_potencial')`
+           AND TABLE_NAME = 'clientes'
+           AND COLUMN_NAME IN ('email', 'origem', 'cpf')`
     )
 
     const emailColumn = columns.find((column) => column.COLUMN_NAME === 'email')
     const origemColumn = columns.find((column) => column.COLUMN_NAME === 'origem')
     const cpfColumn = columns.find((column) => column.COLUMN_NAME === 'cpf')
-    const valorPotencialColumn = columns.find((column) => column.COLUMN_NAME === 'valor_potencial')
 
     const emailNeedsUpdate = emailColumn && emailColumn.IS_NULLABLE !== 'YES'
     const origemNeedsUpdate =
@@ -644,7 +643,6 @@ export async function ensureClientSchema() {
         origemColumn.COLUMN_DEFAULT !== null ||
         !String(origemColumn.COLUMN_TYPE || '').includes(`'outro'`))
     const cpfNeedsCreate = !cpfColumn
-    const valorPotencialNeedsDrop = Boolean(valorPotencialColumn)
 
     if (cpfNeedsCreate) {
       await query(`
@@ -658,13 +656,6 @@ export async function ensureClientSchema() {
         ALTER TABLE clientes
         MODIFY COLUMN email VARCHAR(255) NULL,
         MODIFY COLUMN origem ENUM('site', 'indicacao', 'google', 'facebook', 'instagram', 'telefone', 'outro') NULL DEFAULT NULL
-      `)
-    }
-
-    if (valorPotencialNeedsDrop) {
-      await query(`
-        ALTER TABLE clientes
-        DROP COLUMN valor_potencial
       `)
     }
 

@@ -6,9 +6,14 @@ const REALTIME_VERSION_CACHE_MS = Math.max(
   Number(process.env.REALTIME_VERSION_CACHE_MS || 2000),
   1000
 )
+const REALTIME_SCHEMA_RETRY_BACKOFF_MS = Math.max(
+  Number(process.env.REALTIME_SCHEMA_RETRY_BACKOFF_MS || 30000),
+  5000
+)
 
 let realtimeSchemaCheckedAt = 0
 let realtimeSchemaPromise: Promise<void> | null = null
+let realtimeSchemaRetryAt = 0
 let realtimeVersion = 0
 let realtimeVersionCachedAt = 0
 let realtimeVersionPromise: Promise<number> | null = null
@@ -55,24 +60,38 @@ export async function ensureRealtimeEventsSchema() {
     return
   }
 
+  if (now < realtimeSchemaRetryAt) {
+    const error = new Error('Schema de sincronizacao temporariamente indisponivel')
+    ;(error as Error & { code?: string }).code = 'DB_UNAVAILABLE'
+    throw error
+  }
+
   if (realtimeSchemaPromise) {
     await realtimeSchemaPromise
     return
   }
 
   realtimeSchemaPromise = (async () => {
-    await query(`
-      CREATE TABLE IF NOT EXISTS realtime_updates (
-        id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        actor_user_id VARCHAR(36) NULL,
-        resource VARCHAR(50) NOT NULL,
-        resource_id VARCHAR(64) NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        KEY idx_realtime_updates_created_id (created_at, id)
-      )
-    `)
+    try {
+      await query(`
+        CREATE TABLE IF NOT EXISTS realtime_updates (
+          id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          actor_user_id VARCHAR(36) NULL,
+          resource VARCHAR(50) NOT NULL,
+          resource_id VARCHAR(64) NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          KEY idx_realtime_updates_created_id (created_at, id)
+        )
+      `)
 
-    realtimeSchemaCheckedAt = Date.now()
+      realtimeSchemaCheckedAt = Date.now()
+      realtimeSchemaRetryAt = 0
+    } catch (error) {
+      if (isTransientDatabaseError(error)) {
+        realtimeSchemaRetryAt = Date.now() + REALTIME_SCHEMA_RETRY_BACKOFF_MS
+      }
+      throw error
+    }
   })()
 
   try {
@@ -121,7 +140,9 @@ export async function getLatestRealtimeVersion() {
   try {
     await ensureRealtimeEventsSchema()
   } catch (error) {
-    logDatabaseError('Erro ao garantir schema de sincronizacao', error)
+    if (!isTransientDatabaseError(error)) {
+      logDatabaseError('Erro ao garantir schema de sincronizacao', error)
+    }
     return realtimeVersion
   }
 
@@ -163,7 +184,9 @@ export async function getLatestRealtimeVersionsByModule() {
   try {
     await ensureRealtimeEventsSchema()
   } catch (error) {
-    logDatabaseError('Erro ao garantir schema de sincronizacao por modulo', error)
+    if (!isTransientDatabaseError(error)) {
+      logDatabaseError('Erro ao garantir schema de sincronizacao por modulo', error)
+    }
     return {
       versions: realtimeModuleVersions,
       changedAt: realtimeModuleChangedAt,
