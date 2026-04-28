@@ -11,12 +11,14 @@ import { jsonNoStore } from '@/lib/server/http-cache'
 import {
   canOrcamentistaAccessProposal,
   ensureCrmRuntimeSchema,
+  ensureProposalKanbanOrderColumn,
   ensureProposalMaterialTagColumn,
   formatDateTime,
   normalizeProposalStatus,
   parseDatabaseDateTime,
   requiresOrcamentistaAssignment,
   requiresPositiveProposalValue,
+  setProposalKanbanPosition,
   syncDueFollowUpStatuses,
   syncProposalAutomation,
   type ProposalWorkflowStatus,
@@ -46,6 +48,7 @@ const PROPOSAL_BASE_SELECT_COLUMNS = `
   p.condicoes,
   p.follow_up_base_at,
   p.follow_up_time,
+  p.kanban_order,
   p.created_at,
   p.updated_at,
   c.nome as cliente_nome,
@@ -76,6 +79,7 @@ type ProposalPayload = {
   clienteEmail?: string | null
   clienteEndereco?: string | null
   clienteValorFechado?: number | null
+  kanbanPosition?: number | null
   anexos: File[]
 }
 
@@ -201,6 +205,15 @@ function parseNullableNumber(value: unknown) {
   return null
 }
 
+function parseKanbanPosition(value: unknown) {
+  const parsed = parseNullableNumber(value)
+  if (parsed == null) {
+    return null
+  }
+
+  return Math.max(0, Math.trunc(parsed))
+}
+
 function isSellerVisibleStatus(status: ProposalWorkflowStatus) {
   return SELLER_VISIBLE_STATUSES.includes(status)
 }
@@ -276,9 +289,10 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
       orcamentistaId: String(formData.get('orcamentistaId') || '') || null,
       comentario: String(formData.get('comentario') || '') || null,
       justificativa: String(formData.get('justificativa') || '') || null,
-      workflowAction: String(formData.get('workflowAction') || '') || null,
-      followUpTime: String(formData.get('followUpTime') || '') || null,
-      clienteId: String(formData.get('clienteId') || '') || undefined,
+        workflowAction: String(formData.get('workflowAction') || '') || null,
+        followUpTime: String(formData.get('followUpTime') || '') || null,
+        kanbanPosition: parseKanbanPosition(formData.get('kanbanPosition')),
+        clienteId: String(formData.get('clienteId') || '') || undefined,
       clienteNome: String(formData.get('clienteNome') || '') || null,
       clienteCpf: String(formData.get('clienteCpf') || '') || null,
       clienteTelefone: String(formData.get('clienteTelefone') || '') || null,
@@ -308,6 +322,7 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
     justificativa: data.justificativa || null,
     workflowAction: data.workflowAction || null,
     followUpTime: data.followUpTime || null,
+    kanbanPosition: parseKanbanPosition(data.kanbanPosition),
     clienteId: data.clienteId,
     clienteNome: data.clienteNome || null,
     clienteCpf: data.clienteCpf || null,
@@ -509,6 +524,7 @@ export async function GET(
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
     await ensureProposalMaterialTagColumn()
+    await ensureProposalKanbanOrderColumn()
 
     const cacheKey = `proposta:detail:${user.id}:${user.role}:${id}`
     const cachedProposta = getRuntimeCache<any>(cacheKey)
@@ -859,6 +875,11 @@ export async function PUT(
 
     if (savedFiles.length > 0) {
       await persistSavedProposalFiles(id, user.id, savedFiles)
+      await touchProposalUpdatedAt(id)
+    }
+
+    if (previousStatus !== storedStatus || data.kanbanPosition !== null) {
+      await setProposalKanbanPosition(id, storedStatus, data.kanbanPosition ?? 0)
       await touchProposalUpdatedAt(id)
     }
 

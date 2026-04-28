@@ -127,6 +127,7 @@ export interface Proposta {
   numero?: string
   titulo?: string
   materialTag?: string | null
+  kanbanOrder?: number | null
   valor: number
   descricao?: string
   status: StatusProposta

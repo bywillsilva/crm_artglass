@@ -9,6 +9,7 @@ import {
   ensureCrmRuntimeSchema,
   getNextProposalNumber,
   formatDateTime,
+  setProposalKanbanPosition,
 } from '@/lib/server/proposal-workflow'
 
 const CLIENTES_CACHE_TTL_MS = Math.max(Number(process.env.CLIENTES_CACHE_TTL_MS || 30_000), 1000)
@@ -189,6 +190,8 @@ async function createInitialProposalForClient(
       formatDateTime(new Date()),
     ]
   )
+
+  await setProposalKanbanPosition(propostaId, 'novo_cliente', 0)
 
   return {
     propostaId,

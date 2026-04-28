@@ -273,6 +273,7 @@ function normalizeProposta(row: JsonRecord): Proposta {
     numero: row.numero ?? '',
     titulo: row.titulo ?? 'Proposta Comercial',
     materialTag: row.materialTag ?? row.material_tag ?? null,
+    kanbanOrder: toNumber(row.kanbanOrder ?? row.kanban_order),
     valor: toNumber(row.valor ?? row.valor_final),
     descricao: row.descricao ?? '',
     status: mapPropostaStatusFromApi(row.status),
@@ -1448,6 +1449,10 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
   const parsedValor = parseNumberLike(data.valor)
   const parsedDesconto = parseNumberLike(data.desconto)
   const parsedClienteValorFechado = parseNumberLike(data.clienteValorFechado)
+  const parsedKanbanPosition =
+    typeof data.kanbanPosition === 'number' && Number.isFinite(data.kanbanPosition)
+      ? Math.max(0, Math.trunc(data.kanbanPosition))
+      : null
   const hasExplicitValor = hasFilledValue(data.valor)
   const hasExplicitDesconto = hasFilledValue(data.desconto)
   const payload = {
@@ -1473,6 +1478,7 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     clienteEmail: data.clienteEmail || null,
     clienteEndereco: data.clienteEndereco || null,
     clienteValorFechado: parsedClienteValorFechado ?? null,
+    kanbanPosition: parsedKanbanPosition,
   }
   const anexos = Array.isArray(data.anexos)
     ? (data.anexos as unknown[]).filter((item): item is File => item instanceof File)
@@ -1497,6 +1503,8 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     orcamentista_id: payload.orcamentistaId,
     followUpTime: payload.followUpTime,
     follow_up_time: payload.followUpTime,
+    kanbanOrder: parsedKanbanPosition,
+    kanban_order: parsedKanbanPosition,
   })
 
   await mutate(`/api/propostas/${id}`, (current) => mergeEntitySnapshot(current, optimisticPatch), {

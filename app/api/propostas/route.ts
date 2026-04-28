@@ -8,6 +8,7 @@ import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/
 import { jsonNoStore } from '@/lib/server/http-cache'
 import {
   ensureCrmRuntimeSchema,
+  ensureProposalKanbanOrderColumn,
   ensureProposalMaterialTagColumn,
   getNextProposalNumber,
   formatDateTime,
@@ -15,6 +16,7 @@ import {
   normalizeProposalStatus,
   requiresOrcamentistaAssignment,
   requiresPositiveProposalValue,
+  setProposalKanbanPosition,
   syncDueFollowUpStatuses,
   type ProposalWorkflowStatus,
 } from '@/lib/server/proposal-workflow'
@@ -38,6 +40,7 @@ const PROPOSAL_LIST_SELECT_COLUMNS = `
   p.validade,
   p.follow_up_base_at,
   p.follow_up_time,
+  p.kanban_order,
   p.created_at,
   p.updated_at,
   c.nome as cliente_nome,
@@ -62,6 +65,7 @@ type ProposalPayload = {
   orcamentistaId?: string | null
   comentario?: string | null
   followUpTime?: string | null
+  kanbanPosition?: number | null
   anexos: File[]
 }
 
@@ -88,6 +92,15 @@ function parseNumberLike(value: unknown) {
   }
 
   return null
+}
+
+function parseKanbanPosition(value: unknown) {
+  const parsed = parseNumberLike(value)
+  if (parsed == null) {
+    return null
+  }
+
+  return Math.max(0, Math.trunc(parsed))
 }
 
 function normalizeMaterialTag(value: unknown) {
@@ -199,8 +212,9 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
       responsavelId: String(formData.get('responsavelId') || '') || null,
       orcamentistaId: String(formData.get('orcamentistaId') || '') || null,
       comentario: String(formData.get('comentario') || '') || null,
-      followUpTime: String(formData.get('followUpTime') || '') || null,
-      anexos: formData
+    followUpTime: String(formData.get('followUpTime') || '') || null,
+    kanbanPosition: parseKanbanPosition(formData.get('kanbanPosition')),
+    anexos: formData
         .getAll('anexos')
         .filter((value): value is File => value instanceof File && value.size > 0),
     }
@@ -222,6 +236,7 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
     orcamentistaId: data.orcamentistaId || null,
     comentario: data.comentario || null,
     followUpTime: data.followUpTime || null,
+    kanbanPosition: parseKanbanPosition(data.kanbanPosition),
     anexos: [],
   }
 }
@@ -322,6 +337,7 @@ export async function GET(request: NextRequest) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
     await ensureProposalMaterialTagColumn()
+    await ensureProposalKanbanOrderColumn()
 
     const cacheKey = `propostas:list:${user.id}:${user.role}:${status || 'todos'}:${clienteId || ''}:${updatedSince || ''}`
     const cachedPropostas = getRuntimeCache<any[]>(cacheKey)
@@ -524,6 +540,7 @@ export async function POST(request: NextRequest) {
 
     const savedFiles = await saveProposalFiles(propostaId, data.anexos)
     await persistSavedProposalFiles(propostaId, user.id, savedFiles)
+    await setProposalKanbanPosition(propostaId, status, data.kanbanPosition ?? 0)
 
     await query(
       `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)

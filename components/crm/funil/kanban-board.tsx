@@ -65,6 +65,7 @@ const columnBorderColors: Record<StatusProposta, string> = {
 type PendingMove = {
   propostaId: string
   targetStatus: StatusProposta
+  targetIndex?: number | null
 }
 
 type SellerMoveAction =
@@ -150,15 +151,18 @@ type PendingDrag = {
 
 type DragState = Omit<PendingDrag, 'element' | 'ready'> & {
   overStatus: StatusProposta | null
+  overIndex: number | null
   hasMoved: boolean
 }
 
-const TOUCH_DRAG_HOLD_MS = 220
-const TOUCH_DRAG_CANCEL_DISTANCE = 14
+const TOUCH_DRAG_HOLD_MS = 320
+const TOUCH_DRAG_CANCEL_DISTANCE = 18
 const TOUCH_DRAG_START_DISTANCE = 14
 const MOUSE_DRAG_START_DISTANCE = 6
 const TOUCH_AUTO_SCROLL_EDGE_PX = 84
 const TOUCH_AUTO_SCROLL_MAX_STEP = 26
+const TOUCH_AUTO_SCROLL_VERTICAL_EDGE_PX = 96
+const TOUCH_AUTO_SCROLL_VERTICAL_MAX_STEP = 18
 const INTERACTIVE_DRAG_SELECTOR = 'button, a, input, textarea, select, [role="button"], [data-no-touch-drag]'
 
 function isTouchLikePointer(event: React.PointerEvent) {
@@ -171,6 +175,11 @@ function isInteractiveTarget(target: EventTarget | null) {
 
 interface KanbanBoardProps {
   propostas?: Proposta[]
+}
+
+type ProposalDropTarget = {
+  status: StatusProposta | null
+  index: number | null
 }
 
 function dedupePropostasById(propostas: Proposta[]) {
@@ -188,6 +197,20 @@ function dedupePropostasById(propostas: Proposta[]) {
 
 function shouldReplaceTask(currentTask: { dataHora: Date }, nextTask: { dataHora: Date }) {
   return nextTask.dataHora.getTime() < currentTask.dataHora.getTime()
+}
+
+function compareProposalKanbanOrder(a: Proposta, b: Proposta) {
+  const orderA = typeof a.kanbanOrder === 'number' && Number.isFinite(a.kanbanOrder) ? a.kanbanOrder : null
+  const orderB = typeof b.kanbanOrder === 'number' && Number.isFinite(b.kanbanOrder) ? b.kanbanOrder : null
+
+  if (orderA != null && orderB != null && orderA !== orderB) {
+    return orderA - orderB
+  }
+
+  if (orderA != null) return -1
+  if (orderB != null) return 1
+
+  return b.criadoEm.getTime() - a.criadoEm.getTime()
 }
 
 function getProposalCardTitle(proposta: Proposta, clientName: string) {
@@ -350,12 +373,25 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const [isSubmittingMove, setIsSubmittingMove] = useState(false)
   const [dragState, setDragState] = useState<DragState | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const columnScrollRefs = useRef<Partial<Record<StatusProposta, HTMLDivElement | null>>>({})
+  const floatingDragCardRef = useRef<HTMLDivElement | null>(null)
   const touchDragTimerRef = useRef<number | null>(null)
   const touchPendingDragRef = useRef<PendingDrag | null>(null)
   const autoScrollFrameRef = useRef<number | null>(null)
   const dragPointRef = useRef<{ x: number; y: number } | null>(null)
-  const dragStateFrameRef = useRef<number | null>(null)
-  const dragStateUpdaterRef = useRef<((current: DragState | null) => DragState | null) | null>(null)
+  const dragVisualRef = useRef<{ x: number; y: number; offsetX: number; offsetY: number } | null>(null)
+  const dragDropTargetRef = useRef<ProposalDropTarget>({ status: null, index: null })
+  const dragHasMovedRef = useRef(false)
+
+  const updateFloatingDragPosition = useCallback(() => {
+    const element = floatingDragCardRef.current
+    const dragVisual = dragVisualRef.current
+    if (!element || !dragVisual) {
+      return
+    }
+
+    element.style.transform = `translate3d(${dragVisual.x - dragVisual.offsetX}px, ${dragVisual.y - dragVisual.offsetY}px, 0)`
+  }, [])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -389,29 +425,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       if (autoScrollFrameRef.current !== null) {
         window.cancelAnimationFrame(autoScrollFrameRef.current)
       }
-      if (dragStateFrameRef.current !== null) {
-        window.cancelAnimationFrame(dragStateFrameRef.current)
-      }
     }
-  }, [])
-
-  const scheduleDragStateUpdate = useCallback((updater: (current: DragState | null) => DragState | null) => {
-    dragStateUpdaterRef.current = updater
-    if (dragStateFrameRef.current !== null) {
-      return
-    }
-
-    dragStateFrameRef.current = window.requestAnimationFrame(() => {
-      const nextUpdater = dragStateUpdaterRef.current
-      dragStateFrameRef.current = null
-      dragStateUpdaterRef.current = null
-
-      if (!nextUpdater) {
-        return
-      }
-
-      setDragState((current) => nextUpdater(current))
-    })
   }, [])
 
   useEffect(() => {
@@ -430,6 +444,45 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       document.body.style.webkitUserSelect = previousWebkitUserSelect
     }
   }, [dragState])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !dragState || dragState.pointerType === 'mouse') {
+      return
+    }
+
+    const updateDragFromTouch = (touch: Touch) => {
+      dragPointRef.current = { x: touch.clientX, y: touch.clientY }
+      dragVisualRef.current = {
+        x: touch.clientX,
+        y: touch.clientY,
+        offsetX: dragState.offsetX,
+        offsetY: dragState.offsetY,
+      }
+      updateFloatingDragPosition()
+
+      const overTarget = getTouchDropTarget(touch.clientX, touch.clientY, dragState.propostaId)
+      const dragDistance = Math.hypot(touch.clientX - dragState.startX, touch.clientY - dragState.startY)
+      dragDropTargetRef.current = overTarget
+      dragHasMovedRef.current =
+        dragHasMovedRef.current ||
+        dragDistance >= (dragState.pointerType === 'mouse' ? MOUSE_DRAG_START_DISTANCE : TOUCH_DRAG_START_DISTANCE)
+    }
+
+    const preventTouchScroll = (event: TouchEvent) => {
+      event.preventDefault()
+
+       const touch = event.touches[0] || event.changedTouches[0]
+       if (touch) {
+         updateDragFromTouch(touch)
+       }
+    }
+
+    window.addEventListener('touchmove', preventTouchScroll, { passive: false })
+
+    return () => {
+      window.removeEventListener('touchmove', preventTouchScroll)
+    }
+  }, [dragState, updateFloatingDragPosition])
 
   const propostasBase = useMemo(
     () =>
@@ -480,6 +533,10 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       if (displayStatus in grouped) {
         grouped[displayStatus].push(proposta)
       }
+    }
+
+    for (const status of columns) {
+      grouped[status] = [...grouped[status]].sort(compareProposalKanbanOrder)
     }
 
     return grouped
@@ -547,19 +604,39 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     touchPendingDragRef.current = null
   }
 
-  const getTouchDropStatus = (clientX: number, clientY: number) => {
-    if (typeof document === 'undefined') return null
+  const getTouchDropTarget = (clientX: number, clientY: number, propostaId?: string): ProposalDropTarget => {
+    if (typeof document === 'undefined') return { status: null, index: null }
 
     const dropTarget = document
       .elementFromPoint(clientX, clientY)
       ?.closest('[data-kanban-column-status]')
 
     if (!(dropTarget instanceof HTMLElement)) {
-      return null
+      return { status: null, index: null }
     }
 
     const status = dropTarget.dataset.kanbanColumnStatus
-    return columns.includes(status as StatusProposta) ? (status as StatusProposta) : null
+    if (!columns.includes(status as StatusProposta)) {
+      return { status: null, index: null }
+    }
+
+    const normalizedStatus = status as StatusProposta
+    const cards = Array.from(dropTarget.querySelectorAll<HTMLElement>('[data-kanban-card-id]')).filter(
+      (card) => card.dataset.kanbanCardId !== propostaId
+    )
+
+    let index = cards.length
+
+    for (let currentIndex = 0; currentIndex < cards.length; currentIndex += 1) {
+      const cardRect = cards[currentIndex].getBoundingClientRect()
+      const midpoint = cardRect.top + cardRect.height / 2
+      if (clientY < midpoint) {
+        index = currentIndex
+        break
+      }
+    }
+
+    return { status: normalizedStatus, index }
   }
 
   const beginPointerDrag = (pending: PendingDrag, clientX: number, clientY: number) => {
@@ -576,11 +653,23 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
 
     touchPendingDragRef.current = pending
     dragPointRef.current = { x: clientX, y: clientY }
+    dragVisualRef.current = {
+      x: clientX,
+      y: clientY,
+      offsetX: pending.offsetX,
+      offsetY: pending.offsetY,
+    }
+    dragDropTargetRef.current = { status: null, index: null }
+    dragHasMovedRef.current = false
+    updateFloatingDragPosition()
     setDragState({
       ...pending,
+      startX: clientX,
+      startY: clientY,
       currentX: clientX,
       currentY: clientY,
-      overStatus: pending.pointerType === 'mouse' ? getTouchDropStatus(clientX, clientY) : null,
+      overStatus: null,
+      overIndex: null,
       hasMoved: false,
     })
   }
@@ -610,15 +699,37 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     [user?.role]
   )
 
-  const requestMove = async (propostaId: string, targetStatus: StatusProposta) => {
+  const requestMove = async (propostaId: string, targetStatus: StatusProposta, targetIndex?: number | null) => {
     const proposta = propostasById.get(propostaId)
-    const isCommercialCard = proposta ? SELLER_COLUMNS.includes(resolveKanbanDisplayStatus(proposta.status)) : false
+    const sourceDisplayStatus = proposta ? resolveKanbanDisplayStatus(proposta.status) : null
+    const isCommercialCard = Boolean(sourceDisplayStatus && SELLER_COLUMNS.includes(sourceDisplayStatus))
     const canOpenSameStatusGuidedAction =
       proposta?.status === targetStatus &&
       isCommercialCard &&
       ['vendedor', 'admin', 'gerente'].includes(user?.role || '')
 
-    if (!proposta || (proposta.status === targetStatus && !canOpenSameStatusGuidedAction)) {
+    if (!proposta) {
+      return
+    }
+
+    const sourceIndex =
+      sourceDisplayStatus && propostasByStatus[sourceDisplayStatus]
+        ? propostasByStatus[sourceDisplayStatus].findIndex((item) => item.id === proposta.id)
+        : -1
+    const isSameColumnReorder =
+      sourceDisplayStatus === targetStatus &&
+      typeof targetIndex === 'number' &&
+      targetIndex !== sourceIndex
+
+    if (isSameColumnReorder) {
+      void executeMove(proposta, {
+        targetStatus: proposta.status,
+        kanbanPosition: targetIndex,
+      })
+      return
+    }
+
+    if (proposta.status === targetStatus && !canOpenSameStatusGuidedAction) {
       return
     }
 
@@ -665,11 +776,11 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       !requiresDirectClosedClientData &&
       !requiresGuidedCommercialAction
     ) {
-      void executeMove(proposta, { targetStatus })
+      void executeMove(proposta, { targetStatus, kanbanPosition: targetIndex ?? 0 })
       return
     }
 
-    setPendingMove({ propostaId, targetStatus })
+    setPendingMove({ propostaId, targetStatus, targetIndex: targetIndex ?? null })
     setSellerAction(
       user?.role === 'vendedor' && proposta.status === 'enviar_ao_cliente' && targetStatus === proposta.status
         ? 'enviado_ao_cliente'
@@ -694,10 +805,6 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const handleTouchPointerDown = (event: React.PointerEvent<HTMLDivElement>, proposta: Proposta) => {
     if ((event.pointerType === 'mouse' && event.button !== 0) || isInteractiveTarget(event.target)) {
       return
-    }
-
-    if (isTouchLikePointer(event)) {
-      event.preventDefault()
     }
 
     const card = event.currentTarget
@@ -773,25 +880,23 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
 
     event.preventDefault()
     dragPointRef.current = { x: event.clientX, y: event.clientY }
-    const overStatus = getTouchDropStatus(event.clientX, event.clientY)
+    dragVisualRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      offsetX: dragState.offsetX,
+      offsetY: dragState.offsetY,
+    }
+    updateFloatingDragPosition()
+    const overTarget = getTouchDropTarget(event.clientX, event.clientY, dragState.propostaId)
     const dragDistance = Math.hypot(event.clientX - dragState.startX, event.clientY - dragState.startY)
-    scheduleDragStateUpdate((current) =>
-      current && current.pointerId === event.pointerId
-        ? {
-            ...current,
-            currentX: event.clientX,
-            currentY: event.clientY,
-            overStatus,
-            hasMoved:
-              current.hasMoved ||
-              dragDistance >=
-                (current.pointerType === 'mouse' ? MOUSE_DRAG_START_DISTANCE : TOUCH_DRAG_START_DISTANCE),
-          }
-        : current
-    )
+    dragDropTargetRef.current = overTarget
+    dragHasMovedRef.current =
+      dragHasMovedRef.current ||
+      dragDistance >= (dragState.pointerType === 'mouse' ? MOUSE_DRAG_START_DISTANCE : TOUCH_DRAG_START_DISTANCE)
   }
 
-  const finishTouchDrag = (pointerId: number) => {
+  const finishTouchDrag = (pointerId: number, options?: { commit?: boolean }) => {
+    const shouldCommit = options?.commit ?? true
     const activeTouchDrag = dragState
     const pending = touchPendingDragRef.current
     const captureElement = pending?.element
@@ -804,12 +909,24 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       return
     }
 
+    const sourceDisplayStatus = resolveKanbanDisplayStatus(activeTouchDrag.sourceStatus)
+    const currentDropTarget = dragDropTargetRef.current
+    const sourceIndex = propostasByStatus[sourceDisplayStatus].findIndex(
+      (proposta) => proposta.id === activeTouchDrag.propostaId
+    )
+    const hasColumnChanged = Boolean(currentDropTarget.status && currentDropTarget.status !== sourceDisplayStatus)
+    const hasIndexChanged =
+      currentDropTarget.status === sourceDisplayStatus &&
+      typeof currentDropTarget.index === 'number' &&
+      currentDropTarget.index !== sourceIndex
+
     if (
-      activeTouchDrag.hasMoved &&
-      activeTouchDrag.overStatus &&
-      activeTouchDrag.overStatus !== activeTouchDrag.sourceStatus
+      shouldCommit &&
+      dragHasMovedRef.current &&
+      currentDropTarget.status &&
+      (hasColumnChanged || hasIndexChanged)
     ) {
-      requestMove(activeTouchDrag.propostaId, activeTouchDrag.overStatus)
+      requestMove(activeTouchDrag.propostaId, currentDropTarget.status, currentDropTarget.index)
     }
 
     if (captureElement?.hasPointerCapture?.(pointerId)) {
@@ -817,25 +934,28 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     }
 
     dragPointRef.current = null
-    if (dragStateFrameRef.current !== null) {
-      window.cancelAnimationFrame(dragStateFrameRef.current)
-      dragStateFrameRef.current = null
-      dragStateUpdaterRef.current = null
-    }
+    dragVisualRef.current = null
+    dragDropTargetRef.current = { status: null, index: null }
+    dragHasMovedRef.current = false
     setDragState(null)
   }
 
   const handleTouchPointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
-    finishTouchDrag(event.pointerId)
+    finishTouchDrag(event.pointerId, { commit: true })
+  }
+
+  const handleTouchPointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
+    finishTouchDrag(event.pointerId, { commit: false })
   }
 
   const executeMove = useCallback(
     async (
       proposta: Proposta,
-      options: {
-        targetStatus: StatusProposta
-        sellerWorkflowAction?: SellerMoveAction | ''
-        adminStatus?: StatusProposta | ''
+        options: {
+          targetStatus: StatusProposta
+          kanbanPosition?: number | null
+          sellerWorkflowAction?: SellerMoveAction | ''
+          adminStatus?: StatusProposta | ''
         comment?: string
         followUpTime?: string
         moveValue?: string
@@ -883,6 +1003,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         status: persistedStatus,
         valor: nextValue,
         followUpTime: options.followUpTime || proposta.followUpTime || null,
+        kanbanOrder: options.kanbanPosition ?? proposta.kanbanOrder ?? null,
       }
 
       setIsSubmittingMove(true)
@@ -904,6 +1025,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
           clienteTelefone: persistedStatus === 'fechado' ? options.closeClientData?.telefone || null : null,
           clienteEndereco: persistedStatus === 'fechado' ? options.closeClientData?.endereco || null : null,
           clienteValorFechado: persistedStatus === 'fechado' ? nextValue : null,
+          kanbanPosition: options.kanbanPosition ?? null,
           anexos: options.moveFiles || [],
         } as unknown as Proposta)
         toast.success('Proposta atualizada com sucesso.')
@@ -945,6 +1067,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
 
     await executeMove(proposta, {
       targetStatus: pendingMove.targetStatus,
+      kanbanPosition: pendingMove.targetIndex ?? 0,
       sellerWorkflowAction: isSellerMove ? effectiveSellerAction : '',
       adminStatus: isAdminCommercialMove ? adminMoveStatus : '',
       comment: requiresMoveComment ? moveComment : '',
@@ -1056,9 +1179,6 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const isSchedulingFollowUp = requiresFollowUpTime
   const pendingMoveTargetLabel = pendingMove ? statusPropostaLabels[pendingMove.targetStatus] : ''
   const draggedTouchProposal = dragState ? propostasById.get(dragState.propostaId) || null : null
-  const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 0
-  const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 0
-
   useEffect(() => {
     if (!dragState || dragState.pointerType === 'mouse' || typeof window === 'undefined') {
       if (autoScrollFrameRef.current !== null) {
@@ -1079,6 +1199,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
 
       const rect = container.getBoundingClientRect()
       let deltaX = 0
+      let didScroll = false
 
       if (dragPoint.x >= rect.right - TOUCH_AUTO_SCROLL_EDGE_PX) {
         const intensity = Math.min(
@@ -1099,16 +1220,46 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         container.scrollLeft += deltaX
 
         if (container.scrollLeft !== previousScrollLeft) {
-          const overStatus = getTouchDropStatus(dragPoint.x, dragPoint.y)
-          scheduleDragStateUpdate((current) =>
-            current
-              ? {
-                  ...current,
-                  overStatus,
-                }
-              : current
-          )
+          didScroll = true
         }
+      }
+
+      const liveDropTarget = dragState ? getTouchDropTarget(dragPoint.x, dragPoint.y, dragState.propostaId) : null
+      dragDropTargetRef.current = liveDropTarget || { status: null, index: null }
+      const activeScrollStatus = liveDropTarget?.status || null
+      const activeColumnScroller = activeScrollStatus ? columnScrollRefs.current[activeScrollStatus] : null
+
+      if (activeColumnScroller) {
+        const scrollerRect = activeColumnScroller.getBoundingClientRect()
+        let deltaY = 0
+
+        if (dragPoint.y >= scrollerRect.bottom - TOUCH_AUTO_SCROLL_VERTICAL_EDGE_PX) {
+          const intensity = Math.min(
+            1,
+            (dragPoint.y - (scrollerRect.bottom - TOUCH_AUTO_SCROLL_VERTICAL_EDGE_PX)) /
+              TOUCH_AUTO_SCROLL_VERTICAL_EDGE_PX
+          )
+          deltaY = Math.ceil(TOUCH_AUTO_SCROLL_VERTICAL_MAX_STEP * Math.max(0.16, intensity))
+        } else if (dragPoint.y <= scrollerRect.top + TOUCH_AUTO_SCROLL_VERTICAL_EDGE_PX) {
+          const intensity = Math.min(
+            1,
+            ((scrollerRect.top + TOUCH_AUTO_SCROLL_VERTICAL_EDGE_PX) - dragPoint.y) /
+              TOUCH_AUTO_SCROLL_VERTICAL_EDGE_PX
+          )
+          deltaY = -Math.ceil(TOUCH_AUTO_SCROLL_VERTICAL_MAX_STEP * Math.max(0.16, intensity))
+        }
+
+        if (deltaY !== 0) {
+          const previousScrollTop = activeColumnScroller.scrollTop
+          activeColumnScroller.scrollTop += deltaY
+          if (activeColumnScroller.scrollTop !== previousScrollTop) {
+            didScroll = true
+          }
+        }
+      }
+
+      if (didScroll && dragVisualRef.current) {
+        updateFloatingDragPosition()
       }
 
       autoScrollFrameRef.current = window.requestAnimationFrame(tick)
@@ -1122,7 +1273,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         autoScrollFrameRef.current = null
       }
     }
-  }, [dragState, scheduleDragStateUpdate])
+  }, [dragState, updateFloatingDragPosition])
 
   return (
     <>
@@ -1133,7 +1284,6 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         {visibleColumns.map((status) => {
           const propostasDaColuna = columnSummaries[status].propostas
           const valorTotal = columnSummaries[status].valorTotal
-          const isTouchDropTarget = dragState?.overStatus === status
 
           return (
             <div
@@ -1141,7 +1291,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
               data-kanban-column-status={status}
               className={`flex h-[calc(100vh-14rem)] min-h-[30rem] w-80 min-w-80 flex-col rounded-lg border-t-4 bg-card transition-colors ${
                 columnBorderColors[status]
-              } ${isTouchDropTarget ? 'ring-2 ring-primary/60 ring-offset-2 ring-offset-background' : ''}`}
+              }`}
             >
               <div className="border-b border-border p-4">
                 <div className="mb-1 flex items-center justify-between gap-3">
@@ -1153,7 +1303,14 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                 <p className="text-sm text-muted-foreground">{formatCurrency(valorTotal)}</p>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-3 min-h-0">
+              <div
+                ref={(node) => {
+                  columnScrollRefs.current[status] = node
+                }}
+                data-kanban-column-scroller={status}
+                className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain p-3"
+                style={{ WebkitOverflowScrolling: 'touch' }}
+              >
                 <div className="space-y-3">
                 {propostasDaColuna.length === 0 ? (
                   <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
@@ -1169,11 +1326,13 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                     return (
                       <div
                         key={proposta.id}
+                        data-kanban-card-id={proposta.id}
+                        data-kanban-card-status={status}
                         aria-busy={Boolean(updatingProposalIds[proposta.id])}
                         onPointerDown={(event) => handleTouchPointerDown(event, proposta)}
                         onPointerMove={handleTouchPointerMove}
                         onPointerUp={handleTouchPointerEnd}
-                        onPointerCancel={handleTouchPointerEnd}
+                        onPointerCancel={handleTouchPointerCancel}
                         onContextMenu={(event) => event.preventDefault()}
                         className={`rounded-xl border p-4 shadow-sm transition ${cardState.classes} ${
                           updatingProposalIds[proposta.id] ? 'opacity-70' : ''
@@ -1182,7 +1341,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                             ? 'opacity-35 scale-[0.98]'
                             : ''
                         } select-none [-webkit-touch-callout:none]`}
-                        style={{ touchAction: isTouchDevice ? 'none' : undefined }}
+                        style={{ touchAction: isTouchDevice ? 'auto' : undefined }}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
@@ -1316,16 +1475,10 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
 
       {dragState && draggedTouchProposal ? (
         <div
-          className="pointer-events-none fixed z-[70] w-80 max-w-[calc(100vw-2rem)]"
+          ref={floatingDragCardRef}
+          className="pointer-events-none fixed left-0 top-0 z-[70] w-80 max-w-[calc(100vw-2rem)] will-change-transform"
           style={{
-            left: Math.max(
-              16,
-              Math.min(dragState.currentX - dragState.offsetX, viewportWidth - dragState.width - 16)
-            ),
-            top: Math.max(
-              16,
-              Math.min(dragState.currentY - dragState.offsetY, viewportHeight - dragState.height - 16)
-            ),
+            transform: `translate3d(${dragState.currentX - dragState.offsetX}px, ${dragState.currentY - dragState.offsetY}px, 0)`,
           }}
         >
           <div className="rounded-xl border border-primary/40 bg-card/95 p-4 shadow-2xl backdrop-blur-sm">

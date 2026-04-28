@@ -3,7 +3,7 @@ import { isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysq
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
-import { ensureProposalMaterialTagColumn } from '@/lib/server/proposal-workflow'
+import { ensureProposalKanbanOrderColumn, ensureProposalMaterialTagColumn } from '@/lib/server/proposal-workflow'
 
 type AuthenticatedUser = {
   id: string
@@ -73,6 +73,7 @@ const BOOTSTRAP_PROPOSAL_SELECT_COLUMNS = `
   p.validade,
   p.follow_up_base_at,
   p.follow_up_time,
+  p.kanban_order,
   p.created_at,
   p.updated_at,
   c.nome as cliente_nome,
@@ -110,6 +111,7 @@ export async function GET(request: Request) {
     }
     isAuthenticated = true
     await ensureProposalMaterialTagColumn()
+    await ensureProposalKanbanOrderColumn()
 
     const isAdmin = authenticatedUser.role === 'admin' || authenticatedUser.role === 'gerente'
     const sections = parseSectionsParam(request)

@@ -241,7 +241,7 @@ async function ensureProposalColumns() {
      FROM INFORMATION_SCHEMA.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE()
        AND TABLE_NAME = 'propostas'
-       AND COLUMN_NAME IN ('orcamentista_id', 'retificacoes_count', 'follow_up_base_at', 'follow_up_time', 'material_tag')`
+        AND COLUMN_NAME IN ('orcamentista_id', 'retificacoes_count', 'follow_up_base_at', 'follow_up_time', 'material_tag', 'kanban_order')`
   )
 
   const existing = new Set(columns.map((column) => column.COLUMN_NAME))
@@ -265,6 +265,10 @@ async function ensureProposalColumns() {
   if (!existing.has('material_tag')) {
     await query(`ALTER TABLE propostas ADD COLUMN material_tag VARCHAR(80) NULL AFTER titulo`)
   }
+
+  if (!existing.has('kanban_order')) {
+    await query(`ALTER TABLE propostas ADD COLUMN kanban_order BIGINT NULL AFTER follow_up_time`)
+  }
 }
 
 export async function ensureProposalMaterialTagColumn() {
@@ -281,6 +285,30 @@ export async function ensureProposalMaterialTagColumn() {
       await query(`ALTER TABLE propostas ADD COLUMN material_tag VARCHAR(80) NULL AFTER titulo`)
     }
   })
+}
+
+export async function ensureProposalKanbanOrderColumn() {
+  await runCached('ensureProposalKanbanOrderColumn', RUNTIME_BOOTSTRAP_CACHE_MS, async () => {
+    const columns = await query<any[]>(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'propostas'
+         AND COLUMN_NAME = 'kanban_order'`
+    )
+
+    if (!columns.length) {
+      await query(`ALTER TABLE propostas ADD COLUMN kanban_order BIGINT NULL AFTER follow_up_time`)
+    }
+  })
+}
+
+function getProposalKanbanOrderSortClause(alias = 'p') {
+  return `
+    CASE WHEN ${alias}.kanban_order IS NULL THEN 1 ELSE 0 END ASC,
+    ${alias}.kanban_order ASC,
+    ${alias}.created_at DESC
+  `
 }
 
 async function ensureProposalSupportTables() {
@@ -399,13 +427,14 @@ export async function ensureProposalStatusSchema() {
     await ensureProposalColumns()
     await ensureProposalSupportTables()
     await ensureProposalSequenceSchema()
-     await ensureTableIndexes('propostas', [
-       { name: 'idx_propostas_status_created', columns: 'status, created_at' },
-       { name: 'idx_propostas_responsavel_status', columns: 'responsavel_id, status' },
-       { name: 'idx_propostas_orcamentista_status', columns: 'orcamentista_id, status' },
-       { name: 'idx_propostas_cliente', columns: 'cliente_id' },
-       { name: 'idx_propostas_follow_up_base', columns: 'follow_up_base_at' },
-       { name: 'idx_propostas_updated_at', columns: 'updated_at' },
+      await ensureTableIndexes('propostas', [
+        { name: 'idx_propostas_status_created', columns: 'status, created_at' },
+        { name: 'idx_propostas_status_kanban_created', columns: 'status, kanban_order, created_at' },
+        { name: 'idx_propostas_responsavel_status', columns: 'responsavel_id, status' },
+        { name: 'idx_propostas_orcamentista_status', columns: 'orcamentista_id, status' },
+        { name: 'idx_propostas_cliente', columns: 'cliente_id' },
+        { name: 'idx_propostas_follow_up_base', columns: 'follow_up_base_at' },
+        { name: 'idx_propostas_updated_at', columns: 'updated_at' },
      ])
     await ensureTableIndexes('interacoes', [
       { name: 'idx_interacoes_cliente_created', columns: 'cliente_id, created_at' },
@@ -437,6 +466,44 @@ export async function ensureProposalStatusSchema() {
       ) DEFAULT 'novo_cliente'
     `)
   })
+}
+
+export async function setProposalKanbanPosition(
+  propostaId: string,
+  targetStatus: ProposalWorkflowStatus,
+  targetIndex = 0
+) {
+  const rows = await query<Array<{ id: string }>>(
+    `SELECT p.id
+     FROM propostas p
+     WHERE p.status = ?
+     ORDER BY ${getProposalKanbanOrderSortClause('p')}`,
+    [targetStatus]
+  )
+
+  const orderedIds = rows
+    .map((row) => String(row.id || '').trim())
+    .filter((id) => id && id !== propostaId)
+
+  const safeIndex = Math.max(0, Math.min(targetIndex, orderedIds.length))
+  orderedIds.splice(safeIndex, 0, propostaId)
+
+  if (!orderedIds.length) {
+    return
+  }
+
+  const caseParts = orderedIds.map((id, index) => `WHEN '${id}' THEN ${index + 1}`)
+  const placeholders = orderedIds.map(() => '?').join(', ')
+
+  await query(
+    `UPDATE propostas
+     SET kanban_order = CASE id
+       ${caseParts.join('\n       ')}
+       ELSE kanban_order
+     END
+     WHERE id IN (${placeholders})`,
+    orderedIds
+  )
 }
 
 export async function ensureTaskSchema() {
