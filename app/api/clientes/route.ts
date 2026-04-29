@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getConnection, isTransientDatabaseError, query } from '@/lib/db/mysql'
+import { getConnection, isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
@@ -111,7 +111,6 @@ async function createInitialProposalForClient(
   connection: Awaited<ReturnType<typeof getConnection>>,
   params: {
     clienteId: string
-    clienteNome: string
     usuarioId: string
   }
 ) {
@@ -185,8 +184,6 @@ async function createInitialProposalForClient(
       formatDateTime(new Date()),
     ]
   )
-
-  await setProposalKanbanPosition(propostaId, 'novo_cliente', 0)
 
   return {
     propostaId,
@@ -271,6 +268,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   let connection: Awaited<ReturnType<typeof getConnection>> | null = null
+  let destroyConnectionOnFinally = false
+  let transactionCommitted = false
+  let responseSnapshot: Record<string, unknown> | null = null
 
   try {
     const user = await getAuthenticatedServerUser()
@@ -303,6 +303,25 @@ export async function POST(request: NextRequest) {
       origem: normalizeNullableText(data.origem),
       statusFunil: normalizeNullableText(data.statusFunil ?? data.status) || 'lead_novo',
       observacoes: normalizeNullableText(data.observacoes),
+    }
+    responseSnapshot = {
+      id,
+      nome: payload.nome,
+      cpf: payload.cpf,
+      telefone: payload.telefone,
+      email: payload.email,
+      empresa: payload.empresa,
+      cargo: payload.cargo,
+      endereco: payload.endereco,
+      cidade: payload.cidade,
+      estado: payload.estado,
+      cep: payload.cep,
+      origem: payload.origem,
+      observacoes: payload.observacoes,
+      status_funil: payload.statusFunil,
+      responsavel_id: null,
+      created_at: formatDateTime(new Date()),
+      updated_at: formatDateTime(new Date()),
     }
 
     connection = await getConnection()
@@ -339,11 +358,17 @@ export async function POST(request: NextRequest) {
 
     const createdProposal = await createInitialProposalForClient(connection, {
       clienteId: id,
-      clienteNome: payload.nome,
       usuarioId: user.id,
     })
 
     await connection.commit()
+    transactionCommitted = true
+
+    try {
+      await setProposalKanbanPosition(createdProposal.propostaId, 'novo_cliente', 0)
+    } catch (error) {
+      logDatabaseError('Erro ao posicionar proposta inicial do cliente', error)
+    }
 
     invalidateRuntimeCache('clientes:list:')
     invalidateRuntimeCache('cliente:detail:')
@@ -352,39 +377,82 @@ export async function POST(request: NextRequest) {
     invalidateRuntimeCache('crm-bootstrap:')
     invalidateRuntimeCache('dashboard:')
 
-    await publishRealtimeEvent({
-      actorUserId: user.id,
-      resource: 'cliente',
-      resourceId: id,
-    })
-    await publishRealtimeEvent({
-      actorUserId: user.id,
-      resource: 'proposta',
-      resourceId: createdProposal.propostaId,
-    })
+    try {
+      await publishRealtimeEvent({
+        actorUserId: user.id,
+        resource: 'cliente',
+        resourceId: id,
+      })
+      await publishRealtimeEvent({
+        actorUserId: user.id,
+        resource: 'proposta',
+        resourceId: createdProposal.propostaId,
+      })
+    } catch (error) {
+      logDatabaseError('Erro ao publicar eventos de cliente/proposta', error)
+    }
 
-    const [cliente] = await query<any[]>(
-      `SELECT ${CLIENT_SELECT_COLUMNS}
-       FROM clientes c
-       WHERE c.id = ?`,
-      [id]
-    )
-    return NextResponse.json(cliente, { status: 201 })
+    try {
+      const [cliente] = await query<any[]>(
+        `SELECT ${CLIENT_SELECT_COLUMNS}
+         FROM clientes c
+         WHERE c.id = ?`,
+        [id]
+      )
+      return NextResponse.json(cliente, { status: 201 })
+    } catch (error) {
+      logDatabaseError('Erro ao buscar cliente apos criacao', error)
+      return NextResponse.json(responseSnapshot, { status: 201 })
+    }
   } catch (error) {
-    if (connection) {
-      try {
-        await connection.rollback()
-      } catch {
-        // Ignora falhas ao reverter a transacao.
+    if (connection && !transactionCommitted) {
+      if (isTransientDatabaseError(error)) {
+        destroyConnectionOnFinally = true
+      } else {
+        try {
+          await connection.rollback()
+        } catch {
+          // Ignora falhas ao reverter a transacao.
+        }
       }
     }
 
     console.error('Erro ao criar cliente:', error)
+
+    if (transactionCommitted) {
+      return NextResponse.json(
+        {
+          ...responseSnapshot,
+          warning: 'Cliente criado, mas houve falha em etapas complementares do processamento.',
+        },
+        { status: 201 }
+      )
+    }
+
+    if (isTransientDatabaseError(error)) {
+      return NextResponse.json(
+        { error: 'Criacao de cliente temporariamente indisponivel. Tente novamente em instantes.' },
+        { status: 503 }
+      )
+    }
+
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erro ao criar cliente' },
       { status: 500 }
     )
   } finally {
-    connection?.release()
+    if (destroyConnectionOnFinally) {
+      try {
+        connection?.destroy()
+      } catch {
+        // Ignora falhas ao destruir conexoes ja encerradas.
+      }
+    } else {
+      try {
+        connection?.release()
+      } catch {
+        // Ignora falhas ao devolver conexoes ja encerradas.
+      }
+    }
   }
 }

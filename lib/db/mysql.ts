@@ -23,6 +23,12 @@ const RETRYABLE_CONNECTION_CODES = new Set([
   'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR',
   'PROTOCOL_ENQUEUE_AFTER_QUIT',
 ])
+const RETRYABLE_CONNECTION_MESSAGE_PATTERNS = [
+  /connection is in closed state/i,
+  /closed state/i,
+  /read ECONNRESET/i,
+  /socket hang up/i,
+]
 
 type PoolConnectionWithSessionFlag = mysql.PoolConnection & {
   __crmTimeZoneReady?: boolean
@@ -51,19 +57,38 @@ const pool = mysql.createPool({
   ...(MYSQL_SSL_ENABLED ? { ssl: { rejectUnauthorized: false } } : {}),
 })
 
+function getDatabaseErrorCode(error: unknown) {
+  return typeof error === 'object' && error && 'code' in error ? String((error as any).code) : ''
+}
+
+function getDatabaseErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  return typeof error === 'object' && error && 'message' in error
+    ? String((error as any).message || '')
+    : ''
+}
+
 function isRetryableConnectionError(error: unknown) {
-  const code = typeof error === 'object' && error && 'code' in error ? String((error as any).code) : ''
-  return RETRYABLE_CONNECTION_CODES.has(code)
+  const code = getDatabaseErrorCode(error)
+  if (RETRYABLE_CONNECTION_CODES.has(code)) {
+    return true
+  }
+
+  const message = getDatabaseErrorMessage(error)
+  return RETRYABLE_CONNECTION_MESSAGE_PATTERNS.some((pattern) => pattern.test(message))
 }
 
 export function isTransientDatabaseError(error: unknown) {
-  const code = typeof error === 'object' && error && 'code' in error ? String((error as any).code) : ''
-  return code === 'DB_UNAVAILABLE' || RETRYABLE_CONNECTION_CODES.has(code)
+  const code = getDatabaseErrorCode(error)
+  return code === 'DB_UNAVAILABLE' || isRetryableConnectionError(error)
 }
 
 export function logDatabaseError(context: string, error: unknown) {
   if (isTransientDatabaseError(error)) {
-    const code = typeof error === 'object' && error && 'code' in error ? String((error as any).code) : 'DB_UNAVAILABLE'
+    const code = getDatabaseErrorCode(error) || 'DB_UNAVAILABLE'
     console.warn(`${context}: falha transitória de banco (${code})`)
     return
   }
@@ -79,8 +104,7 @@ function createDatabaseUnavailableError(error?: unknown) {
 
   const wrapped = new Error(message)
   ;(wrapped as Error & { code?: string }).code =
-    (typeof error === 'object' && error && 'code' in error ? String((error as any).code) : '') ||
-    'DB_UNAVAILABLE'
+    getDatabaseErrorCode(error) || 'DB_UNAVAILABLE'
   return wrapped
 }
 
