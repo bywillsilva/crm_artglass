@@ -15,7 +15,7 @@ import {
 import { toast } from 'sonner'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
-import { useProposta, useSession } from '@/lib/hooks/use-api'
+import { prefetchProposta, useProposta, useSession } from '@/lib/hooks/use-api'
 import { formatBrazilPhone } from '@/lib/utils/phone'
 import { parseProposalMaterialTags } from '@/lib/utils/proposal-material-tags'
 import {
@@ -125,6 +125,10 @@ function getAdminCommercialStatusOptions(status: StatusProposta, role?: string |
       return ['fechado', 'perdido', 'em_retificacao', 'stand_by']
     case 'stand_by':
       return ['enviado_ao_cliente', 'em_retificacao', 'fechado', 'perdido']
+    case 'fechado':
+      return ['em_retificacao']
+    case 'perdido':
+      return ['em_retificacao']
     default:
       return []
   }
@@ -261,6 +265,10 @@ function getSellerActionOptions(status: StatusProposta): SellerMoveAction[] {
       return ['fechado', 'perdido', 'em_retificacao', 'stand_by']
     case 'stand_by':
       return ['enviado_ao_cliente', 'em_retificacao', 'fechado', 'perdido']
+    case 'fechado':
+      return ['em_retificacao']
+    case 'perdido':
+      return ['em_retificacao']
     default:
       return []
   }
@@ -686,12 +694,16 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       if (sellerWorkflowAction === 'stand_by') return true
 
       if (!sellerWorkflowAction && ['em_retificacao', 'perdido', 'stand_by'].includes(targetStatus)) {
-        const isAdminApprovalRefusal =
+        const isApprovalRefusalToRetification =
           ['admin', 'gerente'].includes(user?.role || '') &&
           proposta.status === 'aguardando_aprovacao' &&
           targetStatus === 'em_retificacao'
 
-        return !isAdminApprovalRefusal
+        if (isApprovalRefusalToRetification) {
+          return true
+        }
+
+        return true
       }
 
       return false
@@ -1123,6 +1135,10 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
 
     return resolvedAdminMoveStatus as StatusProposta
   })()
+  const statusSelectedForCommentFlow =
+    (isSellerMove && (sellerCanOnlyConfirmSend || Boolean(effectiveSellerAction))) ||
+    (isAdminCommercialMove && Boolean(adminMoveStatus)) ||
+    (!isSellerMove && !isAdminCommercialMove)
   const approvalValidationProposalId =
     pendingMove &&
     ['orcamentista', 'admin', 'gerente'].includes(user?.role || '') &&
@@ -1134,11 +1150,13 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     isLoading: isLoadingApprovalValidationProposal,
   } = useProposta(approvalValidationProposalId)
   const requiresMoveComment = pendingMoveProposal
-    ? shouldRequireMoveComment(
-        pendingMoveProposal,
-        (resolvedTargetStatus || pendingMove?.targetStatus || pendingMoveProposal.status) as StatusProposta,
-        effectiveSellerAction
-      )
+    ? statusSelectedForCommentFlow
+      ? shouldRequireMoveComment(
+          pendingMoveProposal,
+          (resolvedTargetStatus || pendingMove?.targetStatus || pendingMoveProposal.status) as StatusProposta,
+          effectiveSellerAction
+        )
+      : false
     : false
   const requiresFollowUpTime =
     (effectiveSellerAction === 'outra_justificativa' &&
@@ -1179,6 +1197,10 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const isSchedulingFollowUp = requiresFollowUpTime
   const pendingMoveTargetLabel = pendingMove ? statusPropostaLabels[pendingMove.targetStatus] : ''
   const draggedTouchProposal = dragState ? propostasById.get(dragState.propostaId) || null : null
+  const openProposalDetails = useCallback((proposalId: string) => {
+    void prefetchProposta(proposalId)
+    setDetailsPropostaId(proposalId)
+  }, [])
   useEffect(() => {
     if (!dragState || dragState.pointerType === 'mouse' || typeof window === 'undefined') {
       if (autoScrollFrameRef.current !== null) {
@@ -1364,7 +1386,9 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                               className="rounded-full text-muted-foreground hover:text-foreground"
                               title="Ver detalhes"
                               aria-label="Ver detalhes"
-                              onClick={() => setDetailsPropostaId(proposta.id)}
+                              onPointerEnter={() => void prefetchProposta(proposta.id)}
+                              onFocus={() => void prefetchProposta(proposta.id)}
+                              onClick={() => openProposalDetails(proposta.id)}
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
@@ -1658,7 +1682,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
             {requiresMoveComment && (
               <div className="space-y-3 rounded-xl border border-border bg-secondary/20 p-4">
                 <p className="text-sm text-muted-foreground">
-                  Informe uma justificativa para registrar no historico desta proposta antes da movimentacao.
+                  Informe uma justificativa para registrar nos comentarios desta proposta antes da movimentacao.
                 </p>
                 <Textarea
                   rows={4}

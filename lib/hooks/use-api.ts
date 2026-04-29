@@ -43,6 +43,8 @@ const READ_ONLY_SWR_OPTIONS = {
   dedupingInterval: 2000,
 } as const
 
+const proposalDetailPrefetches = new Map<string, Promise<unknown>>()
+
 const REALTIME_REVALIDATE_PREFIXES = [
   '/api/crm/bootstrap',
   '/api/clientes',
@@ -725,6 +727,34 @@ function getProposalSnapshotFromCache(
   return undefined
 }
 
+function hasDetailedProposalCollections(value: unknown) {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const proposal = value as JsonRecord
+  return Array.isArray(proposal.anexos) || Array.isArray(proposal.comentarios)
+}
+
+export function prefetchProposta(id: string) {
+  const key = `/api/propostas/${id}`
+  const inflight = proposalDetailPrefetches.get(key)
+  if (inflight) {
+    return inflight
+  }
+
+  const request = fetcher(key)
+    .then((data) => {
+      return mutate(key, data, { populateCache: true, revalidate: false })
+    })
+    .finally(() => {
+      proposalDetailPrefetches.delete(key)
+    })
+
+  proposalDetailPrefetches.set(key, request)
+  return request
+}
+
 function mergeBootstrapCollection(collection: BootstrapCollectionKey, incoming: JsonRecord[]) {
   return mutate(
     (key) => typeof key === 'string' && key.startsWith('/api/crm/bootstrap'),
@@ -964,7 +994,7 @@ export function useProposta(id: string | null) {
   const { data, error, isLoading } = useSWR(key, fetcher, {
     ...READ_ONLY_SWR_OPTIONS,
     fallbackData,
-    revalidateOnMount: true,
+    revalidateOnMount: !hasDetailedProposalCollections(fallbackData),
   })
   const proposta = useMemo(() => (data ? normalizeProposta(data) : undefined), [data])
 

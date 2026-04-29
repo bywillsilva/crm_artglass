@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
-import { useSession } from '@/lib/hooks/use-api'
+import { prefetchProposta, useSession } from '@/lib/hooks/use-api'
 import { parseProposalMaterialTags } from '@/lib/utils/proposal-material-tags'
 import { CRMHeader } from '@/components/crm/header'
 import { ModuleAccessState } from '@/components/crm/module-access-state'
@@ -81,6 +81,10 @@ export default function PropostasPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editingPropostaId, setEditingPropostaId] = useState<string | null>(null)
   const [detailsPropostaId, setDetailsPropostaId] = useState<string | null>(null)
+  const openProposalDetails = (proposalId: string) => {
+    void prefetchProposta(proposalId)
+    setDetailsPropostaId(proposalId)
+  }
   const hasPropostasAccess = hasModuleAccess(user, 'propostas')
 
   const propostasOrdenadas = useMemo(
@@ -230,7 +234,7 @@ export default function PropostasPage() {
                   Editar proposta
                 </DropdownMenuItem>
               )}
-              <DropdownMenuItem onClick={() => setDetailsPropostaId(proposta.id)}>
+              <DropdownMenuItem onPointerEnter={() => void prefetchProposta(proposta.id)} onFocus={() => void prefetchProposta(proposta.id)} onClick={() => openProposalDetails(proposta.id)}>
                 <Eye className="mr-2 h-4 w-4" />
                 Ver detalhes
               </DropdownMenuItem>
@@ -323,7 +327,7 @@ export default function PropostasPage() {
                     Editar proposta
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuItem onClick={() => setDetailsPropostaId(proposta.id)}>
+                <DropdownMenuItem onPointerEnter={() => void prefetchProposta(proposta.id)} onFocus={() => void prefetchProposta(proposta.id)} onClick={() => openProposalDetails(proposta.id)}>
                   <Eye className="mr-2 h-4 w-4" />
                   Ver detalhes
                 </DropdownMenuItem>

@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAppSettings } from '@/lib/context/app-settings-context'
-import { useProposta, useSession } from '@/lib/hooks/use-api'
+import { prefetchProposta, useProposta, useSession } from '@/lib/hooks/use-api'
 import { statusPropostaColors, statusPropostaLabels, type Proposta } from '@/lib/data/types'
 import { parseProposalMaterialTags } from '@/lib/utils/proposal-material-tags'
 import { Badge } from '@/components/ui/badge'
@@ -174,6 +174,14 @@ export function ProposalDetailsSheet({
     setEditingCommentId(null)
     setEditingComment('')
   }, [propostaId])
+
+  useEffect(() => {
+    if (!open || !propostaId) {
+      return
+    }
+
+    void prefetchProposta(propostaId)
+  }, [open, propostaId])
 
   const buildAttachmentHref = (attachmentId: string) =>
     propostaId ? `/api/propostas/${propostaId}/anexos/${attachmentId}` : '#'

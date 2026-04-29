@@ -137,6 +137,8 @@ const SELLER_ALLOWED_TRANSITIONS: Partial<Record<ProposalWorkflowStatus, Proposa
   aguardando_follow_up_7_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by'],
   follow_up_7_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by'],
   stand_by: ['stand_by', 'enviar_ao_cliente', 'enviado_ao_cliente', 'em_retificacao', 'fechado', 'perdido'],
+  fechado: ['em_retificacao'],
+  perdido: ['em_retificacao'],
 }
 
 const ORCAMENTISTA_ALLOWED_TRANSITIONS: Partial<Record<ProposalWorkflowStatus, ProposalWorkflowStatus[]>> = {
@@ -252,6 +254,8 @@ function isSellerWorkflowActionAllowed(
     aguardando_follow_up_7_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by'],
     follow_up_7_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by'],
     stand_by: ['fechado', 'perdido', 'em_retificacao', 'enviado_ao_cliente'],
+    fechado: ['em_retificacao'],
+    perdido: ['em_retificacao'],
   }
 
   return allowedActions[currentStatus]?.includes(action) ?? false
@@ -358,29 +362,30 @@ async function getProposalAttachments(id: string) {
    )
 }
 
-async function getProposalDetailPayload(id: string) {
-  const proposta = await getProposal(id)
+async function getProposalDetailPayload(id: string, initialProposal?: any) {
+  const proposta = initialProposal ?? (await getProposal(id))
   if (!proposta) {
     return null
   }
 
-  const anexos = await query<ProposalDetailAttachment[]>(
-    `SELECT id, usuario_id, nome_original, tipo_mime, tamanho, created_at,
-            CONCAT('/api/propostas/', proposta_id, '/anexos/', id) as url
-     FROM proposta_anexos
-     WHERE proposta_id = ?
-     ORDER BY created_at DESC`,
-    [id]
-  )
-
-  const comentarios = await query<any[]>(
-    `SELECT pc.id, pc.proposta_id, pc.usuario_id, pc.comentario, pc.created_at, u.nome as usuario_nome
-     FROM proposta_comentarios pc
-     LEFT JOIN usuarios u ON u.id = pc.usuario_id
-     WHERE pc.proposta_id = ?
-     ORDER BY pc.created_at DESC`,
-    [id]
-  )
+  const [anexos, comentarios] = await Promise.all([
+    query<ProposalDetailAttachment[]>(
+      `SELECT id, usuario_id, nome_original, tipo_mime, tamanho, created_at,
+              CONCAT('/api/propostas/', proposta_id, '/anexos/', id) as url
+       FROM proposta_anexos
+       WHERE proposta_id = ?
+       ORDER BY created_at DESC`,
+      [id]
+    ),
+    query<any[]>(
+      `SELECT pc.id, pc.proposta_id, pc.usuario_id, pc.comentario, pc.created_at, u.nome as usuario_nome
+       FROM proposta_comentarios pc
+       LEFT JOIN usuarios u ON u.id = pc.usuario_id
+       WHERE pc.proposta_id = ?
+       ORDER BY pc.created_at DESC`,
+      [id]
+    ),
+  ])
 
   return {
     ...proposta,
@@ -535,7 +540,7 @@ export async function GET(
       return jsonNoStore({ error: 'Acesso negado a esta proposta' }, { status: 403 })
     }
 
-    const payload = await getProposalDetailPayload(id)
+    const payload = await getProposalDetailPayload(id, proposta)
     if (!payload) {
       return jsonNoStore({ error: 'Proposta nao encontrada' }, { status: 404 })
     }
@@ -618,7 +623,8 @@ export async function PUT(
       isStatusChange &&
       (nextStatus === 'perdido' ||
         nextStatus === 'stand_by' ||
-        (user.role === 'vendedor' && nextStatus === 'em_retificacao'))
+        (nextStatus === 'em_retificacao' &&
+          (user.role === 'vendedor' || ['admin', 'gerente'].includes(user.role))))
 
     if (!isTransitionAllowed(user, previousStatus, nextStatus)) {
       return NextResponse.json(

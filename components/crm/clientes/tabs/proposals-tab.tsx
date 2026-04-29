@@ -1,9 +1,9 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
-import { useSession } from '@/lib/hooks/use-api'
+import { prefetchProposta, useSession } from '@/lib/hooks/use-api'
 import { parseProposalMaterialTags } from '@/lib/utils/proposal-material-tags'
 import { ProposalDetailsSheet } from '@/components/crm/propostas/proposal-details-sheet'
 import { ProposalFormDialog } from '@/components/crm/propostas/proposal-form-dialog'
@@ -24,6 +24,10 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingPropostaId, setEditingPropostaId] = useState<string | null>(null)
   const [detailsPropostaId, setDetailsPropostaId] = useState<string | null>(null)
+  const openProposalDetails = useCallback((proposalId: string) => {
+    void prefetchProposta(proposalId)
+    setDetailsPropostaId(proposalId)
+  }, [])
 
   const propostas = getPropostasByCliente(clienteId)
   const propostasOrdenadas = useMemo(
@@ -142,7 +146,13 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
                   )}
 
                   <div className="flex flex-wrap gap-2 border-t border-border/70 pt-3">
-                    <Button size="sm" variant="ghost" onClick={() => setDetailsPropostaId(proposta.id)}>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onPointerEnter={() => void prefetchProposta(proposta.id)}
+                      onFocus={() => void prefetchProposta(proposta.id)}
+                      onClick={() => openProposalDetails(proposta.id)}
+                    >
                       Ver detalhes
                     </Button>
                     {canEditProposal(proposta) && (
