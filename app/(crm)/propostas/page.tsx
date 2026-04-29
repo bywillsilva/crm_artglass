@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
@@ -13,6 +13,7 @@ import { ModuleAccessState } from '@/components/crm/module-access-state'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Table,
@@ -28,6 +29,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination'
 import { Eye, MoreHorizontal, Pencil, X, Clock, DollarSign, TrendingUp } from 'lucide-react'
 import { statusPropostaColors, statusPropostaLabels, type StatusProposta } from '@/lib/data/types'
 
@@ -67,6 +77,8 @@ const tabs: { key: string; label: string; statuses?: StatusProposta[] }[] = [
   { key: 'perdidas', label: 'Perdidas', statuses: ['perdido'] },
 ]
 
+const PAGE_SIZE_OPTIONS = [10, 50, 100] as const
+
 function getDescriptionPreview(value?: string | null, maxLength = 72) {
   const normalized = (value || '').replace(/\s+/g, ' ').trim()
   if (!normalized) return ''
@@ -81,6 +93,9 @@ export default function PropostasPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editingPropostaId, setEditingPropostaId] = useState<string | null>(null)
   const [detailsPropostaId, setDetailsPropostaId] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<(typeof tabs)[number]['key']>('todas')
+  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(10)
+  const [currentPage, setCurrentPage] = useState(1)
   const openProposalDetails = (proposalId: string) => {
     void prefetchProposta(proposalId)
     setDetailsPropostaId(proposalId)
@@ -127,8 +142,44 @@ export default function PropostasPage() {
     return ((propostasFechadas.length / state.propostas.length) * 100).toFixed(1)
   }, [propostasFechadas.length, state.propostas.length])
 
+  const propostasAtivasNaTab = propostasPorTab[activeTab as keyof typeof propostasPorTab] ?? []
+  const totalPages = Math.max(1, Math.ceil(propostasAtivasNaTab.length / pageSize))
+  const safeCurrentPage = Math.min(currentPage, totalPages)
+  const paginatedPropostas = useMemo(() => {
+    const startIndex = (safeCurrentPage - 1) * pageSize
+    return propostasAtivasNaTab.slice(startIndex, startIndex + pageSize)
+  }, [pageSize, propostasAtivasNaTab, safeCurrentPage])
+  const paginationStart = propostasAtivasNaTab.length === 0 ? 0 : (safeCurrentPage - 1) * pageSize + 1
+  const paginationEnd = propostasAtivasNaTab.length === 0 ? 0 : paginationStart + paginatedPropostas.length - 1
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [activeTab, pageSize])
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages)
+    }
+  }, [currentPage, totalPages])
+
   if (!hasPropostasAccess) {
     return <ModuleAccessState module="propostas" />
+  }
+
+  const buildPageItems = (page: number, total: number) => {
+    if (total <= 7) {
+      return Array.from({ length: total }, (_, index) => index + 1)
+    }
+
+    if (page <= 3) {
+      return [1, 2, 3, 4, 'ellipsis-end', total] as const
+    }
+
+    if (page >= total - 2) {
+      return [1, 'ellipsis-start', total - 3, total - 2, total - 1, total] as const
+    }
+
+    return [1, 'ellipsis-start', page - 1, page, page + 1, 'ellipsis-end', total] as const
   }
 
   const renderPropostaRow = (proposta: typeof state.propostas[number]) => {
@@ -434,7 +485,7 @@ export default function PropostasPage() {
           ))}
         </div>
 
-        <Tabs defaultValue="todas">
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as (typeof tabs)[number]['key'])}>
           <TabsList className="mb-4 flex h-auto w-full max-w-full flex-nowrap overflow-x-auto">
             {tabs.map((tab) => {
               const count =
@@ -462,6 +513,10 @@ export default function PropostasPage() {
                   : tab.key === 'fechadas'
                     ? propostasPorTab.fechadas
                     : propostasPorTab.perdidas
+            const isActiveTab = tab.key === activeTab
+            const visiblePropostas = isActiveTab ? paginatedPropostas : propostas
+            const shouldShowPagination = isActiveTab && propostas.length > pageSize
+            const pageItems = isActiveTab ? buildPageItems(safeCurrentPage, totalPages) : []
 
             return (
               <TabsContent key={tab.key} value={tab.key}>
@@ -474,7 +529,7 @@ export default function PropostasPage() {
                 ) : (
                   <>
                     <div className="space-y-3 md:hidden">
-                      {propostas.map(renderPropostaCard)}
+                      {visiblePropostas.map(renderPropostaCard)}
                     </div>
                     <Card className="hidden border-border bg-card md:block">
                       <div className="overflow-x-auto">
@@ -489,10 +544,85 @@ export default function PropostasPage() {
                               <TableHead className="w-12 text-foreground"></TableHead>
                             </TableRow>
                           </TableHeader>
-                          <TableBody>{propostas.map(renderPropostaRow)}</TableBody>
+                          <TableBody>{visiblePropostas.map(renderPropostaRow)}</TableBody>
                         </Table>
                       </div>
                     </Card>
+                    {isActiveTab ? (
+                      <div className="mt-4 flex flex-col gap-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <p>
+                            Exibindo {paginationStart}-{paginationEnd} de {propostas.length} propostas
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <span>Por pagina</span>
+                            <Select
+                              value={String(pageSize)}
+                              onValueChange={(value) => setPageSize(Number(value) as (typeof PAGE_SIZE_OPTIONS)[number])}
+                            >
+                              <SelectTrigger className="h-8 w-[118px] text-xs">
+                                <SelectValue placeholder="Quantidade" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {PAGE_SIZE_OPTIONS.map((option) => (
+                                  <SelectItem key={option} value={String(option)}>
+                                    {option} propostas
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        {shouldShowPagination ? (
+                          <Pagination className="mx-0 w-auto justify-start sm:justify-end">
+                            <PaginationContent>
+                              <PaginationItem>
+                                <PaginationPrevious
+                                  href="#"
+                                  className={safeCurrentPage <= 1 ? 'pointer-events-none opacity-50' : ''}
+                                  onClick={(event) => {
+                                    event.preventDefault()
+                                    if (safeCurrentPage > 1) {
+                                      setCurrentPage((page) => page - 1)
+                                    }
+                                  }}
+                                />
+                              </PaginationItem>
+                              {pageItems.map((item, index) => (
+                                <PaginationItem key={`${item}-${index}`}>
+                                  {item === 'ellipsis-start' || item === 'ellipsis-end' ? (
+                                    <PaginationEllipsis />
+                                  ) : (
+                                    <PaginationLink
+                                      href="#"
+                                      isActive={safeCurrentPage === item}
+                                      onClick={(event) => {
+                                        event.preventDefault()
+                                        setCurrentPage(Number(item))
+                                      }}
+                                    >
+                                      {item}
+                                    </PaginationLink>
+                                  )}
+                                </PaginationItem>
+                              ))}
+                              <PaginationItem>
+                                <PaginationNext
+                                  href="#"
+                                  className={safeCurrentPage >= totalPages ? 'pointer-events-none opacity-50' : ''}
+                                  onClick={(event) => {
+                                    event.preventDefault()
+                                    if (safeCurrentPage < totalPages) {
+                                      setCurrentPage((page) => page + 1)
+                                    }
+                                  }}
+                                />
+                              </PaginationItem>
+                            </PaginationContent>
+                          </Pagination>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </>
                 )}
               </TabsContent>

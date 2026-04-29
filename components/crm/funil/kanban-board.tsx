@@ -1301,7 +1301,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     <>
       <div
         ref={scrollContainerRef}
-        className={`flex min-h-[calc(100vh-12rem)] items-stretch gap-4 overflow-x-auto pb-4 ${dragState ? 'touch-none' : ''}`}
+        className={`crm-scrollbar flex min-h-[calc(100vh-12rem)] items-stretch gap-4 overflow-x-auto pb-4 ${dragState ? 'touch-none' : ''}`}
       >
         {visibleColumns.map((status) => {
           const propostasDaColuna = columnSummaries[status].propostas
@@ -1330,7 +1330,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                   columnScrollRefs.current[status] = node
                 }}
                 data-kanban-column-scroller={status}
-                className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain p-3"
+                className="crm-scrollbar-subtle flex-1 min-h-0 overflow-y-auto overscroll-y-contain p-3"
                 style={{ WebkitOverflowScrolling: 'touch' }}
               >
                 <div className="space-y-3">
