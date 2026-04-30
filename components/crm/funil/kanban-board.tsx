@@ -454,26 +454,12 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   }, [dragState])
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !dragState || dragState.pointerType === 'mouse') {
+    if (typeof window === 'undefined' || !dragState) {
       return
     }
 
     const updateDragFromTouch = (touch: Touch) => {
-      dragPointRef.current = { x: touch.clientX, y: touch.clientY }
-      dragVisualRef.current = {
-        x: touch.clientX,
-        y: touch.clientY,
-        offsetX: dragState.offsetX,
-        offsetY: dragState.offsetY,
-      }
-      updateFloatingDragPosition()
-
-      const overTarget = getTouchDropTarget(touch.clientX, touch.clientY, dragState.propostaId)
-      const dragDistance = Math.hypot(touch.clientX - dragState.startX, touch.clientY - dragState.startY)
-      dragDropTargetRef.current = overTarget
-      dragHasMovedRef.current =
-        dragHasMovedRef.current ||
-        dragDistance >= (dragState.pointerType === 'mouse' ? MOUSE_DRAG_START_DISTANCE : TOUCH_DRAG_START_DISTANCE)
+      updateActivePointerDrag(touch, dragState)
     }
 
     const preventTouchScroll = (event: TouchEvent) => {
@@ -682,6 +668,28 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     })
   }
 
+  function updateActivePointerDrag(
+    pointer: { clientX: number; clientY: number },
+    activeDrag: Pick<DragState, 'offsetX' | 'offsetY' | 'startX' | 'startY' | 'pointerType' | 'propostaId'>
+  ) {
+    dragPointRef.current = { x: pointer.clientX, y: pointer.clientY }
+    dragVisualRef.current = {
+      x: pointer.clientX,
+      y: pointer.clientY,
+      offsetX: activeDrag.offsetX,
+      offsetY: activeDrag.offsetY,
+    }
+    updateFloatingDragPosition()
+
+    const overTarget = getTouchDropTarget(pointer.clientX, pointer.clientY, activeDrag.propostaId)
+    const dragDistance = Math.hypot(pointer.clientX - activeDrag.startX, pointer.clientY - activeDrag.startY)
+    dragDropTargetRef.current = overTarget
+    dragHasMovedRef.current =
+      dragHasMovedRef.current ||
+      dragDistance >=
+        (activeDrag.pointerType === 'mouse' ? MOUSE_DRAG_START_DISTANCE : TOUCH_DRAG_START_DISTANCE)
+  }
+
   const shouldRequireMoveComment = useCallback(
     (
       proposta: Proposta,
@@ -877,6 +885,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       if (pending.pointerType === 'mouse' && pending.ready && distance >= startDistance) {
         event.preventDefault()
         beginPointerDrag(pending, event.clientX, event.clientY)
+        updateActivePointerDrag(event, pending)
         return
       }
 
@@ -891,20 +900,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     }
 
     event.preventDefault()
-    dragPointRef.current = { x: event.clientX, y: event.clientY }
-    dragVisualRef.current = {
-      x: event.clientX,
-      y: event.clientY,
-      offsetX: dragState.offsetX,
-      offsetY: dragState.offsetY,
-    }
-    updateFloatingDragPosition()
-    const overTarget = getTouchDropTarget(event.clientX, event.clientY, dragState.propostaId)
-    const dragDistance = Math.hypot(event.clientX - dragState.startX, event.clientY - dragState.startY)
-    dragDropTargetRef.current = overTarget
-    dragHasMovedRef.current =
-      dragHasMovedRef.current ||
-      dragDistance >= (dragState.pointerType === 'mouse' ? MOUSE_DRAG_START_DISTANCE : TOUCH_DRAG_START_DISTANCE)
+    updateActivePointerDrag(event, dragState)
   }
 
   const finishTouchDrag = (pointerId: number, options?: { commit?: boolean }) => {
@@ -1202,7 +1198,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     setDetailsPropostaId(proposalId)
   }, [])
   useEffect(() => {
-    if (!dragState || dragState.pointerType === 'mouse' || typeof window === 'undefined') {
+    if (!dragState || typeof window === 'undefined') {
       if (autoScrollFrameRef.current !== null) {
         window.cancelAnimationFrame(autoScrollFrameRef.current)
         autoScrollFrameRef.current = null
@@ -1362,7 +1358,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                           dragState?.propostaId === proposta.id
                             ? 'opacity-35 scale-[0.98]'
                             : ''
-                        } select-none [-webkit-touch-callout:none]`}
+                        } cursor-grab select-none [-webkit-touch-callout:none] active:cursor-grabbing`}
                         style={{ touchAction: isTouchDevice ? 'auto' : undefined }}
                       >
                         <div className="flex items-start justify-between gap-3">
