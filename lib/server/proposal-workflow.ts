@@ -1,5 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import { getConnection, query } from '@/lib/db/mysql'
+import { publishRealtimeEvent } from '@/lib/server/realtime-events'
+import { invalidateRuntimeCache } from '@/lib/server/runtime-cache'
 
 export type ProposalWorkflowStatus =
   | 'novo_cliente'
@@ -977,6 +979,8 @@ export async function syncProposalAutomation(params: {
 
 export async function syncDueFollowUpStatuses() {
   await runCached('syncDueFollowUpStatuses', RUNTIME_CACHE_MS, async () => {
+    let hasUpdates = false
+
     for (const step of FOLLOW_UP_SYNC_STEPS) {
       const propostas = await query<any[]>(
         `SELECT p.id, p.cliente_id, p.responsavel_id
@@ -984,15 +988,16 @@ export async function syncDueFollowUpStatuses() {
          INNER JOIN tarefas t
            ON t.proposta_id = p.id
           AND t.origem = 'automacao_proposta'
-          AND t.automacao_etapa = ?
-          AND t.status = 'pendente'
+           AND t.automacao_etapa = ?
+           AND t.status = 'pendente'
          WHERE p.status = ?
-           AND t.data_hora <= NOW()`,
+           AND DATE(t.data_hora) <= CURDATE()`,
         [step.stage, step.from]
       )
 
       for (const proposta of propostas) {
-        await query(`UPDATE propostas SET status = ? WHERE id = ?`, [step.to, proposta.id])
+        await query(`UPDATE propostas SET status = ?, updated_at = NOW() WHERE id = ?`, [step.to, proposta.id])
+        await setProposalKanbanPosition(proposta.id, step.to, 0)
         await query(
           `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
            VALUES (?, ?, ?, 'proposta', ?, ?, ?)`,
@@ -1007,10 +1012,26 @@ export async function syncDueFollowUpStatuses() {
                origem: 'automatizacao_follow_up',
                notification_kind: 'proposal_status',
              }),
-             formatDateTime(new Date()),
-           ]
-         )
+              formatDateTime(new Date()),
+            ]
+          )
+
+        hasUpdates = true
+
+        await publishRealtimeEvent({
+          actorUserId: proposta.responsavel_id || null,
+          resource: 'proposta',
+          resourceId: proposta.id,
+        })
       }
+    }
+
+    if (hasUpdates) {
+      invalidateRuntimeCache('crm-bootstrap:')
+      invalidateRuntimeCache('propostas:list:')
+      invalidateRuntimeCache('proposta:detail:')
+      invalidateRuntimeCache('dashboard:')
+      invalidateRuntimeCache('tarefas:list:')
     }
   })
 }

@@ -328,6 +328,8 @@ export async function GET(request: NextRequest) {
   const updatedSince = searchParams.get('updated_since')
 
   try {
+    await ensureBaseSchema()
+
     const user = await getAuthenticatedUser()
     if (!user) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })

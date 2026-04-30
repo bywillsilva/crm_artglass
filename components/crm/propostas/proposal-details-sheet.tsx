@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAppSettings } from '@/lib/context/app-settings-context'
-import { prefetchProposta, useProposta, useSession } from '@/lib/hooks/use-api'
+import { prefetchProposta, updateProposta, useProposta, useSession } from '@/lib/hooks/use-api'
 import { statusPropostaColors, statusPropostaLabels, type Proposta } from '@/lib/data/types'
 import { parseProposalMaterialTags } from '@/lib/utils/proposal-material-tags'
 import { Badge } from '@/components/ui/badge'
@@ -118,6 +118,25 @@ function getProposalDisplayTitle(proposta: Proposta | null) {
   return rawTitle || 'Proposta Comercial'
 }
 
+function parseCurrencyInput(value: string) {
+  const normalized = value
+    .replace(/\s+/g, '')
+    .replace(/\.(?=\d{3}(?:\D|$))/g, '')
+    .replace(',', '.')
+
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function formatCurrencyInputValue(value: number) {
+  return new Intl.NumberFormat('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(value) ? value : 0)
+}
+
+type InlineProposalUpdatePayload = Record<string, unknown>
+
 export function ProposalDetailsSheet({
   open,
   onOpenChange,
@@ -150,6 +169,10 @@ export function ProposalDetailsSheet({
   const [newComment, setNewComment] = useState('')
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
   const [editingComment, setEditingComment] = useState('')
+  const [isEditingValue, setIsEditingValue] = useState(false)
+  const [editingValue, setEditingValue] = useState('')
+  const [isEditingDescription, setIsEditingDescription] = useState(false)
+  const [editingDescription, setEditingDescription] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const detailErrorMessage = useMemo(() => {
     if (!error) return null
@@ -173,7 +196,25 @@ export function ProposalDetailsSheet({
     setNewComment('')
     setEditingCommentId(null)
     setEditingComment('')
+    setIsEditingValue(false)
+    setEditingValue('')
+    setIsEditingDescription(false)
+    setEditingDescription('')
   }, [propostaId])
+
+  useEffect(() => {
+    if (!propostaSource) {
+      return
+    }
+
+    if (!isEditingValue) {
+      setEditingValue(formatCurrencyInputValue(propostaSource.valor || 0))
+    }
+
+    if (!isEditingDescription) {
+      setEditingDescription(propostaSource.descricao || '')
+    }
+  }, [isEditingDescription, isEditingValue, propostaSource])
 
   useEffect(() => {
     if (!open || !propostaId) {
@@ -185,6 +226,44 @@ export function ProposalDetailsSheet({
 
   const buildAttachmentHref = (attachmentId: string) =>
     propostaId ? `/api/propostas/${propostaId}/anexos/${attachmentId}` : '#'
+
+  const canInlineEdit = useMemo(() => {
+    if (!user || !propostaSource) return false
+    if (user.role === 'admin' || user.role === 'gerente') return true
+    if (user.role === 'vendedor') return propostaSource.responsavelId === user.id
+    if (user.role === 'orcamentista') {
+      return !propostaSource.orcamentistaId || propostaSource.orcamentistaId === user.id
+    }
+    return false
+  }, [propostaSource, user])
+
+  const buildInlineUpdatePayload = (overrides: InlineProposalUpdatePayload = {}) => {
+    if (!propostaSource) return null
+
+    const propostaSourceRecord = propostaSource as Proposta & {
+      desconto?: number
+      validade?: string | null
+      servicos?: unknown[]
+      condicoes?: string | null
+    }
+
+    return {
+      clienteId: propostaSource.clienteId,
+      titulo: propostaSource.titulo || 'Proposta Comercial',
+      materialTag: propostaSource.materialTag || null,
+      descricao: propostaSource.descricao || '',
+      valor: propostaSource.valor,
+      desconto: propostaSourceRecord.desconto ?? 0,
+      status: propostaSource.status,
+      validade: propostaSourceRecord.validade || null,
+      servicos: propostaSourceRecord.servicos || [],
+      condicoes: propostaSourceRecord.condicoes || null,
+      responsavelId: propostaSource.responsavelId || undefined,
+      orcamentistaId: propostaSource.orcamentistaId || undefined,
+      followUpTime: propostaSource.followUpTime || null,
+      ...overrides,
+    } satisfies InlineProposalUpdatePayload
+  }
 
   const syncProposalSnapshot = async (proposalSnapshot: any) => {
     if (!propostaId || !proposalSnapshot) return
@@ -267,6 +346,50 @@ export function ProposalDetailsSheet({
     const refreshed = await mutateProposta()
     await syncProposalSnapshot(refreshed)
     void mutate((key) => isProposalCollectionKey(key))
+  }
+
+  const handleSaveValue = async () => {
+    if (!propostaId || !propostaSource) return
+
+    const parsedValue = parseCurrencyInput(editingValue)
+    if (parsedValue === null || parsedValue < 0) {
+      toast.error('Informe um valor valido para a proposta.')
+      return
+    }
+
+    const payload = buildInlineUpdatePayload({ valor: parsedValue })
+    if (!payload) return
+
+    setIsSubmitting(true)
+    try {
+      await updateProposta(propostaId, payload)
+      setIsEditingValue(false)
+      await refreshProposalData()
+      toast.success('Valor da proposta atualizado.')
+    } catch (error: any) {
+      toast.error(error?.message || 'Erro ao atualizar valor da proposta.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleSaveDescription = async () => {
+    if (!propostaId || !propostaSource) return
+
+    const payload = buildInlineUpdatePayload({ descricao: editingDescription })
+    if (!payload) return
+
+    setIsSubmitting(true)
+    try {
+      await updateProposta(propostaId, payload)
+      setIsEditingDescription(false)
+      await refreshProposalData()
+      toast.success('Descricao da proposta atualizada.')
+    } catch (error: any) {
+      toast.error(error?.message || 'Erro ao atualizar descricao da proposta.')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const applyCommentSnapshot = async (
@@ -566,15 +689,120 @@ export function ProposalDetailsSheet({
                       ))}
                     </div>
                   ) : null}
-                  <p className="text-3xl font-bold text-foreground">
-                    {formatCurrency(propostaSource.valor)}
-                  </p>
-                  {propostaSource.descricao ? (
-                    <p className="text-sm leading-6 text-muted-foreground">{propostaSource.descricao}</p>
+                  {isEditingValue ? (
+                    <div className="space-y-3">
+                      <div className="inline-flex max-w-full items-center gap-2">
+                        <span className="text-3xl font-bold text-foreground">R$</span>
+                        <input
+                          value={editingValue}
+                          onChange={(event) => setEditingValue(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault()
+                              void handleSaveValue()
+                            }
+                            if (event.key === 'Escape') {
+                              event.preventDefault()
+                              setIsEditingValue(false)
+                              setEditingValue(formatCurrencyInputValue(propostaSource.valor || 0))
+                            }
+                          }}
+                          placeholder="0,00"
+                          inputMode="decimal"
+                          autoFocus
+                          style={{ width: `${Math.max(editingValue.length + 1, 4)}ch` }}
+                          className="min-w-0 border-0 bg-transparent p-0 text-3xl font-bold leading-none tracking-tight text-foreground outline-none placeholder:text-muted-foreground"
+                        />
+                      </div>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            setIsEditingValue(false)
+                            setEditingValue(formatCurrencyInputValue(propostaSource.valor || 0))
+                          }}
+                          disabled={isSubmitting}
+                        >
+                          Cancelar
+                        </Button>
+                        <Button type="button" onClick={() => void handleSaveValue()} disabled={isSubmitting}>
+                          Salvar valor
+                        </Button>
+                      </div>
+                    </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground">
-                      Nenhuma descricao adicional foi registrada.
-                    </p>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 text-left"
+                      onClick={() => canInlineEdit && setIsEditingValue(true)}
+                      disabled={!canInlineEdit}
+                    >
+                      <span className="text-3xl font-bold text-foreground">
+                        {formatCurrency(propostaSource.valor)}
+                      </span>
+                      {canInlineEdit ? <Pencil className="h-4 w-4 text-muted-foreground" /> : null}
+                    </button>
+                  )}
+                  {isEditingDescription ? (
+                    <div className="space-y-3">
+                      <Textarea
+                        rows={6}
+                        value={editingDescription}
+                        onChange={(event) => setEditingDescription(event.target.value)}
+                        onKeyDown={(event) => {
+                          if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                            event.preventDefault()
+                            void handleSaveDescription()
+                          }
+                          if (event.key === 'Escape') {
+                            event.preventDefault()
+                            setIsEditingDescription(false)
+                            setEditingDescription(propostaSource.descricao || '')
+                          }
+                        }}
+                        placeholder="Descreva os detalhes desta proposta..."
+                        autoFocus
+                        className="min-h-[144px] resize-none border-0 bg-transparent px-0 py-0 text-sm leading-6 text-muted-foreground shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                      />
+                      <div className="flex flex-wrap justify-end gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            setIsEditingDescription(false)
+                            setEditingDescription(propostaSource.descricao || '')
+                          }}
+                          disabled={isSubmitting}
+                        >
+                          Cancelar
+                        </Button>
+                        <Button type="button" onClick={() => void handleSaveDescription()} disabled={isSubmitting}>
+                          Salvar descricao
+                        </Button>
+                      </div>
+                    </div>
+                  ) : propostaSource.descricao ? (
+                    <button
+                      type="button"
+                      className="block w-full text-left"
+                      onClick={() => canInlineEdit && setIsEditingDescription(true)}
+                      disabled={!canInlineEdit}
+                    >
+                      <p className="whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">
+                        {propostaSource.descricao}
+                      </p>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between gap-3 rounded-lg border border-dashed border-border px-3 py-3 text-left text-sm text-muted-foreground transition hover:bg-secondary/20"
+                      onClick={() => canInlineEdit && setIsEditingDescription(true)}
+                      disabled={!canInlineEdit}
+                    >
+                      <span>Nenhuma descricao adicional foi registrada.</span>
+                      {canInlineEdit ? <Pencil className="h-4 w-4 shrink-0" /> : null}
+                    </button>
                   )}
                 </div>
 

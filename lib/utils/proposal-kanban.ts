@@ -38,14 +38,6 @@ export function resolveProposalStatusForPersistence(
   currentStatus: StatusProposta,
   targetStatus: StatusProposta
 ) {
-  if (currentStatus === 'follow_up_1_dia' && targetStatus === 'follow_up_3_dias') {
-    return 'aguardando_follow_up_3_dias' as StatusProposta
-  }
-
-  if (currentStatus === 'follow_up_3_dias' && targetStatus === 'follow_up_7_dias') {
-    return 'aguardando_follow_up_7_dias' as StatusProposta
-  }
-
   return targetStatus
 }
 

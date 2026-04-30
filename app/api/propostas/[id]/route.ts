@@ -231,11 +231,11 @@ function resolveSellerWorkflowStatus(
   }
 
   if (currentStatus === 'follow_up_1_dia') {
-    return 'aguardando_follow_up_3_dias'
+    return 'follow_up_3_dias'
   }
 
   if (currentStatus === 'follow_up_3_dias') {
-    return 'aguardando_follow_up_7_dias'
+    return 'follow_up_7_dias'
   }
 
   return currentStatus
@@ -520,6 +520,8 @@ export async function GET(
   const { id } = await params
 
   try {
+    await ensureBaseSchema()
+
     const user = await getAuthenticatedUser()
     if (!user) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
@@ -731,12 +733,7 @@ export async function PUT(
       )
     }
 
-    const storedStatus =
-      previousStatus === 'follow_up_1_dia' && nextStatus === 'follow_up_3_dias'
-        ? 'aguardando_follow_up_3_dias'
-        : previousStatus === 'follow_up_3_dias' && nextStatus === 'follow_up_7_dias'
-          ? 'aguardando_follow_up_7_dias'
-          : nextStatus
+    const storedStatus = nextStatus
 
     const requestedClosedValue = parseNullableNumber(data.clienteValorFechado)
     const requestedProposalValue = parseNullableNumber(data.valor)

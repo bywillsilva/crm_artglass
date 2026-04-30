@@ -3,6 +3,7 @@ import { isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysq
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
+import { syncDueFollowUpStatuses } from '@/lib/server/proposal-workflow'
 
 type AuthenticatedUser = {
   id: string
@@ -137,6 +138,8 @@ export async function GET(request: Request) {
   let isAuthenticated = false
 
   try {
+    await syncDueFollowUpStatuses()
+
     const authenticatedUser = await getAuthenticatedServerUser()
     if (!authenticatedUser?.ativo) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
