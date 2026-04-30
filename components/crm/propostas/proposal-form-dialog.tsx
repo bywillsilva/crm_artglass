@@ -423,7 +423,7 @@ export function ProposalFormDialog({
                   isDirtyRef.current = true
                   setClienteId(value)
                 }}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate [&_[data-slot=select-value]]:pr-6">
                     <SelectValue placeholder="Selecione o cliente" />
                   </SelectTrigger>
                   <SelectContent>
@@ -447,10 +447,10 @@ export function ProposalFormDialog({
                 <div className="space-y-2">
                   <Label><RequiredLabel>Vendedor responsavel</RequiredLabel></Label>
                   <Select value={responsavelId} onValueChange={(value) => {
-                    isDirtyRef.current = true
-                    setResponsavelId(value)
-                  }}>
-                    <SelectTrigger>
+                     isDirtyRef.current = true
+                     setResponsavelId(value)
+                   }}>
+                    <SelectTrigger className="w-full min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate [&_[data-slot=select-value]]:pr-6">
                       <SelectValue placeholder="Selecione o vendedor" />
                     </SelectTrigger>
                   <SelectContent>
@@ -470,7 +470,7 @@ export function ProposalFormDialog({
                   isDirtyRef.current = true
                   setOrcamentistaId(value === 'nao_definido' ? '' : value)
                 }}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate [&_[data-slot=select-value]]:pr-6">
                     <SelectValue placeholder="Selecione o orcamentista" />
                   </SelectTrigger>
                   <SelectContent>
@@ -515,10 +515,10 @@ export function ProposalFormDialog({
                 <Label>{isEditing ? <RequiredLabel>Status</RequiredLabel> : 'Status inicial'}</Label>
                 {canEditStatusDirectly ? (
                   <Select value={status} onValueChange={(value) => {
-                    isDirtyRef.current = true
-                    setStatus(value as StatusProposta)
-                  }}>
-                    <SelectTrigger>
+                     isDirtyRef.current = true
+                     setStatus(value as StatusProposta)
+                   }}>
+                    <SelectTrigger className="w-full min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate [&_[data-slot=select-value]]:pr-6">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -646,9 +646,9 @@ export function ProposalFormDialog({
                 <div className="rounded-xl border border-border bg-secondary/20 p-4 sm:p-6">
                   <h3 className="text-sm font-semibold text-foreground">Resumo rapido</h3>
                   <div className="mt-4 space-y-3 text-sm text-muted-foreground">
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-start justify-between gap-3">
                       <span>Cliente</span>
-                      <span className="font-medium text-foreground">
+                      <span className="max-w-[14rem] text-right font-medium leading-snug break-words text-foreground">
                         {lookups.clientesById.get(clienteId)?.nome ||
                           currentClient?.nome ||
                           'Nao selecionado'}
@@ -656,12 +656,12 @@ export function ProposalFormDialog({
                     </div>
                     <div className="flex items-center justify-between gap-3">
                       <span>Status</span>
-                      <span className="font-medium text-foreground">{statusPropostaLabels[status]}</span>
+                      <span className="text-right font-medium text-foreground">{statusPropostaLabels[status]}</span>
                     </div>
                     {materialTags.length ? (
                       <div className="flex items-start justify-between gap-3">
                         <span>Material</span>
-                        <div className="flex max-w-[15rem] flex-wrap justify-end gap-1.5">
+                        <div className="flex max-w-[14rem] flex-wrap justify-end gap-1.5">
                           {materialTags.map((tag) => (
                             <span
                               key={tag}
@@ -675,7 +675,7 @@ export function ProposalFormDialog({
                     ) : null}
                     <div className="flex items-center justify-between gap-3">
                       <span>Valor</span>
-                      <span className="font-medium text-foreground">{valor || '0,00'}</span>
+                      <span className="text-right font-medium text-foreground">{valor || '0,00'}</span>
                     </div>
                     {requiresProposalPdf ? (
                       <div className="rounded-lg border border-border bg-background/70 px-3 py-2 text-xs text-foreground">
