@@ -609,15 +609,6 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
         </div>
 
         <div className="hidden w-full items-center justify-end gap-2 sm:gap-3 md:flex md:w-auto md:gap-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setCommandOpen(true)}
-            aria-label="Abrir busca"
-          >
-            <Search className="h-4 w-4" />
-          </Button>
-
           <div className="relative hidden md:block">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
