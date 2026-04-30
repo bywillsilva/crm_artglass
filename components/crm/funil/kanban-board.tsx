@@ -218,14 +218,11 @@ function compareProposalKanbanOrder(a: Proposta, b: Proposta) {
 }
 
 function getProposalCardTitle(proposta: Proposta, clientName: string) {
-  const rawTitle = (proposta.titulo || '').trim()
-  const isLegacyNewClientTitle =
-    rawTitle === 'Novo cliente' || rawTitle.startsWith('Novo cliente -')
-
-  if ((proposta.status === 'novo_cliente' || isLegacyNewClientTitle) && clientName) {
+  if (clientName) {
     return clientName
   }
 
+  const rawTitle = (proposta.titulo || '').trim()
   return rawTitle || 'Proposta Comercial'
 }
 
