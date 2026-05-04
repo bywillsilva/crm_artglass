@@ -37,25 +37,13 @@ async function getAuthenticatedUser() {
   return getAuthenticatedServerUser()
 }
 
-function getDefaultDateRange() {
-  const now = new Date()
-  const start = new Date(now.getFullYear(), now.getMonth(), 1)
-  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0)
-
-  const pad = (value: number) => String(value).padStart(2, '0')
-  const toDateOnly = (value: Date) =>
-    `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`
-
-  return {
-    startDate: toDateOnly(start),
-    endDate: toDateOnly(end),
-  }
-}
-
 function getDateRange(request: NextRequest) {
-  const defaults = getDefaultDateRange()
-  const startDate = request.nextUrl.searchParams.get('startDate') || defaults.startDate
-  const endDate = request.nextUrl.searchParams.get('endDate') || defaults.endDate
+  const startDate = request.nextUrl.searchParams.get('startDate')
+  const endDate = request.nextUrl.searchParams.get('endDate')
+
+  if (!startDate || !endDate) {
+    return null
+  }
 
   if (startDate <= endDate) {
     return { startDate, endDate }
@@ -66,7 +54,7 @@ function getDateRange(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession()
-  const { startDate, endDate } = getDateRange(request)
+  const dateRange = getDateRange(request)
   const defaults = {
     stats: {
       totalLeads: 0,
@@ -92,20 +80,76 @@ export async function GET(request: NextRequest) {
     }
 
     const isAdmin = user.role === 'admin' || user.role === 'gerente'
-    const cacheKey = `dashboard:${user.role}:${user.id}:${startDate}:${endDate}`
+    const cacheKey = `dashboard:${user.role}:${user.id}:${dateRange?.startDate || 'all'}:${dateRange?.endDate || 'all'}`
     const cachedResponse = getRuntimeCache<any>(cacheKey)
     if (cachedResponse) {
         return jsonNoStore(cachedResponse)
     }
 
-    const startDateTime = `${startDate} 00:00:00`
-    const endDateTime = `${endDate} 23:59:59`
-    const proposalFilter = `${isAdmin ? '' : ' AND responsavel_id = ?'} AND created_at BETWEEN ? AND ?`
-    const proposalAliasedFilter = `${isAdmin ? '' : ' AND p.responsavel_id = ?'} AND p.created_at BETWEEN ? AND ?`
-    const proposalParams = isAdmin ? [startDateTime, endDateTime] : [user.id, startDateTime, endDateTime]
-    const taskFilter = `${isAdmin ? '' : ' AND t.responsavel_id = ?'} AND t.data_hora BETWEEN ? AND ?`
-    const taskParams = isAdmin ? [startDateTime, endDateTime] : [user.id, startDateTime, endDateTime]
+    const startDateTime = dateRange ? `${dateRange.startDate} 00:00:00` : null
+    const endDateTime = dateRange ? `${dateRange.endDate} 23:59:59` : null
+    const proposalFilter = `${isAdmin ? '' : ' AND responsavel_id = ?'}${
+      dateRange ? ' AND created_at BETWEEN ? AND ?' : ''
+    }`
+    const proposalAliasedFilter = `${isAdmin ? '' : ' AND p.responsavel_id = ?'}${
+      dateRange ? ' AND p.created_at BETWEEN ? AND ?' : ''
+    }`
+    const proposalParams = isAdmin
+      ? dateRange
+        ? [startDateTime, endDateTime]
+        : []
+      : dateRange
+        ? [user.id, startDateTime, endDateTime]
+        : [user.id]
+    const taskFilter = `${isAdmin ? '' : ' AND t.responsavel_id = ?'}${
+      dateRange ? ' AND t.data_hora BETWEEN ? AND ?' : ''
+    }`
+    const taskParams = isAdmin
+      ? dateRange
+        ? [startDateTime, endDateTime]
+        : []
+      : dateRange
+        ? [user.id, startDateTime, endDateTime]
+        : [user.id]
     const rankingLimit = isAdmin ? 'LIMIT 5' : ''
+    const clientAlertQuery = isAdmin
+      ? `SELECT DISTINCT ${DASHBOARD_CLIENT_ALERT_SELECT_COLUMNS}
+         FROM clientes c
+         INNER JOIN propostas p
+           ON p.cliente_id = c.id
+           ${dateRange ? 'AND p.created_at BETWEEN ? AND ?' : ''}
+         WHERE NOT EXISTS (
+           SELECT 1
+           FROM tarefas t
+           LEFT JOIN propostas tp ON tp.id = t.proposta_id
+           WHERE COALESCE(t.cliente_id, tp.cliente_id) = c.id
+             AND t.status = 'pendente'
+             ${dateRange ? 'AND t.data_hora BETWEEN ? AND ?' : ''}
+         )
+         LIMIT 10`
+      : `SELECT DISTINCT ${DASHBOARD_CLIENT_ALERT_SELECT_COLUMNS}
+         FROM clientes c
+         INNER JOIN propostas p
+           ON p.cliente_id = c.id
+           AND p.responsavel_id = ?
+           ${dateRange ? 'AND p.created_at BETWEEN ? AND ?' : ''}
+         WHERE NOT EXISTS (
+           SELECT 1
+           FROM tarefas t
+           LEFT JOIN propostas tp ON tp.id = t.proposta_id
+           WHERE COALESCE(t.cliente_id, tp.cliente_id) = c.id
+             AND t.status = 'pendente'
+             AND t.responsavel_id = ?
+             ${dateRange ? 'AND t.data_hora BETWEEN ? AND ?' : ''}
+         )
+         LIMIT 10`
+    const clientAlertParams = isAdmin
+      ? dateRange
+        ? [startDateTime, endDateTime, startDateTime, endDateTime]
+        : []
+      : dateRange
+        ? [user.id, startDateTime, endDateTime, user.id, startDateTime, endDateTime]
+        : [user.id, user.id]
 
     const [
       [leadsResult],
@@ -145,8 +189,14 @@ export async function GET(request: NextRequest) {
         `SELECT COALESCE(SUM(valor_final), 0) as total
          FROM propostas
          WHERE status = 'fechado'
-           AND updated_at BETWEEN ? AND ?${isAdmin ? '' : ' AND responsavel_id = ?'}`,
-        isAdmin ? [startDateTime, endDateTime] : [startDateTime, endDateTime, user.id]
+            ${dateRange ? 'AND updated_at BETWEEN ? AND ?' : ''}${isAdmin ? '' : ' AND responsavel_id = ?'}`,
+         isAdmin
+           ? dateRange
+             ? [startDateTime, endDateTime]
+             : []
+           : dateRange
+             ? [startDateTime, endDateTime, user.id]
+             : [user.id]
       ),
       query<any[]>(
         `SELECT status as status_lead, COUNT(*) as count, COALESCE(SUM(valor_final), 0) as valor
@@ -163,10 +213,16 @@ export async function GET(request: NextRequest) {
            COUNT(*) as quantidade
          FROM propostas
          WHERE status = 'fechado'
-           AND updated_at BETWEEN ? AND ?${isAdmin ? '' : ' AND responsavel_id = ?'}
-         GROUP BY DATE_FORMAT(updated_at, '%Y-%m')
-         ORDER BY mes ASC`,
-        isAdmin ? [startDateTime, endDateTime] : [startDateTime, endDateTime, user.id]
+            ${dateRange ? 'AND updated_at BETWEEN ? AND ?' : ''}${isAdmin ? '' : ' AND responsavel_id = ?'}
+          GROUP BY DATE_FORMAT(updated_at, '%Y-%m')
+          ORDER BY mes ASC`,
+         isAdmin
+           ? dateRange
+             ? [startDateTime, endDateTime]
+             : []
+           : dateRange
+             ? [startDateTime, endDateTime, user.id]
+             : [user.id]
       ),
       query<any[]>(
         `SELECT
@@ -179,14 +235,20 @@ export async function GET(request: NextRequest) {
          FROM usuarios u
          LEFT JOIN propostas p
            ON u.id = p.responsavel_id
-          AND p.status = 'fechado'
-          AND p.updated_at BETWEEN ? AND ?
+           AND p.status = 'fechado'
+           ${dateRange ? 'AND p.updated_at BETWEEN ? AND ?' : ''}
          WHERE u.role IN ('vendedor', 'gerente')
            ${isAdmin ? '' : 'AND u.id = ?'}
          GROUP BY u.id, u.nome, u.avatar, u.meta_vendas
          ORDER BY valor_total DESC
          ${rankingLimit}`,
-        isAdmin ? [startDateTime, endDateTime] : [startDateTime, endDateTime, user.id]
+         isAdmin
+           ? dateRange
+             ? [startDateTime, endDateTime]
+             : []
+           : dateRange
+             ? [startDateTime, endDateTime, user.id]
+             : [user.id]
       ),
       query<any[]>(
         `SELECT
@@ -209,42 +271,7 @@ export async function GET(request: NextRequest) {
          ORDER BY t.data_hora ASC`,
         taskParams
       ),
-      query<any[]>(
-        isAdmin
-          ? `SELECT DISTINCT ${DASHBOARD_CLIENT_ALERT_SELECT_COLUMNS}
-             FROM clientes c
-             INNER JOIN propostas p
-               ON p.cliente_id = c.id
-               AND p.created_at BETWEEN ? AND ?
-             WHERE NOT EXISTS (
-               SELECT 1
-               FROM tarefas t
-               LEFT JOIN propostas tp ON tp.id = t.proposta_id
-               WHERE COALESCE(t.cliente_id, tp.cliente_id) = c.id
-                 AND t.status = 'pendente'
-                 AND t.data_hora BETWEEN ? AND ?
-             )
-             LIMIT 10`
-          : `SELECT DISTINCT ${DASHBOARD_CLIENT_ALERT_SELECT_COLUMNS}
-             FROM clientes c
-             INNER JOIN propostas p
-               ON p.cliente_id = c.id
-               AND p.responsavel_id = ?
-               AND p.created_at BETWEEN ? AND ?
-             WHERE NOT EXISTS (
-               SELECT 1
-               FROM tarefas t
-               LEFT JOIN propostas tp ON tp.id = t.proposta_id
-               WHERE COALESCE(t.cliente_id, tp.cliente_id) = c.id
-                 AND t.status = 'pendente'
-                 AND t.responsavel_id = ?
-                 AND t.data_hora BETWEEN ? AND ?
-             )
-             LIMIT 10`,
-        isAdmin
-          ? [startDateTime, endDateTime, startDateTime, endDateTime]
-          : [user.id, startDateTime, endDateTime, user.id, startDateTime, endDateTime]
-      ),
+      query<any[]>(clientAlertQuery, clientAlertParams),
       query<any[]>(
         `SELECT ${DASHBOARD_PROPOSAL_ALERT_SELECT_COLUMNS}
          FROM propostas p
@@ -284,7 +311,7 @@ export async function GET(request: NextRequest) {
     const sessionUserId = session?.userId || null
     const sessionRole = session?.role || 'anon'
     const staleCacheKey = sessionUserId
-      ? `dashboard:${sessionRole}:${sessionUserId}:${startDate}:${endDate}`
+      ? `dashboard:${sessionRole}:${sessionUserId}:${dateRange?.startDate || 'all'}:${dateRange?.endDate || 'all'}`
       : null
     const staleCachedResponse = staleCacheKey ? getRuntimeCache<any>(staleCacheKey) : null
 

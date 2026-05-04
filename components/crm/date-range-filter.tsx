@@ -21,6 +21,7 @@ import {
 } from '@/lib/utils/date-filter'
 
 const presetLabels: Record<DateFilterPreset, string> = {
+  all: 'Todos',
   current_month: 'Mes atual',
   last_30_days: '30 dias',
   last_90_days: '90 dias',
@@ -43,8 +44,11 @@ function formatCompactDate(value: string) {
 }
 
 export function DateRangeFilter({ value, onChange }: DateRangeFilterProps) {
-  const safeValue = normalizeDateFilter(value.startDate && value.endDate ? value : createDefaultDateFilter())
-  const rangeLabel = `${formatCompactDate(safeValue.startDate)} - ${formatCompactDate(safeValue.endDate)}`
+  const safeValue = normalizeDateFilter(value.preset ? value : createDefaultDateFilter())
+  const rangeLabel =
+    safeValue.preset === 'all'
+      ? 'Sem filtro de data'
+      : `${formatCompactDate(safeValue.startDate)} - ${formatCompactDate(safeValue.endDate)}`
 
   const handlePresetChange = (preset: DateFilterPreset) => {
     onChange(getDateRangeFromPreset(preset))
@@ -113,31 +117,37 @@ export function DateRangeFilter({ value, onChange }: DateRangeFilterProps) {
           </Select>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-              Inicio
-            </Label>
-            <Input
-              type="date"
-              className="h-9 rounded-xl bg-background/70"
-              value={safeValue.startDate}
-              onChange={(event) => handleDateChange('startDate', event.target.value)}
-            />
+        {safeValue.preset === 'all' ? (
+          <div className="rounded-xl border border-border/70 bg-background/50 px-3 py-2 text-sm text-muted-foreground">
+            Todas as informacoes serao exibidas ate que um periodo seja selecionado.
           </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                Inicio
+              </Label>
+              <Input
+                type="date"
+                className="h-9 rounded-xl bg-background/70"
+                value={safeValue.startDate}
+                onChange={(event) => handleDateChange('startDate', event.target.value)}
+              />
+            </div>
 
-          <div className="space-y-1.5">
-            <Label className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
-              Fim
-            </Label>
-            <Input
-              type="date"
-              className="h-9 rounded-xl bg-background/70"
-              value={safeValue.endDate}
-              onChange={(event) => handleDateChange('endDate', event.target.value)}
-            />
+            <div className="space-y-1.5">
+              <Label className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                Fim
+              </Label>
+              <Input
+                type="date"
+                className="h-9 rounded-xl bg-background/70"
+                value={safeValue.endDate}
+                onChange={(event) => handleDateChange('endDate', event.target.value)}
+              />
+            </div>
           </div>
-        </div>
+        )}
       </PopoverContent>
     </Popover>
   )

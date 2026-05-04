@@ -1,6 +1,7 @@
 import { formatDateOnlyLocalValue, parseDateTimeValue } from '@/lib/utils/date-time'
 
 export type DateFilterPreset =
+  | 'all'
   | 'current_month'
   | 'last_30_days'
   | 'last_90_days'
@@ -36,6 +37,12 @@ export function getDateRangeFromPreset(
   now = new Date()
 ): DateFilterValue {
   switch (preset) {
+    case 'all':
+      return {
+        preset,
+        startDate: '',
+        endDate: '',
+      }
     case 'last_30_days':
       return {
         preset,
@@ -71,10 +78,18 @@ export function getDateRangeFromPreset(
 }
 
 export function createDefaultDateFilter(now = new Date()) {
-  return getDateRangeFromPreset('current_month', now)
+  return getDateRangeFromPreset('all', now)
 }
 
 export function normalizeDateFilter(value: DateFilterValue): DateFilterValue {
+  if (value.preset === 'all') {
+    return {
+      preset: 'all',
+      startDate: '',
+      endDate: '',
+    }
+  }
+
   if (!value.startDate || !value.endDate) {
     return createDefaultDateFilter()
   }
@@ -94,6 +109,7 @@ export function isWithinDateFilter(
   value: string | Date | null | undefined,
   filter: DateFilterValue
 ) {
+  if (filter.preset === 'all') return true
   if (!value) return false
 
   const current = parseDateTimeValue(value).getTime()
@@ -104,6 +120,10 @@ export function isWithinDateFilter(
 }
 
 export function getDateFilterQueryParams(filter: DateFilterValue) {
+  if (filter.preset === 'all') {
+    return ''
+  }
+
   const normalized = normalizeDateFilter(filter)
   return new URLSearchParams({
     startDate: normalized.startDate,
