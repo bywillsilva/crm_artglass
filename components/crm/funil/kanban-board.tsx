@@ -68,6 +68,23 @@ type PendingMove = {
   targetIndex?: number | null
 }
 
+type PendingMoveDialogSnapshot = {
+  pendingMove: PendingMove
+  sellerAction: SellerMoveAction | ''
+  adminMoveStatus: StatusProposta | ''
+  moveComment: string
+  followUpTime: string
+  moveValue: string
+  moveFiles: File[]
+  closeClientData: {
+    nome: string
+    cpf: string
+    email: string
+    telefone: string
+    endereco: string
+  }
+}
+
 type SellerMoveAction =
   | 'enviado_ao_cliente'
   | 'follow_up_1_dia'
@@ -392,6 +409,36 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const dragVisualRef = useRef<{ x: number; y: number; offsetX: number; offsetY: number } | null>(null)
   const dragDropTargetRef = useRef<ProposalDropTarget>({ status: null, index: null })
   const dragHasMovedRef = useRef(false)
+
+  const resetPendingMoveDialog = useCallback(() => {
+    setPendingMove(null)
+    setSellerAction('')
+    setAdminMoveStatus('')
+    setMoveComment('')
+    setFollowUpTime('')
+    setMoveValue('')
+    setMoveFiles([])
+    setCloseClientName('')
+    setCloseClientCpf('')
+    setCloseClientEmail('')
+    setCloseClientPhone('')
+    setCloseClientAddress('')
+  }, [])
+
+  const restorePendingMoveDialog = useCallback((snapshot: PendingMoveDialogSnapshot) => {
+    setPendingMove(snapshot.pendingMove)
+    setSellerAction(snapshot.sellerAction)
+    setAdminMoveStatus(snapshot.adminMoveStatus)
+    setMoveComment(snapshot.moveComment)
+    setFollowUpTime(snapshot.followUpTime)
+    setMoveValue(snapshot.moveValue)
+    setMoveFiles(snapshot.moveFiles)
+    setCloseClientName(snapshot.closeClientData.nome)
+    setCloseClientCpf(snapshot.closeClientData.cpf)
+    setCloseClientEmail(snapshot.closeClientData.email)
+    setCloseClientPhone(snapshot.closeClientData.telefone)
+    setCloseClientAddress(snapshot.closeClientData.endereco)
+  }, [])
 
   const updateFloatingDragPosition = useCallback(() => {
     const element = floatingDragCardRef.current
@@ -976,11 +1023,11 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const executeMove = useCallback(
     async (
       proposta: Proposta,
-        options: {
-          targetStatus: StatusProposta
-          kanbanPosition?: number | null
-          sellerWorkflowAction?: SellerMoveAction | ''
-          adminStatus?: StatusProposta | ''
+      options: {
+        targetStatus: StatusProposta
+        kanbanPosition?: number | null
+        sellerWorkflowAction?: SellerMoveAction | ''
+        adminStatus?: StatusProposta | ''
         comment?: string
         followUpTime?: string
         moveValue?: string
@@ -992,6 +1039,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
           telefone: string
           endereco: string
         }
+        dialogSnapshot?: PendingMoveDialogSnapshot
       }
     ) => {
       if (isSubmittingMove) return
@@ -1048,19 +1096,16 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
           anexos: options.moveFiles || [],
         } as unknown as Proposta)
         toast.success('Proposta atualizada com sucesso.')
-        setPendingMove(null)
-        setSellerAction('')
-        setAdminMoveStatus('')
-        setMoveComment('')
-        setFollowUpTime('')
-        setMoveValue('')
-        setMoveFiles([])
+        resetPendingMoveDialog()
       } catch (error: any) {
         setOptimisticPropostas((prev) => {
           const next = { ...prev }
           delete next[proposta.id]
           return next
         })
+        if (options.dialogSnapshot) {
+          restorePendingMoveDialog(options.dialogSnapshot)
+        }
         toast.error(error?.message || 'Nao foi possivel atualizar a proposta.')
       } finally {
         setIsSubmittingMove(false)
@@ -1076,13 +1121,32 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         })
       }
     },
-    [isSubmittingMove, updateProposta]
+    [isSubmittingMove, resetPendingMoveDialog, restorePendingMoveDialog, updateProposta]
   )
 
   const confirmMove = async () => {
     if (!pendingMove || isSubmittingMove) return
     const proposta = propostasById.get(pendingMove.propostaId)
     if (!proposta) return
+
+    const dialogSnapshot: PendingMoveDialogSnapshot = {
+      pendingMove,
+      sellerAction,
+      adminMoveStatus,
+      moveComment,
+      followUpTime,
+      moveValue,
+      moveFiles,
+      closeClientData: {
+        nome: closeClientName,
+        cpf: closeClientCpf,
+        email: closeClientEmail,
+        telefone: closeClientPhone,
+        endereco: closeClientAddress,
+      },
+    }
+
+    setPendingMove(null)
 
     await executeMove(proposta, {
       targetStatus: pendingMove.targetStatus,
@@ -1102,6 +1166,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
             endereco: closeClientAddress,
           }
         : undefined,
+      dialogSnapshot,
     })
   }
 
