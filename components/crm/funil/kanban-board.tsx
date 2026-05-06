@@ -70,11 +70,13 @@ type PendingMove = {
 
 type SellerMoveAction =
   | 'enviado_ao_cliente'
+  | 'follow_up_1_dia'
+  | 'follow_up_3_dias'
+  | 'follow_up_7_dias'
   | 'em_retificacao'
   | 'fechado'
   | 'perdido'
   | 'stand_by'
-  | 'outra_justificativa'
 
 const ORCAMENTISTA_COLUMNS: StatusProposta[] = [
   'novo_cliente',
@@ -102,11 +104,13 @@ function resolveKanbanDisplayStatus(status: StatusProposta): StatusProposta {
 
 const SELLER_ACTION_LABELS: Record<SellerMoveAction, string> = {
   enviado_ao_cliente: 'Enviado ao cliente',
+  follow_up_1_dia: statusPropostaLabels.follow_up_1_dia,
+  follow_up_3_dias: statusPropostaLabels.follow_up_3_dias,
+  follow_up_7_dias: statusPropostaLabels.follow_up_7_dias,
   em_retificacao: 'Enviar para retificacao',
   fechado: 'Fechado',
   perdido: 'Perdido',
   stand_by: 'Stand-by',
-  outra_justificativa: 'Outra justificativa',
 }
 
 function getAdminCommercialStatusOptions(status: StatusProposta, role?: string | null): StatusProposta[] {
@@ -118,11 +122,11 @@ function getAdminCommercialStatusOptions(status: StatusProposta, role?: string |
     case 'enviado_ao_cliente':
       return ['follow_up_1_dia', 'fechado', 'perdido', 'em_retificacao']
     case 'follow_up_1_dia':
-      return ['follow_up_3_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by']
+      return ['follow_up_3_dias', 'follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by']
     case 'follow_up_3_dias':
-      return ['follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by']
+      return ['follow_up_1_dia', 'follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by']
     case 'follow_up_7_dias':
-      return ['fechado', 'perdido', 'em_retificacao', 'stand_by']
+      return ['follow_up_1_dia', 'follow_up_3_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by']
     case 'stand_by':
       return ['enviado_ao_cliente', 'em_retificacao', 'fechado', 'perdido']
     case 'fechado':
@@ -252,14 +256,15 @@ function getSellerActionOptions(status: StatusProposta): SellerMoveAction[] {
     case 'enviar_ao_cliente':
       return ['enviado_ao_cliente']
     case 'enviado_ao_cliente':
-      return ['fechado', 'perdido', 'em_retificacao', 'outra_justificativa']
+      return ['follow_up_1_dia', 'fechado', 'perdido', 'em_retificacao']
     case 'follow_up_1_dia':
+      return ['follow_up_3_dias', 'follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by']
     case 'aguardando_follow_up_3_dias':
     case 'follow_up_3_dias':
-      return ['fechado', 'perdido', 'em_retificacao', 'stand_by', 'outra_justificativa']
+      return ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by']
     case 'aguardando_follow_up_7_dias':
     case 'follow_up_7_dias':
-      return ['fechado', 'perdido', 'em_retificacao', 'stand_by']
+      return ['follow_up_1_dia', 'follow_up_3_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by']
     case 'stand_by':
       return ['enviado_ao_cliente', 'em_retificacao', 'fechado', 'perdido']
     case 'fechado':
@@ -693,12 +698,12 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       targetStatus: StatusProposta,
       sellerWorkflowAction?: SellerMoveAction | ''
     ) => {
+      if (sellerWorkflowAction === 'fechado') return true
       if (sellerWorkflowAction === 'em_retificacao') return true
-      if (sellerWorkflowAction === 'outra_justificativa') return true
       if (sellerWorkflowAction === 'perdido') return true
       if (sellerWorkflowAction === 'stand_by') return true
 
-      if (!sellerWorkflowAction && ['em_retificacao', 'perdido', 'stand_by'].includes(targetStatus)) {
+      if (!sellerWorkflowAction && ['fechado', 'em_retificacao', 'perdido', 'stand_by'].includes(targetStatus)) {
         const isApprovalRefusalToRetification =
           ['admin', 'gerente'].includes(user?.role || '') &&
           proposta.status === 'aguardando_aprovacao' &&
@@ -798,8 +803,23 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     }
 
     setPendingMove({ propostaId, targetStatus, targetIndex: targetIndex ?? null })
+    const shouldPresetSellerAction =
+      user?.role === 'vendedor' &&
+      proposta.status !== targetStatus &&
+      [
+        'enviado_ao_cliente',
+        'follow_up_1_dia',
+        'follow_up_3_dias',
+        'follow_up_7_dias',
+        'fechado',
+        'perdido',
+        'em_retificacao',
+        'stand_by',
+      ].includes(targetStatus)
     setSellerAction(
-      user?.role === 'vendedor' && proposta.status === 'enviar_ao_cliente' && targetStatus === proposta.status
+      shouldPresetSellerAction
+        ? (targetStatus as SellerMoveAction)
+        : user?.role === 'vendedor' && proposta.status === 'enviar_ao_cliente' && targetStatus === proposta.status
         ? 'enviado_ao_cliente'
         : ''
     )
@@ -980,12 +1000,6 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       const baseTargetStatus = options.adminStatus || options.targetStatus
       const resolvedStatus = (() => {
         if (effectiveSellerWorkflowAction) {
-          if (effectiveSellerWorkflowAction === 'outra_justificativa') {
-            if (proposta.status === 'enviado_ao_cliente') return 'follow_up_1_dia' as StatusProposta
-            if (proposta.status === 'follow_up_1_dia') return 'follow_up_3_dias' as StatusProposta
-            if (proposta.status === 'follow_up_3_dias') return 'follow_up_7_dias' as StatusProposta
-          }
-
           return effectiveSellerWorkflowAction as StatusProposta
         }
 
@@ -1108,21 +1122,34 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     ? getAdminCommercialStatusOptions(pendingMoveDisplayStatus || pendingMoveProposal.status, user?.role)
     : []
   const selectedSellerAction = isSellerMove ? sellerAction : ''
+  const isSellerDirectTargetMove =
+    isSellerMove &&
+    Boolean(
+      pendingMoveProposal &&
+        pendingMove?.targetStatus &&
+        pendingMove.targetStatus !== pendingMoveProposal.status &&
+        [
+          'enviado_ao_cliente',
+          'follow_up_1_dia',
+          'follow_up_3_dias',
+          'follow_up_7_dias',
+          'fechado',
+          'perdido',
+          'em_retificacao',
+          'stand_by',
+        ].includes(pendingMove.targetStatus)
+    )
   const sellerCanOnlyConfirmSend = isSellerMove && pendingMoveProposal?.status === 'enviar_ao_cliente'
   const effectiveSellerAction =
-    sellerCanOnlyConfirmSend && isSellerMove
+    isSellerDirectTargetMove && pendingMove?.targetStatus
+      ? (pendingMove.targetStatus as SellerMoveAction)
+      : sellerCanOnlyConfirmSend && isSellerMove
       ? ('enviado_ao_cliente' as SellerMoveAction)
       : (selectedSellerAction as SellerMoveAction | '')
-  const shouldShowSellerActionSelect = isSellerMove && !sellerCanOnlyConfirmSend
+  const shouldShowSellerActionSelect = isSellerMove && !sellerCanOnlyConfirmSend && !isSellerDirectTargetMove
   const resolvedAdminMoveStatus = isAdminCommercialMove ? adminMoveStatus : pendingMove?.targetStatus || ''
   const resolvedTargetStatus = (() => {
     if (isSellerMove && effectiveSellerAction && pendingMoveProposal) {
-      if (effectiveSellerAction === 'outra_justificativa') {
-        if (pendingMoveProposal.status === 'enviado_ao_cliente') return 'follow_up_1_dia' as StatusProposta
-        if (pendingMoveProposal.status === 'follow_up_1_dia') return 'follow_up_3_dias' as StatusProposta
-        if (pendingMoveProposal.status === 'follow_up_3_dias') return 'follow_up_7_dias' as StatusProposta
-      }
-
       return effectiveSellerAction as StatusProposta
     }
 
@@ -1152,10 +1179,8 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       : false
     : false
   const requiresFollowUpTime =
-    (effectiveSellerAction === 'outra_justificativa' &&
-      ['enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias'].includes(
-        pendingMoveProposal?.status || ''
-      )) ||
+    (isSellerMove &&
+      ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias'].includes(effectiveSellerAction || '')) ||
     (!isSellerMove &&
       ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias'].includes(resolvedTargetStatus || ''))
   const approvalValidationActive =

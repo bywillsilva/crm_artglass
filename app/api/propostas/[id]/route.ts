@@ -98,11 +98,13 @@ type ProposalDetailAttachment = {
 
 type SellerWorkflowAction =
   | 'enviado_ao_cliente'
+  | 'follow_up_1_dia'
+  | 'follow_up_3_dias'
+  | 'follow_up_7_dias'
   | 'em_retificacao'
   | 'fechado'
   | 'perdido'
   | 'stand_by'
-  | 'outra_justificativa'
 
 function isPdfFile(file: File) {
   return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
@@ -131,11 +133,11 @@ const SELLER_VISIBLE_STATUSES: ProposalWorkflowStatus[] = [
 const SELLER_ALLOWED_TRANSITIONS: Partial<Record<ProposalWorkflowStatus, ProposalWorkflowStatus[]>> = {
   enviar_ao_cliente: ['enviado_ao_cliente'],
   enviado_ao_cliente: ['follow_up_1_dia', 'em_retificacao', 'perdido', 'fechado'],
-  follow_up_1_dia: ['aguardando_follow_up_3_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
-  aguardando_follow_up_3_dias: ['follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
-  follow_up_3_dias: ['aguardando_follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
-  aguardando_follow_up_7_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by'],
-  follow_up_7_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  follow_up_1_dia: ['aguardando_follow_up_3_dias', 'follow_up_3_dias', 'follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  aguardando_follow_up_3_dias: ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  follow_up_3_dias: ['follow_up_1_dia', 'aguardando_follow_up_7_dias', 'follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  aguardando_follow_up_7_dias: ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  follow_up_7_dias: ['follow_up_1_dia', 'follow_up_3_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
   stand_by: ['stand_by', 'enviar_ao_cliente', 'enviado_ao_cliente', 'em_retificacao', 'fechado', 'perdido'],
   fechado: ['em_retificacao'],
   perdido: ['em_retificacao'],
@@ -154,11 +156,11 @@ const WORKFLOW_ALLOWED_TRANSITIONS: Partial<Record<ProposalWorkflowStatus, Propo
   aguardando_aprovacao: ['enviar_ao_cliente', 'em_retificacao'],
   enviar_ao_cliente: ['enviado_ao_cliente', 'aguardando_aprovacao', 'em_retificacao', 'em_orcamento'],
   enviado_ao_cliente: ['follow_up_1_dia', 'fechado', 'perdido', 'em_retificacao'],
-  follow_up_1_dia: ['follow_up_3_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
-  aguardando_follow_up_3_dias: ['follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
-  follow_up_3_dias: ['follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
-  aguardando_follow_up_7_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by'],
-  follow_up_7_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  follow_up_1_dia: ['follow_up_3_dias', 'follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  aguardando_follow_up_3_dias: ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  follow_up_3_dias: ['follow_up_1_dia', 'follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  aguardando_follow_up_7_dias: ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+  follow_up_7_dias: ['follow_up_1_dia', 'follow_up_3_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
   stand_by: ['enviado_ao_cliente', 'em_retificacao', 'fechado', 'perdido'],
   fechado: ['enviado_ao_cliente', 'em_retificacao'],
   perdido: ['enviado_ao_cliente', 'em_retificacao'],
@@ -221,22 +223,13 @@ function resolveSellerWorkflowStatus(
   action: SellerWorkflowAction
 ): ProposalWorkflowStatus {
   if (action === 'enviado_ao_cliente') return 'enviado_ao_cliente'
+  if (action === 'follow_up_1_dia') return 'follow_up_1_dia'
+  if (action === 'follow_up_3_dias') return 'follow_up_3_dias'
+  if (action === 'follow_up_7_dias') return 'follow_up_7_dias'
   if (action === 'em_retificacao') return 'em_retificacao'
   if (action === 'fechado') return 'fechado'
   if (action === 'perdido') return 'perdido'
   if (action === 'stand_by') return 'stand_by'
-
-  if (currentStatus === 'enviado_ao_cliente') {
-    return 'follow_up_1_dia'
-  }
-
-  if (currentStatus === 'follow_up_1_dia') {
-    return 'follow_up_3_dias'
-  }
-
-  if (currentStatus === 'follow_up_3_dias') {
-    return 'follow_up_7_dias'
-  }
 
   return currentStatus
 }
@@ -247,12 +240,12 @@ function isSellerWorkflowActionAllowed(
 ) {
   const allowedActions: Partial<Record<ProposalWorkflowStatus, SellerWorkflowAction[]>> = {
     enviar_ao_cliente: ['enviado_ao_cliente'],
-    enviado_ao_cliente: ['fechado', 'perdido', 'em_retificacao', 'outra_justificativa'],
-    follow_up_1_dia: ['fechado', 'perdido', 'em_retificacao', 'stand_by', 'outra_justificativa'],
-    aguardando_follow_up_3_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by', 'outra_justificativa'],
-    follow_up_3_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by', 'outra_justificativa'],
-    aguardando_follow_up_7_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by'],
-    follow_up_7_dias: ['fechado', 'perdido', 'em_retificacao', 'stand_by'],
+    enviado_ao_cliente: ['follow_up_1_dia', 'fechado', 'perdido', 'em_retificacao'],
+    follow_up_1_dia: ['follow_up_3_dias', 'follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+    aguardando_follow_up_3_dias: ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+    follow_up_3_dias: ['follow_up_1_dia', 'follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+    aguardando_follow_up_7_dias: ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
+    follow_up_7_dias: ['follow_up_1_dia', 'follow_up_3_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
     stand_by: ['fechado', 'perdido', 'em_retificacao', 'enviado_ao_cliente'],
     fechado: ['em_retificacao'],
     perdido: ['em_retificacao'],
@@ -493,8 +486,6 @@ function formatWorkflowComment(
   switch (action) {
     case 'em_retificacao':
       return `Retificacao\n${cleaned}`
-    case 'outra_justificativa':
-      return `Outra justificativa\n${cleaned}`
     case 'perdido':
       return `Perdido\n${cleaned}`
     case 'stand_by':
@@ -616,14 +607,10 @@ export async function PUT(
     const justificationText = normalizeNullableText(data.justificativa)
     const rawCommentText = normalizeNullableText(data.comentario) ?? justificationText
     const commentText = formatWorkflowComment(workflowAction, nextStatus, rawCommentText)
-    const requiresFollowUpComment =
-      isStatusChange &&
-      ((previousStatus === 'enviado_ao_cliente' && nextStatus === 'follow_up_1_dia') ||
-        (previousStatus === 'follow_up_1_dia' && nextStatus === 'follow_up_3_dias') ||
-        (previousStatus === 'follow_up_3_dias' && nextStatus === 'follow_up_7_dias'))
     const requiresReasonComment =
       isStatusChange &&
-      (nextStatus === 'perdido' ||
+      (nextStatus === 'fechado' ||
+        nextStatus === 'perdido' ||
         nextStatus === 'stand_by' ||
         (nextStatus === 'em_retificacao' &&
           (user.role === 'vendedor' || ['admin', 'gerente'].includes(user.role))))
@@ -650,7 +637,7 @@ export async function PUT(
         }
 
         const requiresJustification =
-          workflowAction === 'outra_justificativa' ||
+          workflowAction === 'fechado' ||
           workflowAction === 'perdido' ||
           workflowAction === 'stand_by' ||
           workflowAction === 'em_retificacao'
@@ -663,8 +650,7 @@ export async function PUT(
         }
 
         if (
-          workflowAction === 'outra_justificativa' &&
-          ['enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias'].includes(previousStatus) &&
+          ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias'].includes(workflowAction) &&
           !data.followUpTime
         ) {
           return NextResponse.json(
@@ -682,14 +668,18 @@ export async function PUT(
       )
     }
 
-    if ((requiresFollowUpComment || requiresReasonComment) && !rawCommentText) {
+    if (requiresReasonComment && !rawCommentText) {
       return NextResponse.json(
         { error: 'Informe um comentario ou justificativa para seguir com esta etapa da proposta.' },
         { status: 400 }
       )
     }
 
-    if (requiresFollowUpComment && !data.followUpTime) {
+    const requiresFollowUpTime =
+      isStatusChange &&
+      ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias'].includes(nextStatus)
+
+    if (requiresFollowUpTime && !data.followUpTime) {
       return NextResponse.json(
         { error: 'Defina o horario do proximo follow-up antes de continuar.' },
         { status: 400 }
