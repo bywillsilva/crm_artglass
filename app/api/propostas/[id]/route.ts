@@ -40,6 +40,8 @@ const PROPOSAL_SHARED_SELECT_COLUMNS = `
 
 const PROPOSAL_TECHNICAL_SELECT_COLUMNS = `
   p.area_m2,
+  p.perfis_bruto,
+  p.perfis_liquidos,
   p.valor_perfil,
   p.valor_vidro,
   p.valor_acessorios,
@@ -48,6 +50,8 @@ const PROPOSAL_TECHNICAL_SELECT_COLUMNS = `
 
 const PROPOSAL_TECHNICAL_FALLBACK_SELECT_COLUMNS = `
   NULL as area_m2,
+  NULL as perfis_bruto,
+  NULL as perfis_liquidos,
   NULL as valor_perfil,
   NULL as valor_vidro,
   NULL as valor_acessorios,
@@ -100,6 +104,8 @@ type ProposalPayload = {
   titulo?: string
   materialTag?: string | null
   areaM2?: number | null
+  perfisBruto?: number | null
+  perfisLiquidos?: number | null
   valorPerfil?: number | null
   valorVidro?: number | null
   valorAcessorios?: number | null
@@ -278,6 +284,10 @@ function sanitizeTechnicalProposalData<T extends Record<string, any>>(proposal: 
   const sanitized = { ...proposal }
   delete sanitized.area_m2
   delete sanitized.areaM2
+  delete sanitized.perfis_bruto
+  delete sanitized.perfisBruto
+  delete sanitized.perfis_liquidos
+  delete sanitized.perfisLiquidos
   delete sanitized.valor_perfil
   delete sanitized.valorPerfil
   delete sanitized.valor_vidro
@@ -404,6 +414,8 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
         titulo: String(formData.get('titulo') || '') || undefined,
         materialTag: normalizeMaterialTag(formData.get('materialTag')),
         areaM2: parseNullableNumber(formData.get('areaM2')),
+        perfisBruto: parseNullableNumber(formData.get('perfisBruto')),
+        perfisLiquidos: parseNullableNumber(formData.get('perfisLiquidos')),
         valorPerfil: parseNullableNumber(formData.get('valorPerfil')),
         valorVidro: parseNullableNumber(formData.get('valorVidro')),
         valorAcessorios: parseNullableNumber(formData.get('valorAcessorios')),
@@ -440,6 +452,8 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
     titulo: data.titulo,
     materialTag: normalizeMaterialTag(data.materialTag),
     areaM2: parseNullableNumber(data.areaM2),
+    perfisBruto: parseNullableNumber(data.perfisBruto),
+    perfisLiquidos: parseNullableNumber(data.perfisLiquidos),
     valorPerfil: parseNullableNumber(data.valorPerfil),
     valorVidro: parseNullableNumber(data.valorVidro),
     valorAcessorios: parseNullableNumber(data.valorAcessorios),
@@ -881,6 +895,14 @@ export async function PUT(
 
     const areaM2 =
       data.areaM2 === undefined ? parseNullableNumber(propostaAtual.area_m2) : parseNullableNumber(data.areaM2)
+    const perfisBruto =
+      data.perfisBruto === undefined
+        ? parseNullableNumber(propostaAtual.perfis_bruto)
+        : parseNullableNumber(data.perfisBruto)
+    const perfisLiquidos =
+      data.perfisLiquidos === undefined
+        ? parseNullableNumber(propostaAtual.perfis_liquidos)
+        : parseNullableNumber(data.perfisLiquidos)
     const valorPerfil =
       data.valorPerfil === undefined
         ? parseNullableNumber(propostaAtual.valor_perfil)
@@ -908,7 +930,8 @@ export async function PUT(
     if (mustValidateApprovalRequirements) {
       const technicalFields = [
         areaM2,
-        valorPerfil,
+        perfisBruto,
+        perfisLiquidos,
         valorVidro,
         valorAcessorios,
       ]
@@ -920,7 +943,7 @@ export async function PUT(
         return NextResponse.json(
           {
             error:
-              'Preencha ao menos um dado tecnico da proposta antes de enviar para aprovacao (area em m2, valor de perfil, valor de vidro ou valor de acessorios).',
+              'Preencha ao menos um dado tecnico da proposta antes de enviar para aprovacao (area em m2, perfis bruto, perfis liquidos, valor de vidro ou valor de acessorios).',
           },
           { status: 400 }
         )
@@ -1027,7 +1050,7 @@ export async function PUT(
 
     await query(
         `UPDATE propostas SET
-        cliente_id = ?, titulo = ?, material_tag = ?, area_m2 = ?, valor_perfil = ?, valor_vidro = ?, valor_acessorios = ?, observacoes_tecnicas = ?, descricao = ?, valor = ?, desconto = ?,
+        cliente_id = ?, titulo = ?, material_tag = ?, area_m2 = ?, perfis_bruto = ?, perfis_liquidos = ?, valor_perfil = ?, valor_vidro = ?, valor_acessorios = ?, observacoes_tecnicas = ?, descricao = ?, valor = ?, desconto = ?,
         valor_final = ?, status = ?, validade = ?, servicos = ?, condicoes = ?,
         responsavel_id = ?, orcamentista_id = ?, follow_up_base_at = ?, follow_up_time = ?
        WHERE id = ?`,
@@ -1036,6 +1059,8 @@ export async function PUT(
         data.titulo || propostaAtual.titulo || 'Proposta Comercial',
         materialTag,
         areaM2,
+        perfisBruto,
+        perfisLiquidos,
         valorPerfil,
         valorVidro,
         valorAcessorios,

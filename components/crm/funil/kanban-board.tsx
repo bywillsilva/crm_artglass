@@ -1270,9 +1270,13 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     typeof approvalTargetProposal?.areaM2 === 'number' && approvalTargetProposal.areaM2 > 0
       ? approvalTargetProposal.areaM2
       : 0
-  const existingApprovalValorPerfil =
-    typeof approvalTargetProposal?.valorPerfil === 'number' && approvalTargetProposal.valorPerfil > 0
-      ? approvalTargetProposal.valorPerfil
+  const existingApprovalPerfisBruto =
+    typeof approvalTargetProposal?.perfisBruto === 'number' && approvalTargetProposal.perfisBruto > 0
+      ? approvalTargetProposal.perfisBruto
+      : 0
+  const existingApprovalPerfisLiquidos =
+    typeof approvalTargetProposal?.perfisLiquidos === 'number' && approvalTargetProposal.perfisLiquidos > 0
+      ? approvalTargetProposal.perfisLiquidos
       : 0
   const existingApprovalValorVidro =
     typeof approvalTargetProposal?.valorVidro === 'number' && approvalTargetProposal.valorVidro > 0
@@ -1286,7 +1290,8 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const technicalApprovalValues = approvalValidationCanInspectRequirements
     ? [
         existingApprovalAreaM2,
-        existingApprovalValorPerfil,
+        existingApprovalPerfisBruto,
+        existingApprovalPerfisLiquidos,
         existingApprovalValorVidro,
         existingApprovalValorAcessorios,
       ]
@@ -1302,7 +1307,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         proposalNeedsApprovalValue ? 'informar o valor do orcamento' : null,
         requiresAttachment ? 'anexar a proposta em PDF' : null,
         proposalNeedsTechnicalData
-          ? 'preencher ao menos um dado tecnico (area em m2, valor de perfil, valor de vidro ou valor de acessorios)'
+          ? 'preencher ao menos um dado tecnico (area em m2, perfis bruto, perfis liquidos, valor de vidro ou valor de acessorios)'
           : null,
       ].filter((item): item is string => Boolean(item))
     : []

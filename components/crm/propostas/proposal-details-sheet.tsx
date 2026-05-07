@@ -91,6 +91,18 @@ function mergeProposalSnapshot(primary: Proposta, fallback: Proposta) {
         : typeof fallback.areaM2 === 'number'
           ? fallback.areaM2
           : null,
+    perfisBruto:
+      typeof primary.perfisBruto === 'number'
+        ? primary.perfisBruto
+        : typeof fallback.perfisBruto === 'number'
+          ? fallback.perfisBruto
+          : null,
+    perfisLiquidos:
+      typeof primary.perfisLiquidos === 'number'
+        ? primary.perfisLiquidos
+        : typeof fallback.perfisLiquidos === 'number'
+          ? fallback.perfisLiquidos
+          : null,
     valorPerfil:
       typeof primary.valorPerfil === 'number'
         ? primary.valorPerfil
@@ -219,7 +231,8 @@ export function ProposalDetailsSheet({
   const [editingDescription, setEditingDescription] = useState('')
   const [isEditingTechnicalDetails, setIsEditingTechnicalDetails] = useState(false)
   const [editingAreaM2, setEditingAreaM2] = useState('')
-  const [editingValorPerfil, setEditingValorPerfil] = useState('')
+  const [editingPerfisBruto, setEditingPerfisBruto] = useState('')
+  const [editingPerfisLiquidos, setEditingPerfisLiquidos] = useState('')
   const [editingValorVidro, setEditingValorVidro] = useState('')
   const [editingValorAcessorios, setEditingValorAcessorios] = useState('')
   const [editingObservacoesTecnicas, setEditingObservacoesTecnicas] = useState('')
@@ -252,7 +265,8 @@ export function ProposalDetailsSheet({
     setEditingDescription('')
     setIsEditingTechnicalDetails(false)
     setEditingAreaM2('')
-    setEditingValorPerfil('')
+    setEditingPerfisBruto('')
+    setEditingPerfisLiquidos('')
     setEditingValorVidro('')
     setEditingValorAcessorios('')
     setEditingObservacoesTecnicas('')
@@ -275,8 +289,11 @@ export function ProposalDetailsSheet({
       setEditingAreaM2(
         propostaSource.areaM2 != null ? formatTechnicalMetricValue(propostaSource.areaM2) : ''
       )
-      setEditingValorPerfil(
-        propostaSource.valorPerfil != null ? formatCurrencyInputValue(propostaSource.valorPerfil) : ''
+      setEditingPerfisBruto(
+        propostaSource.perfisBruto != null ? formatTechnicalMetricValue(propostaSource.perfisBruto) : ''
+      )
+      setEditingPerfisLiquidos(
+        propostaSource.perfisLiquidos != null ? formatTechnicalMetricValue(propostaSource.perfisLiquidos) : ''
       )
       setEditingValorVidro(
         propostaSource.valorVidro != null ? formatCurrencyInputValue(propostaSource.valorVidro) : ''
@@ -329,11 +346,19 @@ export function ProposalDetailsSheet({
             : 'Nao informado',
       },
       {
-        key: 'perfil',
-        label: 'Valor de perfil',
+        key: 'perfis-bruto',
+        label: 'Perfis bruto',
         value:
-          propostaSource?.valorPerfil != null
-            ? formatCurrency(propostaSource.valorPerfil)
+          propostaSource?.perfisBruto != null
+            ? formatTechnicalMetricValue(propostaSource.perfisBruto)
+            : 'Nao informado',
+      },
+      {
+        key: 'perfis-liquidos',
+        label: 'Perfis liquidos',
+        value:
+          propostaSource?.perfisLiquidos != null
+            ? formatTechnicalMetricValue(propostaSource.perfisLiquidos)
             : 'Nao informado',
       },
       {
@@ -353,7 +378,14 @@ export function ProposalDetailsSheet({
             : 'Nao informado',
       },
     ],
-    [formatCurrency, propostaSource?.areaM2, propostaSource?.valorAcessorios, propostaSource?.valorPerfil, propostaSource?.valorVidro]
+    [
+      formatCurrency,
+      propostaSource?.areaM2,
+      propostaSource?.perfisBruto,
+      propostaSource?.perfisLiquidos,
+      propostaSource?.valorAcessorios,
+      propostaSource?.valorVidro,
+    ]
   )
   const hasTechnicalMetrics = useMemo(
     () =>
@@ -361,7 +393,8 @@ export function ProposalDetailsSheet({
         propostaSource &&
           (
             propostaSource.areaM2 != null ||
-            propostaSource.valorPerfil != null ||
+            propostaSource.perfisBruto != null ||
+            propostaSource.perfisLiquidos != null ||
             propostaSource.valorVidro != null ||
             propostaSource.valorAcessorios != null
           )
@@ -386,6 +419,8 @@ export function ProposalDetailsSheet({
       titulo: propostaSource.titulo || 'Proposta Comercial',
       materialTag: propostaSource.materialTag || null,
       areaM2: propostaSource.areaM2 ?? null,
+      perfisBruto: propostaSource.perfisBruto ?? null,
+      perfisLiquidos: propostaSource.perfisLiquidos ?? null,
       valorPerfil: propostaSource.valorPerfil ?? null,
       valorVidro: propostaSource.valorVidro ?? null,
       valorAcessorios: propostaSource.valorAcessorios ?? null,
@@ -536,8 +571,11 @@ export function ProposalDetailsSheet({
     setEditingAreaM2(
       propostaSource?.areaM2 != null ? formatTechnicalMetricValue(propostaSource.areaM2) : ''
     )
-    setEditingValorPerfil(
-      propostaSource?.valorPerfil != null ? formatCurrencyInputValue(propostaSource.valorPerfil) : ''
+    setEditingPerfisBruto(
+      propostaSource?.perfisBruto != null ? formatTechnicalMetricValue(propostaSource.perfisBruto) : ''
+    )
+    setEditingPerfisLiquidos(
+      propostaSource?.perfisLiquidos != null ? formatTechnicalMetricValue(propostaSource.perfisLiquidos) : ''
     )
     setEditingValorVidro(
       propostaSource?.valorVidro != null ? formatCurrencyInputValue(propostaSource.valorVidro) : ''
@@ -552,13 +590,15 @@ export function ProposalDetailsSheet({
     if (!propostaId || !propostaSource) return
 
     const areaM2 = parseOptionalNumericInput(editingAreaM2)
-    const valorPerfil = parseOptionalNumericInput(editingValorPerfil)
+    const perfisBruto = parseOptionalNumericInput(editingPerfisBruto)
+    const perfisLiquidos = parseOptionalNumericInput(editingPerfisLiquidos)
     const valorVidro = parseOptionalNumericInput(editingValorVidro)
     const valorAcessorios = parseOptionalNumericInput(editingValorAcessorios)
 
     const invalidTechnicalValue =
       (editingAreaM2.trim() && (areaM2 === null || areaM2 < 0)) ||
-      (editingValorPerfil.trim() && (valorPerfil === null || valorPerfil < 0)) ||
+      (editingPerfisBruto.trim() && (perfisBruto === null || perfisBruto < 0)) ||
+      (editingPerfisLiquidos.trim() && (perfisLiquidos === null || perfisLiquidos < 0)) ||
       (editingValorVidro.trim() && (valorVidro === null || valorVidro < 0)) ||
       (editingValorAcessorios.trim() && (valorAcessorios === null || valorAcessorios < 0))
 
@@ -569,7 +609,8 @@ export function ProposalDetailsSheet({
 
     const payload = buildInlineUpdatePayload({
       areaM2,
-      valorPerfil,
+      perfisBruto,
+      perfisLiquidos,
       valorVidro,
       valorAcessorios,
       observacoesTecnicas: editingObservacoesTecnicas.trim() || null,
@@ -1046,12 +1087,22 @@ export function ProposalDetailsSheet({
                             />
                           </div>
                           <div className="space-y-2">
-                            <label className="text-sm font-medium text-foreground">Valor de perfil</label>
+                            <label className="text-sm font-medium text-foreground">Perfis bruto</label>
                             <Input
                               type="text"
                               inputMode="decimal"
-                              value={editingValorPerfil}
-                              onChange={(event) => setEditingValorPerfil(event.target.value)}
+                              value={editingPerfisBruto}
+                              onChange={(event) => setEditingPerfisBruto(event.target.value)}
+                              placeholder="0,00"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-foreground">Perfis liquidos</label>
+                            <Input
+                              type="text"
+                              inputMode="decimal"
+                              value={editingPerfisLiquidos}
+                              onChange={(event) => setEditingPerfisLiquidos(event.target.value)}
                               placeholder="0,00"
                             />
                           </div>

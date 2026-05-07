@@ -128,6 +128,8 @@ export interface Proposta {
   titulo?: string
   materialTag?: string | null
   areaM2?: number | null
+  perfisBruto?: number | null
+  perfisLiquidos?: number | null
   valorPerfil?: number | null
   valorVidro?: number | null
   valorAcessorios?: number | null

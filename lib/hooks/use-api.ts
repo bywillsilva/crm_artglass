@@ -276,6 +276,8 @@ function normalizeProposta(row: JsonRecord): Proposta {
     titulo: row.titulo ?? 'Proposta Comercial',
     materialTag: row.materialTag ?? row.material_tag ?? null,
     areaM2: parseNumberLike(row.areaM2 ?? row.area_m2),
+    perfisBruto: parseNumberLike(row.perfisBruto ?? row.perfis_bruto),
+    perfisLiquidos: parseNumberLike(row.perfisLiquidos ?? row.perfis_liquidos),
     valorPerfil: parseNumberLike(row.valorPerfil ?? row.valor_perfil),
     valorVidro: parseNumberLike(row.valorVidro ?? row.valor_vidro),
     valorAcessorios: parseNumberLike(row.valorAcessorios ?? row.valor_acessorios),
@@ -1485,6 +1487,8 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
   const parsedDesconto = parseNumberLike(data.desconto)
   const parsedClienteValorFechado = parseNumberLike(data.clienteValorFechado)
   const parsedAreaM2 = parseNumberLike(data.areaM2)
+  const parsedPerfisBruto = parseNumberLike(data.perfisBruto)
+  const parsedPerfisLiquidos = parseNumberLike(data.perfisLiquidos)
   const parsedValorPerfil = parseNumberLike(data.valorPerfil)
   const parsedValorVidro = parseNumberLike(data.valorVidro)
   const parsedValorAcessorios = parseNumberLike(data.valorAcessorios)
@@ -1495,6 +1499,8 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
   const hasExplicitValor = hasFilledValue(data.valor)
   const hasExplicitDesconto = hasFilledValue(data.desconto)
   const hasExplicitAreaM2 = hasFilledValue(data.areaM2)
+  const hasExplicitPerfisBruto = hasFilledValue(data.perfisBruto)
+  const hasExplicitPerfisLiquidos = hasFilledValue(data.perfisLiquidos)
   const hasExplicitValorPerfil = hasFilledValue(data.valorPerfil)
   const hasExplicitValorVidro = hasFilledValue(data.valorVidro)
   const hasExplicitValorAcessorios = hasFilledValue(data.valorAcessorios)
@@ -1502,6 +1508,8 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     titulo: data.titulo || 'Proposta Comercial',
     materialTag: data.materialTag === undefined ? undefined : (data.materialTag || null),
     areaM2: hasExplicitAreaM2 ? parsedAreaM2 : null,
+    perfisBruto: hasExplicitPerfisBruto ? parsedPerfisBruto : null,
+    perfisLiquidos: hasExplicitPerfisLiquidos ? parsedPerfisLiquidos : null,
     valorPerfil: hasExplicitValorPerfil ? parsedValorPerfil : null,
     valorVidro: hasExplicitValorVidro ? parsedValorVidro : null,
     valorAcessorios: hasExplicitValorAcessorios ? parsedValorAcessorios : null,
@@ -1541,6 +1549,10 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     material_tag: payload.materialTag,
     areaM2: payload.areaM2,
     area_m2: payload.areaM2,
+    perfisBruto: payload.perfisBruto,
+    perfis_bruto: payload.perfisBruto,
+    perfisLiquidos: payload.perfisLiquidos,
+    perfis_liquidos: payload.perfisLiquidos,
     valorPerfil: payload.valorPerfil,
     valor_perfil: payload.valorPerfil,
     valorVidro: payload.valorVidro,

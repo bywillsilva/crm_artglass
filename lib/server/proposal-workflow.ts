@@ -315,12 +315,14 @@ async function ensureProposalColumns() {
            'retificacoes_count',
            'follow_up_base_at',
            'follow_up_time',
-           'material_tag',
-           'kanban_order',
-           'area_m2',
-           'valor_perfil',
-           'valor_vidro',
-           'valor_acessorios',
+            'material_tag',
+            'kanban_order',
+            'area_m2',
+            'perfis_bruto',
+            'perfis_liquidos',
+            'valor_perfil',
+            'valor_vidro',
+            'valor_acessorios',
            'observacoes_tecnicas'
          )`
    )
@@ -355,8 +357,16 @@ async function ensureProposalColumns() {
     await query(`ALTER TABLE propostas ADD COLUMN area_m2 DECIMAL(10,2) NULL AFTER kanban_order`)
   }
 
+  if (!existing.has('perfis_bruto')) {
+    await query(`ALTER TABLE propostas ADD COLUMN perfis_bruto DECIMAL(10,2) NULL AFTER area_m2`)
+  }
+
+  if (!existing.has('perfis_liquidos')) {
+    await query(`ALTER TABLE propostas ADD COLUMN perfis_liquidos DECIMAL(10,2) NULL AFTER perfis_bruto`)
+  }
+
   if (!existing.has('valor_perfil')) {
-    await query(`ALTER TABLE propostas ADD COLUMN valor_perfil DECIMAL(12,2) NULL AFTER area_m2`)
+    await query(`ALTER TABLE propostas ADD COLUMN valor_perfil DECIMAL(12,2) NULL AFTER perfis_liquidos`)
   }
 
   if (!existing.has('valor_vidro')) {
@@ -370,6 +380,14 @@ async function ensureProposalColumns() {
   if (!existing.has('observacoes_tecnicas')) {
     await query(`ALTER TABLE propostas ADD COLUMN observacoes_tecnicas TEXT NULL AFTER valor_acessorios`)
   }
+
+  await query(`
+    UPDATE propostas
+    SET perfis_bruto = valor_perfil
+    WHERE perfis_bruto IS NULL
+      AND valor_perfil IS NOT NULL
+      AND valor_perfil > 0
+  `)
 }
 
 export async function ensureProposalMaterialTagColumn() {
