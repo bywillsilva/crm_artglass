@@ -7,6 +7,7 @@ import {
   ensureProposalSequenceSchema,
   ensureProposalStatusSchema,
   ensureResponsibilityIntegrity,
+  runFollowUpStageOffsetMigration,
   ensureTaskSchema,
   ensureUserManagementSchema,
 } from '@/lib/server/proposal-workflow'
@@ -170,6 +171,7 @@ export async function ensureSystemDatabaseSchema() {
     await ensureResponsibilityIntegrity()
     await ensureRealtimeEventsSchema()
     await ensureCrmRuntimeSchema()
+    await runFollowUpStageOffsetMigration()
 
     systemSchemaCheckedAt = Date.now()
   })()

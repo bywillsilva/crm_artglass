@@ -59,6 +59,7 @@ const cachePromises = new Map<string, Promise<void>>()
 const SCHEMA_CACHE_MS = 5 * 60 * 1000
 const RUNTIME_BOOTSTRAP_CACHE_MS = 60 * 60 * 1000
 const RUNTIME_CACHE_MS = 60 * 1000
+const FOLLOW_UP_STAGE_OFFSETS_MIGRATION_KEY = 'migration_follow_up_stage_offsets_v1'
 
 function parseTimeZoneOffsetInMinutes(timeZone: string) {
   const normalized = String(timeZone || '').trim()
@@ -137,6 +138,72 @@ async function ensureTableIndexes(tableName: string, indexes: TableIndexDefiniti
 
 function enumValues(values: readonly string[]) {
   return values.map((value) => `'${value}'`).join(', ')
+}
+
+type FollowUpRebaseTarget = {
+  status: ProposalWorkflowStatus
+  taskStage: 'follow_up_1_dia' | 'follow_up_3_dias' | 'follow_up_7_dias'
+  currentOffsetDays: number
+  defaultPreviousOffsetDays: number
+}
+
+const FOLLOW_UP_REBASE_TARGETS: FollowUpRebaseTarget[] = [
+  {
+    status: 'follow_up_1_dia',
+    taskStage: 'follow_up_1_dia',
+    currentOffsetDays: 1,
+    defaultPreviousOffsetDays: 0,
+  },
+  {
+    status: 'follow_up_3_dias',
+    taskStage: 'follow_up_3_dias',
+    currentOffsetDays: 3,
+    defaultPreviousOffsetDays: 1,
+  },
+  {
+    status: 'follow_up_7_dias',
+    taskStage: 'follow_up_7_dias',
+    currentOffsetDays: 7,
+    defaultPreviousOffsetDays: 3,
+  },
+]
+
+function getFollowUpStageOffsetByTaskStage(stage: string | null | undefined) {
+  switch (stage) {
+    case 'enviar_ao_cliente':
+      return 0
+    case 'follow_up_1_dia':
+      return 1
+    case 'follow_up_3_dias':
+      return 3
+    case 'follow_up_7_dias':
+      return 7
+    default:
+      return null
+  }
+}
+
+function resolveRebasedFollowUpBaseAt(
+  movedAt: Date,
+  currentOffsetDays: number,
+  previousOffsetDays: number | null | undefined
+) {
+  if (previousOffsetDays == null || previousOffsetDays >= currentOffsetDays) {
+    return movedAt
+  }
+
+  const baseAt = new Date(movedAt)
+  baseAt.setDate(baseAt.getDate() - previousOffsetDays)
+  return baseAt
+}
+
+function normalizeOptionalTimeValue(value: unknown) {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const trimmed = value.trim()
+  return trimmed ? trimmed : null
 }
 
 export function normalizeProposalStatus(status?: string | null): ProposalWorkflowStatus {
@@ -1007,6 +1074,157 @@ export async function syncProposalAutomation(params: {
     followUpBaseAt: params.followUpBaseAt,
     followUpTime: params.followUpTime,
   })
+}
+
+async function hasFollowUpStageOffsetMigrationRun() {
+  const [config] = await query<any[]>(
+    `SELECT valor
+     FROM configuracoes
+     WHERE chave = ? AND scope = 'global' AND user_id = ''
+     LIMIT 1`,
+    [FOLLOW_UP_STAGE_OFFSETS_MIGRATION_KEY]
+  )
+
+  return Boolean(config)
+}
+
+async function markFollowUpStageOffsetMigrationRun(updatedCount: number) {
+  await query(
+    `INSERT INTO configuracoes (id, chave, valor, scope, user_id)
+     VALUES (?, ?, ?, 'global', '')
+     ON DUPLICATE KEY UPDATE valor = VALUES(valor)`,
+    [
+      uuidv4(),
+      FOLLOW_UP_STAGE_OFFSETS_MIGRATION_KEY,
+      JSON.stringify({
+        updatedCount,
+        migratedAt: formatDateTime(new Date()),
+      }),
+    ]
+  )
+}
+
+async function inferPreviousFollowUpOffsetDays(propostaId: string, currentTaskStage: string) {
+  const historyRows = await query<any[]>(
+    `SELECT dados, created_at
+     FROM interacoes
+     WHERE tipo = 'tarefa'
+       AND JSON_VALID(dados)
+       AND JSON_UNQUOTE(JSON_EXTRACT(dados, '$.proposta_id')) = ?
+     ORDER BY created_at DESC
+     LIMIT 12`,
+    [propostaId]
+  )
+
+  let foundCurrentStage = false
+
+  for (const row of historyRows) {
+    try {
+      const payload = JSON.parse(String(row.dados || '{}'))
+      if (payload?.origem !== 'automacao_proposta') {
+        continue
+      }
+
+      const stage = String(payload?.automacao_etapa || '')
+      if (!stage) {
+        continue
+      }
+
+      if (!foundCurrentStage) {
+        if (stage === currentTaskStage) {
+          foundCurrentStage = true
+        }
+        continue
+      }
+
+      const offset = getFollowUpStageOffsetByTaskStage(stage)
+      if (offset != null) {
+        return offset
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return null
+}
+
+export async function runFollowUpStageOffsetMigration() {
+  if (await hasFollowUpStageOffsetMigrationRun()) {
+    return
+  }
+
+  let updatedCount = 0
+
+  for (const target of FOLLOW_UP_REBASE_TARGETS) {
+    const propostas = await query<any[]>(
+      `SELECT
+         p.id,
+         p.follow_up_time,
+         t.data_hora,
+         t.created_at AS task_created_at
+       FROM propostas p
+       INNER JOIN tarefas t
+         ON t.proposta_id = p.id
+        AND t.origem = 'automacao_proposta'
+        AND t.automacao_etapa = ?
+        AND t.status = 'pendente'
+       WHERE p.status = ?`,
+      [target.taskStage, target.status]
+    )
+
+    for (const proposta of propostas) {
+      const movedAt =
+        parseDatabaseDateTime(proposta.task_created_at) ||
+        parseDatabaseDateTime(proposta.data_hora) ||
+        new Date()
+      const previousOffsetDays =
+        (await inferPreviousFollowUpOffsetDays(proposta.id, target.taskStage)) ??
+        target.defaultPreviousOffsetDays
+      const followUpBaseAt = resolveRebasedFollowUpBaseAt(
+        movedAt,
+        target.currentOffsetDays,
+        previousOffsetDays
+      )
+      const followUpTime =
+        normalizeOptionalTimeValue(proposta.follow_up_time) ||
+        parseDatabaseDateTime(proposta.data_hora)?.toTimeString().slice(0, 8) ||
+        null
+      const nextDueDate = applyTimeToDate(
+        addDays(followUpBaseAt, target.currentOffsetDays),
+        followUpTime
+      )
+
+      await query(
+        `UPDATE propostas
+         SET follow_up_base_at = ?, follow_up_time = ?
+         WHERE id = ?`,
+        [formatDateTime(followUpBaseAt), followUpTime, proposta.id]
+      )
+
+      await query(
+        `UPDATE tarefas
+         SET data_hora = ?, updated_at = NOW()
+         WHERE proposta_id = ?
+           AND origem = 'automacao_proposta'
+           AND automacao_etapa = ?
+           AND status = 'pendente'`,
+        [formatDateTime(nextDueDate), proposta.id, target.taskStage]
+      )
+
+      updatedCount += 1
+    }
+  }
+
+  if (updatedCount > 0) {
+    invalidateRuntimeCache('crm-bootstrap:')
+    invalidateRuntimeCache('propostas:list:')
+    invalidateRuntimeCache('proposta:detail:')
+    invalidateRuntimeCache('dashboard:')
+    invalidateRuntimeCache('tarefas:list:')
+  }
+
+  await markFollowUpStageOffsetMigrationRun(updatedCount)
 }
 
 export async function syncDueFollowUpStatuses() {

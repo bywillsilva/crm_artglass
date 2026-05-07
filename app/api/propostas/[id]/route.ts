@@ -298,6 +298,54 @@ function parseKanbanPosition(value: unknown) {
   return Math.max(0, Math.trunc(parsed))
 }
 
+const FOLLOW_UP_STAGE_DAY_OFFSETS: Partial<Record<ProposalWorkflowStatus, number>> = {
+  enviado_ao_cliente: 0,
+  follow_up_1_dia: 1,
+  aguardando_follow_up_3_dias: 3,
+  follow_up_3_dias: 3,
+  aguardando_follow_up_7_dias: 7,
+  follow_up_7_dias: 7,
+}
+
+function getFollowUpStageDayOffset(status: ProposalWorkflowStatus) {
+  return FOLLOW_UP_STAGE_DAY_OFFSETS[status] ?? null
+}
+
+function resolveFollowUpBaseAt(params: {
+  previousStatus: ProposalWorkflowStatus
+  nextStatus: ProposalWorkflowStatus
+  changedAt: Date
+  currentFollowUpBaseAt: Date | null
+}) {
+  const { previousStatus, nextStatus, changedAt, currentFollowUpBaseAt } = params
+  const previousOffset = getFollowUpStageDayOffset(previousStatus)
+  const nextOffset = getFollowUpStageDayOffset(nextStatus)
+
+  if (nextStatus === 'enviado_ao_cliente') {
+    return changedAt
+  }
+
+  if (nextOffset == null) {
+    return currentFollowUpBaseAt
+  }
+
+  if (previousStatus === nextStatus && currentFollowUpBaseAt) {
+    return currentFollowUpBaseAt
+  }
+
+  if (currentFollowUpBaseAt && previousOffset != null && previousOffset === nextOffset) {
+    return currentFollowUpBaseAt
+  }
+
+  if (previousOffset != null && previousOffset < nextOffset) {
+    const adjustedBaseAt = new Date(changedAt)
+    adjustedBaseAt.setDate(adjustedBaseAt.getDate() - previousOffset)
+    return adjustedBaseAt
+  }
+
+  return changedAt
+}
+
 function isSellerVisibleStatus(status: ProposalWorkflowStatus) {
   return SELLER_VISIBLE_STATUSES.includes(status)
 }
@@ -958,11 +1006,14 @@ export async function PUT(
 
     const changedAt = new Date()
     const currentFollowUpBaseAt = parseDatabaseDateTime(propostaAtual.follow_up_base_at)
-    const shouldResetFollowUpBase =
-      previousStatus !== storedStatus && storedStatus === 'enviado_ao_cliente'
     const followUpBaseAt =
-      shouldResetFollowUpBase
-        ? changedAt
+      previousStatus !== storedStatus
+        ? resolveFollowUpBaseAt({
+            previousStatus,
+            nextStatus: storedStatus,
+            changedAt,
+            currentFollowUpBaseAt,
+          })
         : currentFollowUpBaseAt || (
             ['follow_up_1_dia', 'aguardando_follow_up_3_dias', 'follow_up_3_dias', 'aguardando_follow_up_7_dias', 'follow_up_7_dias'].includes(storedStatus)
               ? changedAt
