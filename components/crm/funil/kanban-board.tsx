@@ -1226,7 +1226,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     (!isSellerMove && !isAdminCommercialMove)
   const approvalValidationProposalId =
     pendingMove &&
-    ['orcamentista', 'admin', 'gerente'].includes(user?.role || '') &&
+    ['orcamentista', 'admin'].includes(user?.role || '') &&
     resolvedTargetStatus === 'aguardando_aprovacao'
       ? pendingMove.propostaId
       : null
@@ -1249,7 +1249,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     (!isSellerMove &&
       ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias'].includes(resolvedTargetStatus || ''))
   const approvalValidationActive =
-    ['orcamentista', 'admin', 'gerente'].includes(user?.role || '') &&
+    ['orcamentista', 'admin'].includes(user?.role || '') &&
     resolvedTargetStatus === 'aguardando_aprovacao'
   const approvalTargetProposal = approvalValidationProposalData || pendingMoveProposal
   const hasExistingProposalPdf = approvalTargetProposal
@@ -1260,19 +1260,49 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const parsedMoveValue = parseProposalNumericInput(moveValue)
   const existingApprovalValue =
     approvalTargetProposal?.valor && approvalTargetProposal.valor > 0 ? approvalTargetProposal.valor : 0
+  const existingApprovalAreaM2 =
+    typeof approvalTargetProposal?.areaM2 === 'number' && approvalTargetProposal.areaM2 > 0
+      ? approvalTargetProposal.areaM2
+      : 0
+  const existingApprovalValorPerfil =
+    typeof approvalTargetProposal?.valorPerfil === 'number' && approvalTargetProposal.valorPerfil > 0
+      ? approvalTargetProposal.valorPerfil
+      : 0
+  const existingApprovalValorVidro =
+    typeof approvalTargetProposal?.valorVidro === 'number' && approvalTargetProposal.valorVidro > 0
+      ? approvalTargetProposal.valorVidro
+      : 0
+  const existingApprovalValorAcessorios =
+    typeof approvalTargetProposal?.valorAcessorios === 'number' && approvalTargetProposal.valorAcessorios > 0
+      ? approvalTargetProposal.valorAcessorios
+      : 0
   const proposalNeedsApprovalValue = approvalValidationActive && existingApprovalValue <= 0
+  const missingTechnicalRequirementItems = approvalValidationActive
+      ? [
+        existingApprovalAreaM2 <= 0 ? 'area em m2' : null,
+        existingApprovalValorPerfil <= 0 ? 'valor de perfil' : null,
+        existingApprovalValorVidro <= 0 ? 'valor de vidro' : null,
+        existingApprovalValorAcessorios <= 0 ? 'valor de acessorios' : null,
+      ].filter((item): item is string => Boolean(item))
+    : []
+  const proposalNeedsTechnicalData = missingTechnicalRequirementItems.length > 0
   const requiresBudgetValue = proposalNeedsApprovalValue
   const requiresAttachment = approvalValidationActive && !hasExistingProposalPdf
   const hasRequiredPdfAttachment = !requiresAttachment || moveFiles.some(isPdfFile)
   const approvalRequirementsReady = !approvalValidationActive || !isLoadingApprovalValidationProposal
+  const approvalRequirementItems = approvalValidationActive
+    ? [
+        proposalNeedsApprovalValue ? 'informar o valor do orcamento' : null,
+        requiresAttachment ? 'anexar a proposta em PDF' : null,
+        proposalNeedsTechnicalData
+          ? `preencher os dados tecnicos obrigatorios (${missingTechnicalRequirementItems.join(', ')})`
+          : null,
+      ].filter((item): item is string => Boolean(item))
+    : []
   const approvalRequirementsMessage = approvalValidationActive
-    ? proposalNeedsApprovalValue && requiresAttachment
-      ? 'Para enviar esta proposta para aprovacao, informe o valor do orcamento e anexe a proposta em PDF.'
-      : proposalNeedsApprovalValue
-        ? 'Para enviar esta proposta para aprovacao, informe o valor do orcamento.'
-        : requiresAttachment
-          ? 'Para enviar esta proposta para aprovacao, anexe a proposta em PDF.'
-          : 'Esta proposta ja tem os dados obrigatorios para seguir para aprovacao.'
+    ? approvalRequirementItems.length > 0
+      ? `Para enviar esta proposta para aprovacao, complete os itens obrigatorios: ${approvalRequirementItems.join('; ')}.`
+      : 'Esta proposta ja tem os dados obrigatorios para seguir para aprovacao.'
     : null
   const requiresClosedClientData =
     effectiveSellerAction === 'fechado' || (!isSellerMove && resolvedTargetStatus === 'fechado')
@@ -1720,6 +1750,11 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                     ? 'Validando os requisitos desta proposta para envio a aprovacao...'
                     : approvalRequirementsMessage}
                 </p>
+                {!isLoadingApprovalValidationProposal && proposalNeedsTechnicalData ? (
+                  <p className="text-sm text-muted-foreground">
+                    Os dados tecnicos devem ser preenchidos em Ver detalhes antes da aprovacao.
+                  </p>
+                ) : null}
               </div>
             ) : null}
             {requiresBudgetValue && (
@@ -1846,6 +1881,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                     (isAdminCommercialMove && !resolvedTargetStatus) ||
                     hasInvalidMoveValue ||
                     (proposalNeedsApprovalValue && (parseProposalNumericInput(moveValue) ?? 0) <= 0) ||
+                    proposalNeedsTechnicalData ||
                     !hasRequiredPdfAttachment ||
                     (requiresMoveComment && !moveComment.trim()) ||
                     (requiresFollowUpTime && !followUpTime) ||

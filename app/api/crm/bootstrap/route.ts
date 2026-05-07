@@ -65,6 +65,43 @@ const BOOTSTRAP_PROPOSAL_SELECT_COLUMNS = `
   p.retificacoes_count,
   p.titulo,
   p.material_tag,
+  p.area_m2,
+  p.valor_perfil,
+  p.valor_vidro,
+  p.valor_acessorios,
+  p.observacoes_tecnicas,
+  p.descricao,
+  p.valor,
+  p.desconto,
+  p.valor_final,
+  p.status,
+  p.validade,
+  p.follow_up_base_at,
+  p.follow_up_time,
+  p.kanban_order,
+  p.created_at,
+  p.updated_at,
+  c.nome as cliente_nome,
+  u.nome as responsavel_nome,
+  o.nome as orcamentista_nome,
+  COALESCE(pa.anexos_count, 0) as anexos_count,
+  COALESCE(pc.comentarios_count, 0) as comentarios_count
+`
+
+const BOOTSTRAP_PROPOSAL_SELECT_COLUMNS_LEGACY = `
+  p.id,
+  p.numero,
+  p.cliente_id,
+  p.responsavel_id,
+  p.orcamentista_id,
+  p.retificacoes_count,
+  p.titulo,
+  p.material_tag,
+  NULL as area_m2,
+  NULL as valor_perfil,
+  NULL as valor_vidro,
+  NULL as valor_acessorios,
+  NULL as observacoes_tecnicas,
   p.descricao,
   p.valor,
   p.desconto,
@@ -134,6 +171,42 @@ async function queryBootstrapUsers() {
   }
 }
 
+function buildBootstrapProposalQuery(selectColumns: string, whereClause: string) {
+  return `SELECT
+            ${selectColumns}
+          FROM propostas p
+          LEFT JOIN clientes c ON p.cliente_id = c.id
+          LEFT JOIN usuarios u ON p.responsavel_id = u.id
+          LEFT JOIN usuarios o ON p.orcamentista_id = o.id
+          LEFT JOIN (
+            SELECT proposta_id, COUNT(*) as anexos_count
+            FROM proposta_anexos
+            GROUP BY proposta_id
+          ) pa ON pa.proposta_id = p.id
+          LEFT JOIN (
+            SELECT proposta_id, COUNT(*) as comentarios_count
+            FROM proposta_comentarios
+            GROUP BY proposta_id
+          ) pc ON pc.proposta_id = p.id
+          WHERE ${whereClause}
+          ORDER BY p.created_at DESC`
+}
+
+async function queryBootstrapProposals(whereClause: string, params: unknown[]) {
+  try {
+    return await query<any[]>(buildBootstrapProposalQuery(BOOTSTRAP_PROPOSAL_SELECT_COLUMNS, whereClause), params)
+  } catch (error) {
+    if (!isUnknownColumnError(error)) {
+      throw error
+    }
+
+    return query<any[]>(
+      buildBootstrapProposalQuery(BOOTSTRAP_PROPOSAL_SELECT_COLUMNS_LEGACY, whereClause),
+      params
+    )
+  }
+}
+
 export async function GET(request: Request) {
   let isAuthenticated = false
 
@@ -186,39 +259,21 @@ export async function GET(request: Request) {
               ),
             ] as const
           case 'propostas':
+            const proposalWhereClause =
+              authenticatedUser.role === 'vendedor'
+                ? `p.responsavel_id = ?
+                   AND p.status IN ('enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'aguardando_follow_up_3_dias', 'follow_up_3_dias', 'aguardando_follow_up_7_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'perdido')`
+                : authenticatedUser.role === 'orcamentista'
+                  ? `p.status IN ('novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao')
+                     AND (p.orcamentista_id = ? OR p.orcamentista_id IS NULL OR p.orcamentista_id = '')`
+                  : '1=1'
+            const proposalParams =
+              authenticatedUser.role === 'vendedor' || authenticatedUser.role === 'orcamentista'
+                ? [authenticatedUser.id]
+                : []
             return [
               section,
-              await query<any[]>(
-                 `SELECT
-                   ${BOOTSTRAP_PROPOSAL_SELECT_COLUMNS}
-                 FROM propostas p
-                 LEFT JOIN clientes c ON p.cliente_id = c.id
-                 LEFT JOIN usuarios u ON p.responsavel_id = u.id
-                 LEFT JOIN usuarios o ON p.orcamentista_id = o.id
-                 LEFT JOIN (
-                   SELECT proposta_id, COUNT(*) as anexos_count
-                   FROM proposta_anexos
-                   GROUP BY proposta_id
-                 ) pa ON pa.proposta_id = p.id
-                 LEFT JOIN (
-                   SELECT proposta_id, COUNT(*) as comentarios_count
-                   FROM proposta_comentarios
-                   GROUP BY proposta_id
-                 ) pc ON pc.proposta_id = p.id
-                 WHERE ${
-                    authenticatedUser.role === 'vendedor'
-                      ? `p.responsavel_id = ?
-                         AND p.status IN ('enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'aguardando_follow_up_3_dias', 'follow_up_3_dias', 'aguardando_follow_up_7_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'perdido')`
-                      : authenticatedUser.role === 'orcamentista'
-                        ? `p.status IN ('novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao')
-                           AND (p.orcamentista_id = ? OR p.orcamentista_id IS NULL OR p.orcamentista_id = '')`
-                       : '1=1'
-                 }
-                 ORDER BY p.created_at DESC`,
-                authenticatedUser.role === 'vendedor' || authenticatedUser.role === 'orcamentista'
-                  ? [authenticatedUser.id]
-                  : []
-              ),
+              await queryBootstrapProposals(proposalWhereClause, proposalParams),
             ] as const
         }
       })

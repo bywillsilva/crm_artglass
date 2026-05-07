@@ -29,6 +29,43 @@ const PROPOSAL_LIST_SELECT_COLUMNS = `
   p.retificacoes_count,
   p.titulo,
   p.material_tag,
+  p.area_m2,
+  p.valor_perfil,
+  p.valor_vidro,
+  p.valor_acessorios,
+  p.observacoes_tecnicas,
+  p.descricao,
+  p.valor,
+  p.desconto,
+  p.valor_final,
+  p.status,
+  p.validade,
+  p.follow_up_base_at,
+  p.follow_up_time,
+  p.kanban_order,
+  p.created_at,
+  p.updated_at,
+  c.nome as cliente_nome,
+  u.nome as responsavel_nome,
+  o.nome as orcamentista_nome,
+  COALESCE(pa.anexos_count, 0) as anexos_count,
+  COALESCE(pc.comentarios_count, 0) as comentarios_count
+`
+
+const PROPOSAL_LIST_SELECT_COLUMNS_LEGACY = `
+  p.id,
+  p.numero,
+  p.cliente_id,
+  p.responsavel_id,
+  p.orcamentista_id,
+  p.retificacoes_count,
+  p.titulo,
+  p.material_tag,
+  NULL as area_m2,
+  NULL as valor_perfil,
+  NULL as valor_vidro,
+  NULL as valor_acessorios,
+  NULL as observacoes_tecnicas,
   p.descricao,
   p.valor,
   p.desconto,
@@ -89,6 +126,19 @@ function parseNumberLike(value: unknown) {
   }
 
   return null
+}
+
+function isUnknownColumnError(error: unknown) {
+  const code =
+    typeof error === 'object' && error && 'code' in error ? String((error as any).code) : ''
+  const message =
+    typeof error === 'object' && error && 'sqlMessage' in error
+      ? String((error as any).sqlMessage || '')
+      : typeof error === 'object' && error && 'message' in error
+        ? String((error as any).message || '')
+        : ''
+
+  return code === 'ER_BAD_FIELD_ERROR' || /unknown column/i.test(message)
 }
 
 function parseKanbanPosition(value: unknown) {
@@ -340,9 +390,9 @@ export async function GET(request: NextRequest) {
       return jsonNoStore(cachedPropostas)
     }
 
-    let sql = `
+    const buildListQuery = (selectColumns: string) => `
       SELECT
-        ${PROPOSAL_LIST_SELECT_COLUMNS}
+        ${selectColumns}
       FROM propostas p
       LEFT JOIN clientes c ON p.cliente_id = c.id
       LEFT JOIN usuarios u ON p.responsavel_id = u.id
@@ -359,6 +409,7 @@ export async function GET(request: NextRequest) {
       ) pc ON pc.proposta_id = p.id
       WHERE 1=1
     `
+    let sql = buildListQuery(PROPOSAL_LIST_SELECT_COLUMNS)
     const params: unknown[] = []
 
     if (status && status !== 'todos') {
@@ -388,7 +439,17 @@ export async function GET(request: NextRequest) {
 
     sql += ' ORDER BY p.created_at DESC'
 
-    const propostas = await query(sql, params)
+    let propostas: any[]
+    try {
+      propostas = await query(sql, params)
+    } catch (error) {
+      if (!isUnknownColumnError(error)) {
+        throw error
+      }
+
+      const legacySql = sql.replace(PROPOSAL_LIST_SELECT_COLUMNS, PROPOSAL_LIST_SELECT_COLUMNS_LEGACY)
+      propostas = await query(legacySql, params)
+    }
     setRuntimeCache(cacheKey, propostas, PROPOSTAS_CACHE_TTL_MS)
     return jsonNoStore(propostas)
   } catch (error) {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
 import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
+import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import { deleteStoredFiles, persistSavedProposalFiles, saveProposalFiles } from '@/lib/server/proposal-files'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
@@ -26,7 +27,7 @@ const PROPOSTA_DETAIL_CACHE_TTL_MS = Math.max(
   1000
 )
 
-const PROPOSAL_BASE_SELECT_COLUMNS = `
+const PROPOSAL_SHARED_SELECT_COLUMNS = `
   p.id,
   p.numero,
   p.cliente_id,
@@ -35,6 +36,48 @@ const PROPOSAL_BASE_SELECT_COLUMNS = `
   p.retificacoes_count,
   p.titulo,
   p.material_tag,
+`
+
+const PROPOSAL_TECHNICAL_SELECT_COLUMNS = `
+  p.area_m2,
+  p.valor_perfil,
+  p.valor_vidro,
+  p.valor_acessorios,
+  p.observacoes_tecnicas,
+`
+
+const PROPOSAL_TECHNICAL_FALLBACK_SELECT_COLUMNS = `
+  NULL as area_m2,
+  NULL as valor_perfil,
+  NULL as valor_vidro,
+  NULL as valor_acessorios,
+  NULL as observacoes_tecnicas,
+`
+
+const PROPOSAL_BASE_SELECT_COLUMNS = `
+  ${PROPOSAL_SHARED_SELECT_COLUMNS}
+  ${PROPOSAL_TECHNICAL_SELECT_COLUMNS}
+  p.descricao,
+  p.valor,
+  p.desconto,
+  p.valor_final,
+  p.status,
+  p.validade,
+  p.servicos,
+  p.condicoes,
+  p.follow_up_base_at,
+  p.follow_up_time,
+  p.kanban_order,
+  p.created_at,
+  p.updated_at,
+  c.nome as cliente_nome,
+  u.nome as responsavel_nome,
+  o.nome as orcamentista_nome
+`
+
+const PROPOSAL_BASE_SELECT_COLUMNS_LEGACY = `
+  ${PROPOSAL_SHARED_SELECT_COLUMNS}
+  ${PROPOSAL_TECHNICAL_FALLBACK_SELECT_COLUMNS}
   p.descricao,
   p.valor,
   p.desconto,
@@ -56,6 +99,11 @@ const PROPOSAL_BASE_SELECT_COLUMNS = `
 type ProposalPayload = {
   titulo?: string
   materialTag?: string | null
+  areaM2?: number | null
+  valorPerfil?: number | null
+  valorVidro?: number | null
+  valorAcessorios?: number | null
+  observacoesTecnicas?: string | null
   descricao?: string
   valor?: number | null
   desconto?: number | null
@@ -205,6 +253,42 @@ function parseNullableNumber(value: unknown) {
   return null
 }
 
+function isUnknownColumnError(error: unknown) {
+  const code =
+    typeof error === 'object' && error && 'code' in error ? String((error as any).code) : ''
+  const message =
+    typeof error === 'object' && error && 'sqlMessage' in error
+      ? String((error as any).sqlMessage || '')
+      : typeof error === 'object' && error && 'message' in error
+        ? String((error as any).message || '')
+        : ''
+
+  return code === 'ER_BAD_FIELD_ERROR' || /unknown column/i.test(message)
+}
+
+function canViewTechnicalProposalData(user: any) {
+  return user?.role === 'admin' || user?.role === 'orcamentista'
+}
+
+function sanitizeTechnicalProposalData<T extends Record<string, any>>(proposal: T, user: any): T {
+  if (canViewTechnicalProposalData(user)) {
+    return proposal
+  }
+
+  const sanitized = { ...proposal }
+  delete sanitized.area_m2
+  delete sanitized.areaM2
+  delete sanitized.valor_perfil
+  delete sanitized.valorPerfil
+  delete sanitized.valor_vidro
+  delete sanitized.valorVidro
+  delete sanitized.valor_acessorios
+  delete sanitized.valorAcessorios
+  delete sanitized.observacoes_tecnicas
+  delete sanitized.observacoesTecnicas
+  return sanitized
+}
+
 function parseKanbanPosition(value: unknown) {
   const parsed = parseNullableNumber(value)
   if (parsed == null) {
@@ -271,6 +355,11 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
       return {
         titulo: String(formData.get('titulo') || '') || undefined,
         materialTag: normalizeMaterialTag(formData.get('materialTag')),
+        areaM2: parseNullableNumber(formData.get('areaM2')),
+        valorPerfil: parseNullableNumber(formData.get('valorPerfil')),
+        valorVidro: parseNullableNumber(formData.get('valorVidro')),
+        valorAcessorios: parseNullableNumber(formData.get('valorAcessorios')),
+        observacoesTecnicas: normalizeNullableText(formData.get('observacoesTecnicas')),
         descricao: String(formData.get('descricao') || '') || undefined,
         valor: parseNullableNumber(formData.get('valor')),
         desconto: parseNullableNumber(formData.get('desconto')),
@@ -302,6 +391,11 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
   return {
     titulo: data.titulo,
     materialTag: normalizeMaterialTag(data.materialTag),
+    areaM2: parseNullableNumber(data.areaM2),
+    valorPerfil: parseNullableNumber(data.valorPerfil),
+    valorVidro: parseNullableNumber(data.valorVidro),
+    valorAcessorios: parseNullableNumber(data.valorAcessorios),
+    observacoesTecnicas: normalizeNullableText(data.observacoesTecnicas),
     descricao: data.descricao,
     valor: parseNullableNumber(data.valor),
     desconto: parseNullableNumber(data.desconto),
@@ -331,9 +425,9 @@ async function getAuthenticatedUser() {
   return getAuthenticatedServerUser()
 }
 
-async function getProposal(id: string) {
+async function queryProposalByColumns(id: string, columns: string) {
   const [proposta] = await query<any[]>(
-    `SELECT ${PROPOSAL_BASE_SELECT_COLUMNS}
+    `SELECT ${columns}
      FROM propostas p
      LEFT JOIN clientes c ON p.cliente_id = c.id
      LEFT JOIN usuarios u ON p.responsavel_id = u.id
@@ -343,6 +437,27 @@ async function getProposal(id: string) {
   )
 
   return proposta
+}
+
+async function getProposal(id: string) {
+  try {
+    return await queryProposalByColumns(id, PROPOSAL_BASE_SELECT_COLUMNS)
+  } catch (error) {
+    if (!isUnknownColumnError(error)) {
+      throw error
+    }
+
+    try {
+      await ensureSystemDatabaseSchema()
+      return await queryProposalByColumns(id, PROPOSAL_BASE_SELECT_COLUMNS)
+    } catch (schemaError) {
+      if (!isUnknownColumnError(schemaError)) {
+        throw schemaError
+      }
+
+      return queryProposalByColumns(id, PROPOSAL_BASE_SELECT_COLUMNS_LEGACY)
+    }
+  }
 }
 
 async function getProposalAttachments(id: string) {
@@ -355,7 +470,7 @@ async function getProposalAttachments(id: string) {
    )
 }
 
-async function getProposalDetailPayload(id: string, initialProposal?: any) {
+async function getProposalDetailPayload(id: string, initialProposal?: any, user?: any) {
   const proposta = initialProposal ?? (await getProposal(id))
   if (!proposta) {
     return null
@@ -380,12 +495,12 @@ async function getProposalDetailPayload(id: string, initialProposal?: any) {
     ),
   ])
 
-  return {
-    ...proposta,
-    anexos,
-    comentarios,
+    return sanitizeTechnicalProposalData({
+      ...proposta,
+      anexos,
+      comentarios,
+    }, user)
   }
-}
 
 function canViewProposal(user: any, proposta: any) {
   if (user.role === 'admin' || user.role === 'gerente') return true
@@ -533,7 +648,7 @@ export async function GET(
       return jsonNoStore({ error: 'Acesso negado a esta proposta' }, { status: 403 })
     }
 
-    const payload = await getProposalDetailPayload(id, proposta)
+    const payload = await getProposalDetailPayload(id, proposta, user)
     if (!payload) {
       return jsonNoStore({ error: 'Proposta nao encontrada' }, { status: 404 })
     }
@@ -716,11 +831,48 @@ export async function PUT(
     const hasExistingProposalPdf = anexosAtuais.some(isPdfAttachmentRecord)
     const hasNewProposalPdf = data.anexos.some(isPdfFile)
 
+    const areaM2 =
+      data.areaM2 === undefined ? parseNullableNumber(propostaAtual.area_m2) : parseNullableNumber(data.areaM2)
+    const valorPerfil =
+      data.valorPerfil === undefined
+        ? parseNullableNumber(propostaAtual.valor_perfil)
+        : parseNullableNumber(data.valorPerfil)
+    const valorVidro =
+      data.valorVidro === undefined
+        ? parseNullableNumber(propostaAtual.valor_vidro)
+        : parseNullableNumber(data.valorVidro)
+    const valorAcessorios =
+      data.valorAcessorios === undefined
+        ? parseNullableNumber(propostaAtual.valor_acessorios)
+        : parseNullableNumber(data.valorAcessorios)
+    const observacoesTecnicas =
+      data.observacoesTecnicas === undefined
+        ? normalizeNullableText(propostaAtual.observacoes_tecnicas)
+        : normalizeNullableText(data.observacoesTecnicas)
+
     if (mustValidateApprovalRequirements && !hasExistingProposalPdf && !hasNewProposalPdf) {
       return NextResponse.json(
         { error: 'Anexe obrigatoriamente a proposta em PDF antes de enviar para aprovacao.' },
         { status: 400 }
       )
+    }
+
+    if (mustValidateApprovalRequirements) {
+      const missingTechnicalFields = [
+        areaM2 == null || areaM2 <= 0 ? 'area em m2' : null,
+        valorPerfil == null || valorPerfil <= 0 ? 'valor de perfil' : null,
+        valorVidro == null || valorVidro <= 0 ? 'valor de vidro' : null,
+        valorAcessorios == null || valorAcessorios <= 0 ? 'valor de acessorios' : null,
+      ].filter((item): item is string => Boolean(item))
+
+      if (missingTechnicalFields.length > 0) {
+        return NextResponse.json(
+          {
+            error: `Preencha os dados tecnicos obrigatorios antes de enviar para aprovacao: ${missingTechnicalFields.join(', ')}.`,
+          },
+          { status: 400 }
+        )
+      }
     }
 
     const storedStatus = nextStatus
@@ -819,8 +971,8 @@ export async function PUT(
     const followUpTime = data.followUpTime ?? propostaAtual.follow_up_time ?? null
 
     await query(
-      `UPDATE propostas SET
-        cliente_id = ?, titulo = ?, material_tag = ?, descricao = ?, valor = ?, desconto = ?,
+        `UPDATE propostas SET
+        cliente_id = ?, titulo = ?, material_tag = ?, area_m2 = ?, valor_perfil = ?, valor_vidro = ?, valor_acessorios = ?, observacoes_tecnicas = ?, descricao = ?, valor = ?, desconto = ?,
         valor_final = ?, status = ?, validade = ?, servicos = ?, condicoes = ?,
         responsavel_id = ?, orcamentista_id = ?, follow_up_base_at = ?, follow_up_time = ?
        WHERE id = ?`,
@@ -828,6 +980,11 @@ export async function PUT(
         resolvedClienteId,
         data.titulo || propostaAtual.titulo || 'Proposta Comercial',
         materialTag,
+        areaM2,
+        valorPerfil,
+        valorVidro,
+        valorAcessorios,
+        observacoesTecnicas,
         data.descricao ?? propostaAtual.descricao ?? null,
         valor,
         desconto,
@@ -961,7 +1118,7 @@ export async function PUT(
       })
     }
 
-    const proposta = await getProposalDetailPayload(id)
+    const proposta = await getProposalDetailPayload(id, undefined, user)
     return NextResponse.json(proposta)
   } catch (error) {
     console.error('Erro ao atualizar proposta:', error)

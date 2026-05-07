@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/sheet'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
+import { Input } from '@/components/ui/input'
 
 type ProposalCommentSnapshot = {
   id: string
@@ -84,6 +85,32 @@ function mergeProposalSnapshot(primary: Proposta, fallback: Proposta) {
     numero: pickProposalValue(primary.numero, fallback.numero) || '',
     titulo: pickProposalValue(primary.titulo, fallback.titulo) || 'Proposta Comercial',
     materialTag: pickProposalValue(primary.materialTag, fallback.materialTag) || null,
+    areaM2:
+      typeof primary.areaM2 === 'number'
+        ? primary.areaM2
+        : typeof fallback.areaM2 === 'number'
+          ? fallback.areaM2
+          : null,
+    valorPerfil:
+      typeof primary.valorPerfil === 'number'
+        ? primary.valorPerfil
+        : typeof fallback.valorPerfil === 'number'
+          ? fallback.valorPerfil
+          : null,
+    valorVidro:
+      typeof primary.valorVidro === 'number'
+        ? primary.valorVidro
+        : typeof fallback.valorVidro === 'number'
+          ? fallback.valorVidro
+          : null,
+    valorAcessorios:
+      typeof primary.valorAcessorios === 'number'
+        ? primary.valorAcessorios
+        : typeof fallback.valorAcessorios === 'number'
+          ? fallback.valorAcessorios
+          : null,
+    observacoesTecnicas:
+      pickProposalValue(primary.observacoesTecnicas, fallback.observacoesTecnicas) || null,
     descricao: pickProposalValue(primary.descricao, fallback.descricao) || '',
     status: pickProposalValue(primary.status, fallback.status) || 'novo_cliente',
     responsavelId: pickProposalValue(primary.responsavelId, fallback.responsavelId) || '',
@@ -135,6 +162,23 @@ function formatCurrencyInputValue(value: number) {
   }).format(Number.isFinite(value) ? value : 0)
 }
 
+function parseOptionalNumericInput(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  return parseCurrencyInput(trimmed)
+}
+
+function formatTechnicalMetricValue(value?: number | null) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '-'
+  }
+
+  return new Intl.NumberFormat('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value)
+}
+
 type InlineProposalUpdatePayload = Record<string, unknown>
 
 export function ProposalDetailsSheet({
@@ -173,6 +217,12 @@ export function ProposalDetailsSheet({
   const [editingValue, setEditingValue] = useState('')
   const [isEditingDescription, setIsEditingDescription] = useState(false)
   const [editingDescription, setEditingDescription] = useState('')
+  const [isEditingTechnicalDetails, setIsEditingTechnicalDetails] = useState(false)
+  const [editingAreaM2, setEditingAreaM2] = useState('')
+  const [editingValorPerfil, setEditingValorPerfil] = useState('')
+  const [editingValorVidro, setEditingValorVidro] = useState('')
+  const [editingValorAcessorios, setEditingValorAcessorios] = useState('')
+  const [editingObservacoesTecnicas, setEditingObservacoesTecnicas] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const detailErrorMessage = useMemo(() => {
     if (!error) return null
@@ -200,6 +250,12 @@ export function ProposalDetailsSheet({
     setEditingValue('')
     setIsEditingDescription(false)
     setEditingDescription('')
+    setIsEditingTechnicalDetails(false)
+    setEditingAreaM2('')
+    setEditingValorPerfil('')
+    setEditingValorVidro('')
+    setEditingValorAcessorios('')
+    setEditingObservacoesTecnicas('')
   }, [propostaId])
 
   useEffect(() => {
@@ -214,7 +270,23 @@ export function ProposalDetailsSheet({
     if (!isEditingDescription) {
       setEditingDescription(propostaSource.descricao || '')
     }
-  }, [isEditingDescription, isEditingValue, propostaSource])
+
+    if (!isEditingTechnicalDetails) {
+      setEditingAreaM2(
+        propostaSource.areaM2 != null ? formatTechnicalMetricValue(propostaSource.areaM2) : ''
+      )
+      setEditingValorPerfil(
+        propostaSource.valorPerfil != null ? formatCurrencyInputValue(propostaSource.valorPerfil) : ''
+      )
+      setEditingValorVidro(
+        propostaSource.valorVidro != null ? formatCurrencyInputValue(propostaSource.valorVidro) : ''
+      )
+      setEditingValorAcessorios(
+        propostaSource.valorAcessorios != null ? formatCurrencyInputValue(propostaSource.valorAcessorios) : ''
+      )
+      setEditingObservacoesTecnicas(propostaSource.observacoesTecnicas || '')
+    }
+  }, [isEditingDescription, isEditingTechnicalDetails, isEditingValue, propostaSource])
 
   useEffect(() => {
     if (!open || !propostaId) {
@@ -237,6 +309,68 @@ export function ProposalDetailsSheet({
     return false
   }, [propostaSource, user])
 
+  const canViewTechnicalDetails = useMemo(
+    () => user?.role === 'admin' || user?.role === 'orcamentista',
+    [user?.role]
+  )
+
+  const canEditTechnicalDetails = useMemo(
+    () => canViewTechnicalDetails && canInlineEdit,
+    [canInlineEdit, canViewTechnicalDetails]
+  )
+  const technicalMetrics = useMemo(
+    () => [
+      {
+        key: 'area',
+        label: 'Area (m2)',
+        value:
+          propostaSource?.areaM2 != null
+            ? `${formatTechnicalMetricValue(propostaSource.areaM2)} m2`
+            : 'Nao informado',
+      },
+      {
+        key: 'perfil',
+        label: 'Valor de perfil',
+        value:
+          propostaSource?.valorPerfil != null
+            ? formatCurrency(propostaSource.valorPerfil)
+            : 'Nao informado',
+      },
+      {
+        key: 'vidro',
+        label: 'Valor de vidro',
+        value:
+          propostaSource?.valorVidro != null
+            ? formatCurrency(propostaSource.valorVidro)
+            : 'Nao informado',
+      },
+      {
+        key: 'acessorios',
+        label: 'Valor de acessorios',
+        value:
+          propostaSource?.valorAcessorios != null
+            ? formatCurrency(propostaSource.valorAcessorios)
+            : 'Nao informado',
+      },
+    ],
+    [formatCurrency, propostaSource?.areaM2, propostaSource?.valorAcessorios, propostaSource?.valorPerfil, propostaSource?.valorVidro]
+  )
+  const hasTechnicalMetrics = useMemo(
+    () =>
+      Boolean(
+        propostaSource &&
+          (
+            propostaSource.areaM2 != null ||
+            propostaSource.valorPerfil != null ||
+            propostaSource.valorVidro != null ||
+            propostaSource.valorAcessorios != null
+          )
+      ),
+    [propostaSource]
+  )
+  const hasTechnicalNotes = Boolean(propostaSource?.observacoesTecnicas?.trim())
+  const hasAnyTechnicalData = hasTechnicalMetrics || hasTechnicalNotes
+
   const buildInlineUpdatePayload = (overrides: InlineProposalUpdatePayload = {}) => {
     if (!propostaSource) return null
 
@@ -251,6 +385,11 @@ export function ProposalDetailsSheet({
       clienteId: propostaSource.clienteId,
       titulo: propostaSource.titulo || 'Proposta Comercial',
       materialTag: propostaSource.materialTag || null,
+      areaM2: propostaSource.areaM2 ?? null,
+      valorPerfil: propostaSource.valorPerfil ?? null,
+      valorVidro: propostaSource.valorVidro ?? null,
+      valorAcessorios: propostaSource.valorAcessorios ?? null,
+      observacoesTecnicas: propostaSource.observacoesTecnicas ?? null,
       descricao: propostaSource.descricao || '',
       valor: propostaSource.valor,
       desconto: propostaSourceRecord.desconto ?? 0,
@@ -390,6 +529,69 @@ export function ProposalDetailsSheet({
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  const resetTechnicalEditingState = () => {
+    setIsEditingTechnicalDetails(false)
+    setEditingAreaM2(
+      propostaSource?.areaM2 != null ? formatTechnicalMetricValue(propostaSource.areaM2) : ''
+    )
+    setEditingValorPerfil(
+      propostaSource?.valorPerfil != null ? formatCurrencyInputValue(propostaSource.valorPerfil) : ''
+    )
+    setEditingValorVidro(
+      propostaSource?.valorVidro != null ? formatCurrencyInputValue(propostaSource.valorVidro) : ''
+    )
+    setEditingValorAcessorios(
+      propostaSource?.valorAcessorios != null ? formatCurrencyInputValue(propostaSource.valorAcessorios) : ''
+    )
+    setEditingObservacoesTecnicas(propostaSource?.observacoesTecnicas || '')
+  }
+
+  const handleSaveTechnicalDetails = async () => {
+    if (!propostaId || !propostaSource) return
+
+    const areaM2 = parseOptionalNumericInput(editingAreaM2)
+    const valorPerfil = parseOptionalNumericInput(editingValorPerfil)
+    const valorVidro = parseOptionalNumericInput(editingValorVidro)
+    const valorAcessorios = parseOptionalNumericInput(editingValorAcessorios)
+
+    const invalidTechnicalValue =
+      (editingAreaM2.trim() && (areaM2 === null || areaM2 < 0)) ||
+      (editingValorPerfil.trim() && (valorPerfil === null || valorPerfil < 0)) ||
+      (editingValorVidro.trim() && (valorVidro === null || valorVidro < 0)) ||
+      (editingValorAcessorios.trim() && (valorAcessorios === null || valorAcessorios < 0))
+
+    if (invalidTechnicalValue) {
+      toast.error('Revise os dados tecnicos e informe apenas numeros validos.')
+      return
+    }
+
+    const payload = buildInlineUpdatePayload({
+      areaM2,
+      valorPerfil,
+      valorVidro,
+      valorAcessorios,
+      observacoesTecnicas: editingObservacoesTecnicas.trim() || null,
+    })
+    if (!payload) return
+
+    setIsSubmitting(true)
+    try {
+      await updateProposta(propostaId, payload)
+      setIsEditingTechnicalDetails(false)
+      await refreshProposalData()
+      toast.success('Dados tecnicos atualizados.')
+    } catch (error: any) {
+      toast.error(error?.message || 'Erro ao atualizar dados tecnicos.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const startEditingTechnicalDetails = () => {
+    if (!canEditTechnicalDetails) return
+    setIsEditingTechnicalDetails(true)
   }
 
   const applyCommentSnapshot = async (
@@ -805,6 +1007,156 @@ export function ProposalDetailsSheet({
                     </button>
                   )}
                 </div>
+
+                {canViewTechnicalDetails ? (
+                  <div className="min-w-0 space-y-4 rounded-xl border border-border bg-card p-4">
+                    <div
+                      className={`flex items-start justify-between gap-3 ${canEditTechnicalDetails && !isEditingTechnicalDetails ? 'cursor-text' : ''}`}
+                      onClick={() => {
+                        if (!isEditingTechnicalDetails) {
+                          startEditingTechnicalDetails()
+                        }
+                      }}
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-foreground">Dados tecnicos da obra</p>
+                        <p className="text-sm text-muted-foreground">
+                          Resumo interno para aprovacao e leitura tecnica da proposta.
+                        </p>
+                      </div>
+                      {canEditTechnicalDetails && !isEditingTechnicalDetails ? (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border bg-secondary/30 px-2.5 py-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+                          <Pencil className="h-3.5 w-3.5" />
+                          Editar
+                        </span>
+                      ) : null}
+                    </div>
+
+                    {isEditingTechnicalDetails ? (
+                      <div className="space-y-4 rounded-xl border border-border/70 bg-secondary/10 p-4">
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-foreground">Area (m2)</label>
+                            <Input
+                              type="text"
+                              inputMode="decimal"
+                              value={editingAreaM2}
+                              onChange={(event) => setEditingAreaM2(event.target.value)}
+                              placeholder="0,00"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-foreground">Valor de perfil</label>
+                            <Input
+                              type="text"
+                              inputMode="decimal"
+                              value={editingValorPerfil}
+                              onChange={(event) => setEditingValorPerfil(event.target.value)}
+                              placeholder="0,00"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-foreground">Valor de vidro</label>
+                            <Input
+                              type="text"
+                              inputMode="decimal"
+                              value={editingValorVidro}
+                              onChange={(event) => setEditingValorVidro(event.target.value)}
+                              placeholder="0,00"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-foreground">Valor de acessorios</label>
+                            <Input
+                              type="text"
+                              inputMode="decimal"
+                              value={editingValorAcessorios}
+                              onChange={(event) => setEditingValorAcessorios(event.target.value)}
+                              placeholder="0,00"
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium text-foreground">Observacoes tecnicas</label>
+                          <Textarea
+                            rows={5}
+                            value={editingObservacoesTecnicas}
+                            onChange={(event) => setEditingObservacoesTecnicas(event.target.value)}
+                            placeholder="Detalhes tecnicos complementares da obra..."
+                          />
+                        </div>
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={resetTechnicalEditingState}
+                            disabled={isSubmitting}
+                          >
+                            Cancelar
+                          </Button>
+                          <Button
+                            type="button"
+                            onClick={() => void handleSaveTechnicalDetails()}
+                            disabled={isSubmitting}
+                          >
+                            Salvar dados tecnicos
+                          </Button>
+                        </div>
+                      </div>
+                    ) : hasAnyTechnicalData ? (
+                      <div
+                        className={`space-y-3 ${canEditTechnicalDetails ? 'cursor-text' : ''}`}
+                        onClick={startEditingTechnicalDetails}
+                      >
+                        <div className="grid gap-3 md:grid-cols-2">
+                          {technicalMetrics.map((metric) => (
+                            <div
+                              key={metric.key}
+                              className={`rounded-xl border border-border bg-secondary/10 px-4 py-3.5 ${canEditTechnicalDetails ? 'transition hover:bg-secondary/20' : ''}`}
+                            >
+                              <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+                                {metric.label}
+                              </p>
+                              <p className="mt-3 text-base font-semibold leading-tight text-foreground [font-variant-numeric:tabular-nums]">
+                                {metric.value}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                        <div
+                          className={`rounded-xl border border-border bg-secondary/10 px-4 py-3.5 text-left ${canEditTechnicalDetails ? 'transition hover:bg-secondary/20' : ''}`}
+                        >
+                          <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+                            Observacoes tecnicas
+                          </p>
+                          <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">
+                            {propostaSource.observacoesTecnicas?.trim() ||
+                              'Nenhuma observacao tecnica foi registrada.'}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        className={`rounded-xl border border-dashed border-border bg-secondary/10 px-4 py-4 text-left ${canEditTechnicalDetails ? 'cursor-text transition hover:bg-secondary/20' : ''}`}
+                        onClick={startEditingTechnicalDetails}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-foreground">
+                              Nenhum dado tecnico foi preenchido ainda.
+                            </p>
+                            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                              Quando o orcamentista finalizar a proposta, este bloco pode receber area, custos tecnicos e observacoes para a aprovacao.
+                            </p>
+                          </div>
+                          {canEditTechnicalDetails ? (
+                            <Pencil className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                          ) : null}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
 
                 <div className="grid min-w-0 gap-4 md:grid-cols-2">
                   <InfoCard

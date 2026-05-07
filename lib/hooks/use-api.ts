@@ -275,6 +275,11 @@ function normalizeProposta(row: JsonRecord): Proposta {
     numero: row.numero ?? '',
     titulo: row.titulo ?? 'Proposta Comercial',
     materialTag: row.materialTag ?? row.material_tag ?? null,
+    areaM2: parseNumberLike(row.areaM2 ?? row.area_m2),
+    valorPerfil: parseNumberLike(row.valorPerfil ?? row.valor_perfil),
+    valorVidro: parseNumberLike(row.valorVidro ?? row.valor_vidro),
+    valorAcessorios: parseNumberLike(row.valorAcessorios ?? row.valor_acessorios),
+    observacoesTecnicas: row.observacoesTecnicas ?? row.observacoes_tecnicas ?? null,
     kanbanOrder: toNumber(row.kanbanOrder ?? row.kanban_order),
     valor: toNumber(row.valor ?? row.valor_final),
     descricao: row.descricao ?? '',
@@ -1479,15 +1484,29 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
   const parsedValor = parseNumberLike(data.valor)
   const parsedDesconto = parseNumberLike(data.desconto)
   const parsedClienteValorFechado = parseNumberLike(data.clienteValorFechado)
+  const parsedAreaM2 = parseNumberLike(data.areaM2)
+  const parsedValorPerfil = parseNumberLike(data.valorPerfil)
+  const parsedValorVidro = parseNumberLike(data.valorVidro)
+  const parsedValorAcessorios = parseNumberLike(data.valorAcessorios)
   const parsedKanbanPosition =
     typeof data.kanbanPosition === 'number' && Number.isFinite(data.kanbanPosition)
       ? Math.max(0, Math.trunc(data.kanbanPosition))
       : null
   const hasExplicitValor = hasFilledValue(data.valor)
   const hasExplicitDesconto = hasFilledValue(data.desconto)
+  const hasExplicitAreaM2 = hasFilledValue(data.areaM2)
+  const hasExplicitValorPerfil = hasFilledValue(data.valorPerfil)
+  const hasExplicitValorVidro = hasFilledValue(data.valorVidro)
+  const hasExplicitValorAcessorios = hasFilledValue(data.valorAcessorios)
   const payload = {
     titulo: data.titulo || 'Proposta Comercial',
     materialTag: data.materialTag === undefined ? undefined : (data.materialTag || null),
+    areaM2: hasExplicitAreaM2 ? parsedAreaM2 : null,
+    valorPerfil: hasExplicitValorPerfil ? parsedValorPerfil : null,
+    valorVidro: hasExplicitValorVidro ? parsedValorVidro : null,
+    valorAcessorios: hasExplicitValorAcessorios ? parsedValorAcessorios : null,
+    observacoesTecnicas:
+      data.observacoesTecnicas === undefined ? undefined : (data.observacoesTecnicas || null),
     descricao: data.descricao || '',
     valor: hasExplicitValor ? (parsedValor ?? 0) : null,
     desconto: hasExplicitDesconto ? (parsedDesconto ?? 0) : null,
@@ -1520,6 +1539,16 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     titulo: payload.titulo,
     materialTag: payload.materialTag,
     material_tag: payload.materialTag,
+    areaM2: payload.areaM2,
+    area_m2: payload.areaM2,
+    valorPerfil: payload.valorPerfil,
+    valor_perfil: payload.valorPerfil,
+    valorVidro: payload.valorVidro,
+    valor_vidro: payload.valorVidro,
+    valorAcessorios: payload.valorAcessorios,
+    valor_acessorios: payload.valorAcessorios,
+    observacoesTecnicas: payload.observacoesTecnicas,
+    observacoes_tecnicas: payload.observacoesTecnicas,
     descricao: payload.descricao,
     valor: payload.valor,
     desconto: payload.desconto,

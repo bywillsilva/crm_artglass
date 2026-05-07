@@ -243,8 +243,20 @@ async function ensureProposalColumns() {
      FROM INFORMATION_SCHEMA.COLUMNS
      WHERE TABLE_SCHEMA = DATABASE()
        AND TABLE_NAME = 'propostas'
-        AND COLUMN_NAME IN ('orcamentista_id', 'retificacoes_count', 'follow_up_base_at', 'follow_up_time', 'material_tag', 'kanban_order')`
-  )
+         AND COLUMN_NAME IN (
+           'orcamentista_id',
+           'retificacoes_count',
+           'follow_up_base_at',
+           'follow_up_time',
+           'material_tag',
+           'kanban_order',
+           'area_m2',
+           'valor_perfil',
+           'valor_vidro',
+           'valor_acessorios',
+           'observacoes_tecnicas'
+         )`
+   )
 
   const existing = new Set(columns.map((column) => column.COLUMN_NAME))
 
@@ -270,6 +282,26 @@ async function ensureProposalColumns() {
 
   if (!existing.has('kanban_order')) {
     await query(`ALTER TABLE propostas ADD COLUMN kanban_order BIGINT NULL AFTER follow_up_time`)
+  }
+
+  if (!existing.has('area_m2')) {
+    await query(`ALTER TABLE propostas ADD COLUMN area_m2 DECIMAL(10,2) NULL AFTER kanban_order`)
+  }
+
+  if (!existing.has('valor_perfil')) {
+    await query(`ALTER TABLE propostas ADD COLUMN valor_perfil DECIMAL(12,2) NULL AFTER area_m2`)
+  }
+
+  if (!existing.has('valor_vidro')) {
+    await query(`ALTER TABLE propostas ADD COLUMN valor_vidro DECIMAL(12,2) NULL AFTER valor_perfil`)
+  }
+
+  if (!existing.has('valor_acessorios')) {
+    await query(`ALTER TABLE propostas ADD COLUMN valor_acessorios DECIMAL(12,2) NULL AFTER valor_vidro`)
+  }
+
+  if (!existing.has('observacoes_tecnicas')) {
+    await query(`ALTER TABLE propostas ADD COLUMN observacoes_tecnicas TEXT NULL AFTER valor_acessorios`)
   }
 }
 

@@ -127,6 +127,11 @@ export interface Proposta {
   numero?: string
   titulo?: string
   materialTag?: string | null
+  areaM2?: number | null
+  valorPerfil?: number | null
+  valorVidro?: number | null
+  valorAcessorios?: number | null
+  observacoesTecnicas?: string | null
   kanbanOrder?: number | null
   valor: number
   descricao?: string
