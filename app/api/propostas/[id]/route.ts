@@ -906,17 +906,21 @@ export async function PUT(
     }
 
     if (mustValidateApprovalRequirements) {
-      const missingTechnicalFields = [
-        areaM2 == null || areaM2 <= 0 ? 'area em m2' : null,
-        valorPerfil == null || valorPerfil <= 0 ? 'valor de perfil' : null,
-        valorVidro == null || valorVidro <= 0 ? 'valor de vidro' : null,
-        valorAcessorios == null || valorAcessorios <= 0 ? 'valor de acessorios' : null,
-      ].filter((item): item is string => Boolean(item))
+      const technicalFields = [
+        areaM2,
+        valorPerfil,
+        valorVidro,
+        valorAcessorios,
+      ]
+      const hasAnyTechnicalField = technicalFields.some(
+        (value) => value != null && Number.isFinite(value) && value > 0
+      )
 
-      if (missingTechnicalFields.length > 0) {
+      if (!hasAnyTechnicalField) {
         return NextResponse.json(
           {
-            error: `Preencha os dados tecnicos obrigatorios antes de enviar para aprovacao: ${missingTechnicalFields.join(', ')}.`,
+            error:
+              'Preencha ao menos um dado tecnico da proposta antes de enviar para aprovacao (area em m2, valor de perfil, valor de vidro ou valor de acessorios).',
           },
           { status: 400 }
         )
