@@ -95,6 +95,21 @@ export async function GET(
       return jsonNoStore({ error: 'Cliente nao encontrado' }, { status: 404 })
     }
 
+    if (user.role === 'vendedor') {
+      const [allowedProposal] = await query<any[]>(
+        `SELECT 1
+         FROM propostas
+         WHERE cliente_id = ?
+           AND responsavel_id = ?
+         LIMIT 1`,
+        [id, user.id]
+      )
+
+      if (cliente.responsavel_id !== user.id && !allowedProposal) {
+        return jsonNoStore({ error: 'Acesso negado a este cliente' }, { status: 403 })
+      }
+    }
+
     setRuntimeCache(cacheKey, cliente, CLIENTE_DETAIL_CACHE_TTL_MS)
     return jsonNoStore(cliente)
   } catch (error) {

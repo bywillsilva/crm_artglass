@@ -1051,7 +1051,10 @@ export function useUsuario(id: string | null) {
 
 // Hook para Interacoes
 export function useInteracoes(
-  params?: string | null | { clienteId?: string | null; tipo?: TipoInteracao; limit?: number }
+  params?:
+    | string
+    | null
+    | { clienteId?: string | null; tipo?: TipoInteracao; limit?: number; notificationsOnly?: boolean }
 ) {
   const resolvedParams =
     typeof params === 'string'
@@ -1071,9 +1074,10 @@ export function useInteracoes(
     if (resolvedParams.clienteId) searchParams.set('cliente_id', resolvedParams.clienteId)
     if (resolvedParams.tipo) searchParams.set('tipo', resolvedParams.tipo)
     if (resolvedParams.limit) searchParams.set('limit', String(resolvedParams.limit))
+    if (resolvedParams.notificationsOnly) searchParams.set('notifications_only', 'true')
 
     return `/api/interacoes${searchParams.toString() ? `?${searchParams.toString()}` : ''}`
-  }, [resolvedParams.clienteId, resolvedParams.limit, resolvedParams.tipo])
+  }, [resolvedParams.clienteId, resolvedParams.limit, resolvedParams.notificationsOnly, resolvedParams.tipo])
 
   const { data, error, isLoading } = useSWR(url, fetcher, READ_ONLY_SWR_OPTIONS)
   const interacoes = useMemo(() => (data || []).map(normalizeInteracao), [data])

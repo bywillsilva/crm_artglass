@@ -218,6 +218,19 @@ export async function GET(request: NextRequest) {
     `
     const params: unknown[] = []
 
+    if (user.role === 'vendedor') {
+      sql += ` AND (
+        c.responsavel_id = ?
+        OR EXISTS (
+          SELECT 1
+          FROM propostas p
+          WHERE p.cliente_id = c.id
+            AND p.responsavel_id = ?
+        )
+      )`
+      params.push(user.id, user.id)
+    }
+
     if (status && status !== 'todos') {
       sql += ' AND c.status_funil = ?'
       params.push(status)

@@ -23,10 +23,16 @@ export async function GET(request: NextRequest) {
   const clienteId = searchParams.get('cliente_id')
   const tipo = searchParams.get('tipo')
   const limitParam = searchParams.get('limit')
+  const notificationsOnly = searchParams.get('notifications_only') === 'true'
   const limit = limitParam ? Math.min(Math.max(Number(limitParam) || 0, 1), 200) : null
-  const cacheKey = `interacoes:${clienteId || 'all'}:${tipo || 'all'}:${limit || 'all'}`
 
   try {
+    const user = await getAuthenticatedServerUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
+    }
+
+    const cacheKey = `interacoes:${user.role}:${user.id}:${clienteId || 'all'}:${tipo || 'all'}:${limit || 'all'}:${notificationsOnly ? 'notifications' : 'default'}`
     const whereClauses: string[] = []
     const params: unknown[] = []
 
@@ -44,6 +50,28 @@ export async function GET(request: NextRequest) {
       SELECT ${INTERACTION_SELECT_COLUMNS}, u.nome as usuario_nome
       FROM interacoes i
       LEFT JOIN usuarios u ON i.usuario_id = u.id
+      LEFT JOIN propostas p ON p.id = JSON_UNQUOTE(JSON_EXTRACT(i.dados, '$.proposta_id'))
+      LEFT JOIN clientes c ON c.id = i.cliente_id
+      ${whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : ''}
+      ORDER BY i.created_at DESC
+    `
+
+    if (notificationsOnly) {
+      if (user.role === 'vendedor' || user.role === 'gerente') {
+        whereClauses.push('(p.responsavel_id = ? OR (p.id IS NULL AND c.responsavel_id = ?))')
+        params.push(user.id, user.id)
+      } else if (user.role === 'orcamentista') {
+        whereClauses.push('p.orcamentista_id = ?')
+        params.push(user.id)
+      }
+    }
+
+    sql = `
+      SELECT ${INTERACTION_SELECT_COLUMNS}, u.nome as usuario_nome
+      FROM interacoes i
+      LEFT JOIN usuarios u ON i.usuario_id = u.id
+      LEFT JOIN propostas p ON p.id = JSON_UNQUOTE(JSON_EXTRACT(i.dados, '$.proposta_id'))
+      LEFT JOIN clientes c ON c.id = i.cliente_id
       ${whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : ''}
       ORDER BY i.created_at DESC
     `
@@ -65,7 +93,14 @@ export async function GET(request: NextRequest) {
     console.error('Erro ao buscar interacoes:', error)
 
     if (isTransientDatabaseError(error)) {
-      return NextResponse.json(getRuntimeCache<any[]>(cacheKey) || [], { status: 200 })
+      const fallbackUser = await getAuthenticatedServerUser().catch(() => null)
+      const fallbackCacheKey = fallbackUser
+        ? `interacoes:${fallbackUser.role}:${fallbackUser.id}:${clienteId || 'all'}:${tipo || 'all'}:${limit || 'all'}:${notificationsOnly ? 'notifications' : 'default'}`
+        : null
+      return NextResponse.json(
+        (fallbackCacheKey ? getRuntimeCache<any[]>(fallbackCacheKey) : null) || [],
+        { status: 200 }
+      )
     }
 
     return NextResponse.json([])

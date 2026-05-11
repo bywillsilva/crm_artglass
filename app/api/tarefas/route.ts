@@ -132,6 +132,14 @@ export async function POST(request: NextRequest) {
     const data = await request.json()
     const id = uuidv4()
     const now = new Date()
+    const responsavelId =
+      user.role === 'admin' || user.role === 'gerente'
+        ? data.responsavelId
+        : user.id
+
+    if (!responsavelId) {
+      return NextResponse.json({ error: 'Responsavel obrigatorio' }, { status: 400 })
+    }
 
     await query(
       `INSERT INTO tarefas (id, titulo, descricao, tipo, data_hora, status, cliente_id, responsavel_id, proposta_id, automacao_etapa, origem)
@@ -144,7 +152,7 @@ export async function POST(request: NextRequest) {
         data.dataHora,
         data.status || 'pendente',
         data.clienteId,
-        data.responsavelId,
+        responsavelId,
         data.propostaId || null,
         data.automacaoEtapa || null,
         data.origem || 'manual',
@@ -175,7 +183,7 @@ export async function POST(request: NextRequest) {
     invalidateRuntimeCache('crm-bootstrap:')
 
     await notifyTaskEmail({
-      responsavelId: data.responsavelId,
+      responsavelId,
       actorUserId: user.id,
       actorName: user.nome,
       titulo: data.titulo || data.descricao || 'Tarefa',

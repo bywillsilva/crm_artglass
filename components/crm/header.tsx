@@ -119,7 +119,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
   const { tarefas: headerTarefas } = useTarefas()
   const { interacoes } = useInteracoes(
     notifications.propostas && user && shouldLoadProposalNotifications
-      ? { tipo: 'proposta', limit: 12 }
+      ? { tipo: 'proposta', limit: 12, notificationsOnly: true }
       : null
   )
   const [commandOpen, setCommandOpen] = useState(false)
@@ -158,13 +158,25 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
 
   const readNotificationIdsSet = useMemo(() => new Set(readNotificationIds), [readNotificationIds])
 
-  const allowedPropostaIds = useMemo(() => {
-    return new Set(headerPropostas.map((proposta: Proposta) => proposta.id))
+  const allowedPropostasById = useMemo(() => {
+    return new Map(headerPropostas.map((proposta: Proposta) => [proposta.id, proposta]))
   }, [headerPropostas])
 
-  const allowedClienteIds = useMemo(() => {
-    return new Set(headerClientes.map((cliente: Cliente) => cliente.id))
-  }, [headerClientes])
+  const canReceiveClienteNotification = (cliente: Cliente) => {
+    if (user?.role === 'admin') return true
+    if (user?.role === 'vendedor' || user?.role === 'gerente') return cliente.responsavelId === user.id
+    return false
+  }
+
+  const canReceiveProposalNotification = (proposta: Proposta | null | undefined) => {
+    if (!proposta) return false
+    if (user?.role === 'admin') return true
+    if (user?.role === 'vendedor' || user?.role === 'gerente') return proposta.responsavelId === user.id
+    if (user?.role === 'orcamentista') {
+      return Boolean(proposta.orcamentistaId) && proposta.orcamentistaId === user.id
+    }
+    return false
+  }
 
   const taskNotifications = useMemo<HeaderNotification[]>(() => {
     if (!notifications.tarefas) return []
@@ -202,7 +214,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
 
     return headerClientes
       .filter((cliente: Cliente) => activeLeadStatuses.has(cliente.status))
-      .filter((cliente: Cliente) => user?.role === 'admin' || user?.role === 'gerente' || allowedClienteIds.has(cliente.id))
+      .filter((cliente: Cliente) => canReceiveClienteNotification(cliente))
       .filter((cliente: Cliente) => !clientsWithPendingTask.has(cliente.id))
       .sort((a: Cliente, b: Cliente) => b.ultimoContato.getTime() - a.ultimoContato.getTime())
       .slice(0, 12)
@@ -215,7 +227,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
         createdAt: cliente.ultimoContato.getTime(),
         persistent: true,
       }))
-  }, [allowedClienteIds, headerClientes, headerTarefas, notifications.novosLeads, user?.role])
+  }, [headerClientes, headerTarefas, notifications.novosLeads, user?.id, user?.role])
 
   const actionNotifications = useMemo<HeaderNotification[]>(() => {
     if (isLoadingReadNotifications) return []
@@ -233,7 +245,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
         }
 
         const propostaId = String(interacao.dados?.proposta_id || '')
-        return user?.role === 'admin' || allowedPropostaIds.has(propostaId)
+        return canReceiveProposalNotification(allowedPropostasById.get(propostaId))
       })
       .map((interacao: Interacao) => {
         return {
@@ -250,11 +262,12 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
       .sort((a: HeaderNotification, b: HeaderNotification) => b.createdAt - a.createdAt)
       .slice(0, 20)
   }, [
-    allowedPropostaIds,
+    allowedPropostasById,
     isLoadingReadNotifications,
     notifications.propostas,
     readNotificationIdsSet,
     interacoes,
+    user?.id,
     user?.role,
   ])
 

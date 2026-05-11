@@ -39,6 +39,7 @@ export default function TarefasPage() {
   const { appearance, general, formatDateTime, formatDate } = useAppSettings()
   const { user } = useSession()
   const hasTarefasAccess = hasModuleAccess(user, 'tarefas')
+  const canChooseCreateResponsavel = user?.role === 'admin' || user?.role === 'gerente'
   const tarefas = state.tarefas
   const clientes = state.clientes
   const usuarios = state.usuarios
@@ -63,6 +64,12 @@ export default function TarefasPage() {
   useEffect(() => {
     setCurrentMonth(new Date())
   }, [])
+
+  useEffect(() => {
+    if (!canChooseCreateResponsavel && user?.id) {
+      setResponsavelId(user.id)
+    }
+  }, [canChooseCreateResponsavel, user?.id])
 
   const clienteSearchTerm = clienteSearch.trim().toLowerCase()
 
@@ -146,7 +153,8 @@ export default function TarefasPage() {
   }
 
   const handleAddTarefa = async () => {
-    if (isCreatingTask || !descricao.trim() || !dataHora || !responsavelId || !clienteId) return
+    const effectiveResponsavelId = canChooseCreateResponsavel ? responsavelId : (user?.id || '')
+    if (isCreatingTask || !descricao.trim() || !dataHora || !effectiveResponsavelId || !clienteId) return
 
     setIsCreatingTask(true)
 
@@ -156,13 +164,13 @@ export default function TarefasPage() {
         descricao,
         dataHora: new Date(dataHora),
         status: 'pendente',
-        responsavelId,
+        responsavelId: effectiveResponsavelId,
       })
 
       setShowAddForm(false)
       setDescricao('')
       setDataHora('')
-      setResponsavelId('')
+      setResponsavelId(canChooseCreateResponsavel ? '' : (user?.id || ''))
       setClienteId('')
       toast.success('Tarefa criada com sucesso.')
     } catch (error: any) {
@@ -303,8 +311,8 @@ export default function TarefasPage() {
       />
 
       <div className="flex-1 overflow-auto p-4 sm:p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="order-2 lg:order-1 lg:col-span-2">
             <Tabs defaultValue="hoje">
               <TabsList className="mb-4 flex flex-wrap h-auto">
                 <TabsTrigger value="hoje">Hoje ({tarefasHoje.length})</TabsTrigger>
@@ -355,7 +363,7 @@ export default function TarefasPage() {
             </Tabs>
           </div>
 
-          <div>
+          <div className="order-1 lg:order-2">
             <Card className="bg-card border-border">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
@@ -454,23 +462,32 @@ export default function TarefasPage() {
               <Input type="datetime-local" value={dataHora} onChange={(e) => setDataHora(e.target.value)} />
             </div>
 
-            <div className="space-y-2">
-              <Label>Responsavel</Label>
-              <Select value={responsavelId} onValueChange={setResponsavelId}>
-                <SelectTrigger><SelectValue placeholder="Selecione o responsavel" /></SelectTrigger>
-                <SelectContent>
-                  {usuarios
-                    .filter((usuario: Usuario) => usuario.role !== 'admin')
-                    .map((usuario: Usuario) => (
-                      <SelectItem key={usuario.id} value={usuario.id}>{usuario.nome}</SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {canChooseCreateResponsavel ? (
+              <div className="space-y-2">
+                <Label>Responsavel</Label>
+                <Select value={responsavelId} onValueChange={setResponsavelId}>
+                  <SelectTrigger><SelectValue placeholder="Selecione o responsavel" /></SelectTrigger>
+                  <SelectContent>
+                    {usuarios
+                      .filter((usuario: Usuario) => usuario.role !== 'admin')
+                      .map((usuario: Usuario) => (
+                        <SelectItem key={usuario.id} value={usuario.id}>{usuario.nome}</SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Responsavel</Label>
+                <div className="rounded-md border border-border bg-secondary/20 px-3 py-2 text-sm text-foreground">
+                  {user?.nome || 'Voce'}
+                </div>
+              </div>
+            )}
 
             <div className="flex justify-end gap-3">
               <Button variant="outline" onClick={() => setShowAddForm(false)} disabled={isCreatingTask}>Cancelar</Button>
-              <Button data-enter-confirm="true" onClick={() => void handleAddTarefa()} pending={isCreatingTask} disabled={isCreatingTask || !descricao.trim() || !dataHora || !responsavelId || !clienteId}>
+              <Button data-enter-confirm="true" onClick={() => void handleAddTarefa()} pending={isCreatingTask} disabled={isCreatingTask || !descricao.trim() || !dataHora || !(canChooseCreateResponsavel ? responsavelId : user?.id) || !clienteId}>
                 Criar Tarefa
               </Button>
             </div>

@@ -432,12 +432,16 @@ export async function GET(request: NextRequest) {
     }
 
     if (user.role === 'vendedor') {
-      sql += ` AND p.responsavel_id = ?
-               AND p.status IN ('enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'aguardando_follow_up_3_dias', 'follow_up_3_dias', 'aguardando_follow_up_7_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'perdido')`
+      sql += ' AND p.responsavel_id = ?'
       params.push(user.id)
     } else if (user.role === 'orcamentista') {
-      sql += ` AND p.status IN ('novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao')
-               AND (p.orcamentista_id = ? OR p.orcamentista_id IS NULL OR p.orcamentista_id = '')`
+      sql += ` AND (
+        p.orcamentista_id = ?
+        OR (
+          p.status IN ('novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao')
+          AND (p.orcamentista_id IS NULL OR p.orcamentista_id = '')
+        )
+      )`
       params.push(user.id)
     }
 
@@ -493,6 +497,14 @@ export async function POST(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
+
+    if (user.role === 'vendedor') {
+      return NextResponse.json(
+        { error: 'Vendedores nao podem criar novas propostas diretamente.' },
+        { status: 403 }
+      )
+    }
+
     const data = await parseProposalPayload(request)
     const id = uuidv4()
     const now = new Date()

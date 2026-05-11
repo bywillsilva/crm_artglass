@@ -101,6 +101,7 @@ export default function PropostasPage() {
     setDetailsPropostaId(proposalId)
   }
   const hasPropostasAccess = hasModuleAccess(user, 'propostas')
+  const canCreateProposal = user?.role !== 'vendedor'
 
   const propostasOrdenadas = useMemo(
     () =>
@@ -460,7 +461,7 @@ export default function PropostasPage() {
       <CRMHeader
         title="Propostas"
         subtitle="Gerencie propostas, anexos e historico comercial"
-        action={{ label: 'Nova Proposta', onClick: () => setShowCreateDialog(true) }}
+        action={canCreateProposal ? { label: 'Nova Proposta', onClick: () => setShowCreateDialog(true) } : undefined}
       />
 
       <div className="flex-1 overflow-auto space-y-4 p-4 sm:space-y-6 sm:p-6">
@@ -631,7 +632,7 @@ export default function PropostasPage() {
         </Tabs>
       </div>
 
-      {showCreateDialog ? (
+      {canCreateProposal ? (
         <ProposalFormDialog open={showCreateDialog} onOpenChange={setShowCreateDialog} />
       ) : null}
       {editingPropostaId ? (

@@ -235,13 +235,29 @@ export async function GET(request: Request) {
       sections.map(async (section) => {
         switch (section) {
           case 'clientes':
+            const clientWhereClause =
+              authenticatedUser.role === 'vendedor'
+                ? `WHERE (
+                    c.responsavel_id = ?
+                    OR EXISTS (
+                      SELECT 1
+                      FROM propostas p
+                      WHERE p.cliente_id = c.id
+                        AND p.responsavel_id = ?
+                    )
+                  )`
+                : ''
             return [
               section,
               await query<any[]>(
                  `SELECT
                     ${BOOTSTRAP_CLIENT_SELECT_COLUMNS}
-                  FROM clientes c
-                 ORDER BY c.created_at DESC`
+                   FROM clientes c
+                   ${clientWhereClause}
+                 ORDER BY c.created_at DESC`,
+                authenticatedUser.role === 'vendedor'
+                  ? [authenticatedUser.id, authenticatedUser.id]
+                  : []
               ),
             ] as const
           case 'usuarios':
@@ -265,12 +281,14 @@ export async function GET(request: Request) {
           case 'propostas':
             const proposalWhereClause =
               authenticatedUser.role === 'vendedor'
-                ? `p.responsavel_id = ?
-                   AND p.status IN ('enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'aguardando_follow_up_3_dias', 'follow_up_3_dias', 'aguardando_follow_up_7_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'perdido')`
+                ? 'p.responsavel_id = ?'
                 : authenticatedUser.role === 'orcamentista'
-                  ? `p.status IN ('novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao')
-                     AND (p.orcamentista_id = ? OR p.orcamentista_id IS NULL OR p.orcamentista_id = '')`
-                  : '1=1'
+                  ? `(p.orcamentista_id = ?
+                      OR (
+                        p.status IN ('novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao')
+                        AND (p.orcamentista_id IS NULL OR p.orcamentista_id = '')
+                      ))`
+                : '1=1'
             const proposalParams =
               authenticatedUser.role === 'vendedor' || authenticatedUser.role === 'orcamentista'
                 ? [authenticatedUser.id]

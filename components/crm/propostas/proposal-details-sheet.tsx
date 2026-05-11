@@ -191,6 +191,27 @@ function formatTechnicalMetricValue(value?: number | null) {
   }).format(value)
 }
 
+function isOrcamentistaEditableStatus(status?: string | null) {
+  return ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(
+    String(status || '')
+  )
+}
+
+function isSellerEditableStatus(status?: string | null) {
+  return [
+    'enviar_ao_cliente',
+    'enviado_ao_cliente',
+    'follow_up_1_dia',
+    'aguardando_follow_up_3_dias',
+    'follow_up_3_dias',
+    'aguardando_follow_up_7_dias',
+    'follow_up_7_dias',
+    'stand_by',
+    'fechado',
+    'perdido',
+  ].includes(String(status || ''))
+}
+
 type InlineProposalUpdatePayload = Record<string, unknown>
 
 export function ProposalDetailsSheet({
@@ -319,9 +340,29 @@ export function ProposalDetailsSheet({
   const canInlineEdit = useMemo(() => {
     if (!user || !propostaSource) return false
     if (user.role === 'admin' || user.role === 'gerente') return true
-    if (user.role === 'vendedor') return propostaSource.responsavelId === user.id
+    if (user.role === 'vendedor') {
+      return propostaSource.responsavelId === user.id && isSellerEditableStatus(propostaSource.status)
+    }
     if (user.role === 'orcamentista') {
-      return !propostaSource.orcamentistaId || propostaSource.orcamentistaId === user.id
+      return (
+        (!propostaSource.orcamentistaId || propostaSource.orcamentistaId === user.id) &&
+        isOrcamentistaEditableStatus(propostaSource.status)
+      )
+    }
+    return false
+  }, [propostaSource, user])
+
+  const canManageProposalContent = useMemo(() => {
+    if (!user || !propostaSource) return false
+    if (user.role === 'admin' || user.role === 'gerente') return true
+    if (user.role === 'vendedor') {
+      return propostaSource.responsavelId === user.id && isSellerEditableStatus(propostaSource.status)
+    }
+    if (user.role === 'orcamentista') {
+      return (
+        (!propostaSource.orcamentistaId || propostaSource.orcamentistaId === user.id) &&
+        isOrcamentistaEditableStatus(propostaSource.status)
+      )
     }
     return false
   }, [propostaSource, user])
@@ -1271,9 +1312,10 @@ export function ProposalDetailsSheet({
                             <span className="text-xs text-muted-foreground">
                               {Math.max(1, Math.round(anexo.tamanho / 1024))} KB
                             </span>
-                            {(user?.role === 'admin' ||
-                              user?.role === 'gerente' ||
-                              anexo.usuarioId === user?.id) && (
+                            {canManageProposalContent &&
+                              (user?.role === 'admin' ||
+                                user?.role === 'gerente' ||
+                                anexo.usuarioId === user?.id) && (
                               <Button
                                 type="button"
                                 variant="ghost"
@@ -1317,9 +1359,12 @@ export function ProposalDetailsSheet({
                   {propostaSource.comentarios?.length ? (
                     propostaSource.comentarios.map((item) => {
                       const canManageComment =
-                        user?.role === 'admin' ||
-                        user?.role === 'gerente' ||
-                        item.usuarioId === user?.id
+                        canManageProposalContent &&
+                        (
+                          user?.role === 'admin' ||
+                          user?.role === 'gerente' ||
+                          item.usuarioId === user?.id
+                        )
 
                       return (
                         <div key={item.id} className="min-w-0 overflow-hidden rounded-xl border border-border bg-secondary/20 p-4">
@@ -1406,27 +1451,31 @@ export function ProposalDetailsSheet({
                 </div>
               </ScrollArea>
 
-              <Separator />
+              {canManageProposalContent ? (
+                <>
+                  <Separator />
 
-                <div className="min-w-0 space-y-3 px-4 py-4">
-                <Textarea
-                  rows={4}
-                  placeholder="Adicionar comentario..."
-                  value={newComment}
-                  onChange={(event) => setNewComment(event.target.value)}
-                />
-                  <div className="flex justify-end">
-                    <Button
-                      type="button"
-                      onClick={() => void handleCreateComment()}
-                      disabled={isSubmitting || !newComment.trim()}
-                      className="max-w-full whitespace-normal text-right"
-                    >
-                      <Send className="mr-2 h-4 w-4" />
-                      Registrar comentario
-                  </Button>
-                </div>
-              </div>
+                  <div className="min-w-0 space-y-3 px-4 py-4">
+                    <Textarea
+                      rows={4}
+                      placeholder="Adicionar comentario..."
+                      value={newComment}
+                      onChange={(event) => setNewComment(event.target.value)}
+                    />
+                    <div className="flex justify-end">
+                      <Button
+                        type="button"
+                        onClick={() => void handleCreateComment()}
+                        disabled={isSubmitting || !newComment.trim()}
+                        className="max-w-full whitespace-normal text-right"
+                      >
+                        <Send className="mr-2 h-4 w-4" />
+                        Registrar comentario
+                      </Button>
+                    </div>
+                  </div>
+                </>
+              ) : null}
             </div>
           </div>
         ) : isLoading ? (

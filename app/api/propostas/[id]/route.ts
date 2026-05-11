@@ -11,6 +11,7 @@ import { notifyProposalEmail } from '@/lib/server/email-notifications'
 import { jsonNoStore } from '@/lib/server/http-cache'
 import {
   canOrcamentistaAccessProposal,
+  canOrcamentistaViewProposal,
   formatDateTime,
   normalizeProposalStatus,
   parseDatabaseDateTime,
@@ -570,7 +571,7 @@ function canViewProposal(user: any, proposta: any) {
     return proposta.responsavel_id === user.id
   }
   if (user.role === 'orcamentista') {
-    return canOrcamentistaAccessProposal(proposta, user.id)
+    return canOrcamentistaViewProposal(proposta, user.id)
   }
   return false
 }

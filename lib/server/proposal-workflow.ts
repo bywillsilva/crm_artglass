@@ -1329,3 +1329,13 @@ export function canOrcamentistaAccessProposal(proposta: {
     (!proposta.orcamentista_id || proposta.orcamentista_id === userId)
   )
 }
+
+export function canOrcamentistaViewProposal(_proposta: {
+  status: string
+  orcamentista_id?: string | null
+}, userId: string) {
+  return (
+    _proposta.orcamentista_id === userId ||
+    canOrcamentistaAccessProposal(_proposta, userId)
+  )
+}

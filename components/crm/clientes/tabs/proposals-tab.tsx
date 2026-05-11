@@ -30,6 +30,7 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
   }, [])
 
   const propostas = getPropostasByCliente(clienteId)
+  const canCreateProposal = user?.role !== 'vendedor'
   const propostasOrdenadas = useMemo(
     () =>
       propostas
@@ -51,10 +52,12 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
       <Card className="border-border bg-card">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-lg">Propostas</CardTitle>
-          <Button size="sm" onClick={() => setShowAddForm(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            Nova Proposta
-          </Button>
+          {canCreateProposal ? (
+            <Button size="sm" onClick={() => setShowAddForm(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              Nova Proposta
+            </Button>
+          ) : null}
         </CardHeader>
         <CardContent>
           {propostas.length === 0 ? (
@@ -169,11 +172,13 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
         </CardContent>
       </Card>
 
-      <ProposalFormDialog
-        open={showAddForm}
-        onOpenChange={setShowAddForm}
-        clienteIdInicial={clienteId}
-      />
+      {canCreateProposal ? (
+        <ProposalFormDialog
+          open={showAddForm}
+          onOpenChange={setShowAddForm}
+          clienteIdInicial={clienteId}
+        />
+      ) : null}
       <ProposalFormDialog
         open={Boolean(editingPropostaId)}
         onOpenChange={(open) => !open && setEditingPropostaId(null)}

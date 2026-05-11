@@ -4,7 +4,9 @@ import { query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { invalidateRuntimeCache } from '@/lib/server/runtime-cache'
-import { canOrcamentistaAccessProposal } from '@/lib/server/proposal-workflow'
+import {
+  canOrcamentistaAccessProposal,
+} from '@/lib/server/proposal-workflow'
 
 async function getAuthenticatedUser() {
   const session = await getServerSession()
@@ -35,9 +37,27 @@ async function touchProposalUpdatedAt(propostaId: string) {
   await query('UPDATE propostas SET updated_at = NOW() WHERE id = ?', [propostaId])
 }
 
-function canViewProposal(user: any, proposta: any) {
+function canSellerManageProposal(proposta: any, userId: string) {
+  return (
+    proposta.responsavel_id === userId &&
+    [
+      'enviar_ao_cliente',
+      'enviado_ao_cliente',
+      'follow_up_1_dia',
+      'aguardando_follow_up_3_dias',
+      'follow_up_3_dias',
+      'aguardando_follow_up_7_dias',
+      'follow_up_7_dias',
+      'stand_by',
+      'fechado',
+      'perdido',
+    ].includes(String(proposta.status || ''))
+  )
+}
+
+function canManageProposal(user: any, proposta: any) {
   if (user.role === 'admin' || user.role === 'gerente') return true
-  if (user.role === 'vendedor') return proposta.responsavel_id === user.id
+  if (user.role === 'vendedor') return canSellerManageProposal(proposta, user.id)
   if (user.role === 'orcamentista') {
     return canOrcamentistaAccessProposal(proposta, user.id)
   }
@@ -60,7 +80,7 @@ export async function POST(
       return NextResponse.json({ error: 'Proposta nao encontrada' }, { status: 404 })
     }
 
-    if (!canViewProposal(user, proposta)) {
+    if (!canManageProposal(user, proposta)) {
       return NextResponse.json({ error: 'Acesso negado a esta proposta' }, { status: 403 })
     }
 

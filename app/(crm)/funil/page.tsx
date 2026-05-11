@@ -32,6 +32,7 @@ export default function FunilPage() {
   const [dateFilter, setDateFilter] = useState<DateFilterValue | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const hasFunilAccess = hasModuleAccess(user, 'funil')
+  const canCreateProposal = user?.role !== 'vendedor'
 
   useEffect(() => {
     setDateFilter(createDefaultDateFilter())
@@ -61,13 +62,13 @@ export default function FunilPage() {
       <CRMHeader
         title="Funil de Vendas"
         subtitle={subtitle}
-        action={{ label: 'Nova Proposta', onClick: () => setShowCreateDialog(true) }}
+        action={canCreateProposal ? { label: 'Nova Proposta', onClick: () => setShowCreateDialog(true) } : undefined}
       />
       <div className="flex-1 overflow-hidden p-6 space-y-6">
         {dateFilter ? <DateRangeFilter value={dateFilter} onChange={setDateFilter} /> : null}
         <KanbanBoard propostas={propostasFiltradas} />
       </div>
-      {showCreateDialog ? (
+      {canCreateProposal && showCreateDialog ? (
         <ProposalFormDialog open={showCreateDialog} onOpenChange={setShowCreateDialog} />
       ) : null}
     </>
