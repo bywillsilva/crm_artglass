@@ -1053,7 +1053,7 @@ export async function PUT(
         `UPDATE propostas SET
         cliente_id = ?, titulo = ?, material_tag = ?, area_m2 = ?, perfis_bruto = ?, perfis_liquidos = ?, valor_perfil = ?, valor_vidro = ?, valor_acessorios = ?, observacoes_tecnicas = ?, descricao = ?, valor = ?, desconto = ?,
         valor_final = ?, status = ?, validade = ?, servicos = ?, condicoes = ?,
-        responsavel_id = ?, orcamentista_id = ?, follow_up_base_at = ?, follow_up_time = ?
+        responsavel_id = ?, orcamentista_id = ?, follow_up_base_at = ?, follow_up_time = ?, updated_at = NOW()
        WHERE id = ?`,
       [
         resolvedClienteId,
@@ -1192,9 +1192,11 @@ export async function PUT(
         orcamentistaId,
         actorUserId: user.id,
         actorName: user.nome,
+        actorRole: user.role,
         proposalNumber: propostaAtual.numero,
         proposalTitle: data.titulo || propostaAtual.titulo || 'Proposta Comercial',
         clientName: cliente?.nome || propostaAtual.cliente_nome || data.clienteNome || null,
+        nextStatus: storedStatus,
         nextStatusLabel: statusPropostaLabels[storedStatus],
       })
     }

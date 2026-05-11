@@ -19,29 +19,38 @@ async function getUserEmailTarget(userId: string | null | undefined) {
 }
 
 async function getProposalEmailTargets(params: {
-  responsavelId: string | null | undefined
+  targetUserIds: string[]
   orcamentistaId?: string | null | undefined
   actorUserId?: string | null
+  allowedRoles?: string[]
 }) {
-  const explicitIds = Array.from(
-    new Set([params.responsavelId, params.orcamentistaId].filter(Boolean) as string[])
-  )
+  const explicitIds = Array.from(new Set(params.targetUserIds.filter(Boolean)))
 
   const placeholders = explicitIds.map(() => '?').join(', ')
   const values: string[] = [...explicitIds]
-  const conditions = [`role IN ('admin', 'gerente')`]
+  const allowedRoles = params.allowedRoles ?? []
+  const roleConditions: string[] = []
+
+  if (allowedRoles.length > 0) {
+    roleConditions.push(`role IN (${allowedRoles.map(() => '?').join(', ')})`)
+    values.push(...allowedRoles)
+  }
 
   if (explicitIds.length > 0) {
-    conditions.push(`id IN (${placeholders})`)
+    roleConditions.push(`id IN (${placeholders})`)
+  }
+
+  if (roleConditions.length === 0) {
+    return []
   }
 
   const users = await query<any[]>(
     `SELECT id, nome, email, ativo, role
      FROM usuarios
      WHERE ativo = 1
-       AND email IS NOT NULL
-       AND email <> ''
-       AND (${conditions.join(' OR ')})`,
+        AND email IS NOT NULL
+        AND email <> ''
+        AND (${roleConditions.join(' OR ')})`,
     values
   )
 
@@ -92,15 +101,32 @@ export async function notifyProposalEmail(params: {
   orcamentistaId?: string | null
   actorUserId?: string | null
   actorName?: string | null
+  actorRole?: string | null
   proposalNumber?: string | null
   proposalTitle?: string | null
   clientName?: string | null
+  nextStatus: string
   nextStatusLabel: string
 }) {
+  const targetUserIds: string[] = []
+  const allowedRoles: string[] = []
+
+  if (params.nextStatus === 'aguardando_aprovacao' && params.actorRole === 'orcamentista') {
+    allowedRoles.push('admin')
+  }
+
+  if (params.nextStatus === 'enviar_ao_cliente' && params.responsavelId) {
+    targetUserIds.push(params.responsavelId)
+  }
+
+  if (params.nextStatus === 'em_retificacao' && params.orcamentistaId) {
+    targetUserIds.push(params.orcamentistaId)
+  }
+
   const targetUsers = await getProposalEmailTargets({
-    responsavelId: params.responsavelId,
-    orcamentistaId: params.orcamentistaId,
+    targetUserIds,
     actorUserId: params.actorUserId,
+    allowedRoles,
   })
   if (targetUsers.length === 0) return
 
