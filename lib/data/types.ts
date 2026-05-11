@@ -41,6 +41,19 @@ export type StatusProposta =
   | 'fechado'
   | 'perdido'
 
+export const sellerReleasedProposalStatuses: StatusProposta[] = [
+  'enviar_ao_cliente',
+  'enviado_ao_cliente',
+  'follow_up_1_dia',
+  'aguardando_follow_up_3_dias',
+  'follow_up_3_dias',
+  'aguardando_follow_up_7_dias',
+  'follow_up_7_dias',
+  'stand_by',
+  'fechado',
+  'perdido',
+]
+
 // Role de usuario
 export type RoleUsuario = 'admin' | 'gerente' | 'vendedor' | 'orcamentista'
 export type ModuleKey =

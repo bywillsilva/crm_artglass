@@ -39,7 +39,12 @@ import {
   PaginationPrevious,
 } from '@/components/ui/pagination'
 import { Eye, MoreHorizontal, Pencil, X, Clock, DollarSign, TrendingUp } from 'lucide-react'
-import { statusPropostaColors, statusPropostaLabels, type StatusProposta } from '@/lib/data/types'
+import {
+  sellerReleasedProposalStatuses,
+  statusPropostaColors,
+  statusPropostaLabels,
+  type StatusProposta,
+} from '@/lib/data/types'
 
 const ProposalFormDialog = dynamic(
   () => import('@/components/crm/propostas/proposal-form-dialog').then((mod) => mod.ProposalFormDialog),
@@ -106,9 +111,14 @@ export default function PropostasPage() {
   const propostasOrdenadas = useMemo(
     () =>
       state.propostas
+        .filter((proposta) =>
+          user?.role === 'vendedor'
+            ? sellerReleasedProposalStatuses.includes(proposta.status)
+            : true
+        )
         .slice()
         .sort((a, b) => new Date(b.dataEnvio).getTime() - new Date(a.dataEnvio).getTime()),
-    [state.propostas]
+    [state.propostas, user?.role]
   )
 
   const propostasPorTab = useMemo(() => {
@@ -128,10 +138,10 @@ export default function PropostasPage() {
   const propostasFechadas = propostasPorTab.fechadas
   const propostasPerdidas = propostasPorTab.perdidas
   const editingProposta = editingPropostaId
-    ? state.propostas.find((proposta) => proposta.id === editingPropostaId) ?? null
+    ? propostasOrdenadas.find((proposta) => proposta.id === editingPropostaId) ?? null
     : null
   const detailsProposta = detailsPropostaId
-    ? state.propostas.find((proposta) => proposta.id === detailsPropostaId) ?? null
+    ? propostasOrdenadas.find((proposta) => proposta.id === detailsPropostaId) ?? null
     : null
 
   const totalEmAndamento = propostasEmAndamento.reduce((acc, proposta) => acc + proposta.valor, 0)
@@ -139,9 +149,9 @@ export default function PropostasPage() {
   const totalPerdido = propostasPerdidas.reduce((acc, proposta) => acc + proposta.valor, 0)
 
   const taxaConversao = useMemo(() => {
-    if (!state.propostas.length) return '0'
-    return ((propostasFechadas.length / state.propostas.length) * 100).toFixed(1)
-  }, [propostasFechadas.length, state.propostas.length])
+    if (!propostasOrdenadas.length) return '0'
+    return ((propostasFechadas.length / propostasOrdenadas.length) * 100).toFixed(1)
+  }, [propostasFechadas.length, propostasOrdenadas.length])
 
   const propostasAtivasNaTab = propostasPorTab[activeTab as keyof typeof propostasPorTab] ?? []
   const totalPages = Math.max(1, Math.ceil(propostasAtivasNaTab.length / pageSize))
@@ -449,7 +459,7 @@ export default function PropostasPage() {
     {
       title: 'Taxa de conversao',
       value: `${taxaConversao}%`,
-      count: state.propostas.length,
+      count: propostasOrdenadas.length,
       icon: TrendingUp,
       color: 'text-blue-400',
       bgColor: 'bg-blue-500/10',

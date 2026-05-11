@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Plus, FileText, Calendar, Paperclip, MessageSquare, UserRound, BriefcaseBusiness } from 'lucide-react'
-import { statusPropostaColors, statusPropostaLabels } from '@/lib/data/types'
+import { sellerReleasedProposalStatuses, statusPropostaColors, statusPropostaLabels } from '@/lib/data/types'
 
 interface ProposalsTabProps {
   clienteId: string
@@ -29,7 +29,15 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
     setDetailsPropostaId(proposalId)
   }, [])
 
-  const propostas = getPropostasByCliente(clienteId)
+  const propostas = useMemo(
+    () =>
+      getPropostasByCliente(clienteId).filter((proposta) =>
+        user?.role === 'vendedor'
+          ? sellerReleasedProposalStatuses.includes(proposta.status)
+          : true
+      ),
+    [clienteId, getPropostasByCliente, user?.role]
+  )
   const canCreateProposal = user?.role !== 'vendedor'
   const propostasOrdenadas = useMemo(
     () =>

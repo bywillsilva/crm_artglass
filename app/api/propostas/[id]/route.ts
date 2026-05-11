@@ -568,7 +568,7 @@ async function getProposalDetailPayload(id: string, initialProposal?: any, user?
 function canViewProposal(user: any, proposta: any) {
   if (user.role === 'admin' || user.role === 'gerente') return true
   if (user.role === 'vendedor') {
-    return proposta.responsavel_id === user.id
+    return proposta.responsavel_id === user.id && isSellerVisibleStatus(normalizeProposalStatus(proposta.status))
   }
   if (user.role === 'orcamentista') {
     return canOrcamentistaViewProposal(proposta, user.id)

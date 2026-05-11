@@ -20,6 +20,19 @@ import {
 
 const PROPOSTAS_CACHE_TTL_MS = Math.max(Number(process.env.PROPOSTAS_CACHE_TTL_MS || 30_000), 1000)
 
+const SELLER_VISIBLE_STATUSES = [
+  'enviar_ao_cliente',
+  'enviado_ao_cliente',
+  'follow_up_1_dia',
+  'aguardando_follow_up_3_dias',
+  'follow_up_3_dias',
+  'aguardando_follow_up_7_dias',
+  'follow_up_7_dias',
+  'stand_by',
+  'fechado',
+  'perdido',
+] as const
+
 const PROPOSAL_LIST_SELECT_COLUMNS = `
   p.id,
   p.numero,
@@ -432,8 +445,8 @@ export async function GET(request: NextRequest) {
     }
 
     if (user.role === 'vendedor') {
-      sql += ' AND p.responsavel_id = ?'
-      params.push(user.id)
+      sql += ` AND p.responsavel_id = ? AND p.status IN (${SELLER_VISIBLE_STATUSES.map(() => '?').join(', ')})`
+      params.push(user.id, ...SELLER_VISIBLE_STATUSES)
     } else if (user.role === 'orcamentista') {
       sql += ` AND (
         p.orcamentista_id = ?

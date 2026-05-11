@@ -16,6 +16,19 @@ import {
   canOrcamentistaViewProposal,
 } from '@/lib/server/proposal-workflow'
 
+const SELLER_VISIBLE_STATUSES = new Set([
+  'enviar_ao_cliente',
+  'enviado_ao_cliente',
+  'follow_up_1_dia',
+  'aguardando_follow_up_3_dias',
+  'follow_up_3_dias',
+  'aguardando_follow_up_7_dias',
+  'follow_up_7_dias',
+  'stand_by',
+  'fechado',
+  'perdido',
+])
+
 async function getAuthenticatedUser() {
   const session = await getServerSession()
   if (!session) return null
@@ -43,7 +56,9 @@ async function getProposal(id: string) {
 
 function canViewProposal(user: any, proposta: any) {
   if (user.role === 'admin' || user.role === 'gerente') return true
-  if (user.role === 'vendedor') return proposta.responsavel_id === user.id
+  if (user.role === 'vendedor') {
+    return proposta.responsavel_id === user.id && SELLER_VISIBLE_STATUSES.has(String(proposta.status || ''))
+  }
   if (user.role === 'orcamentista') return canOrcamentistaViewProposal(proposta, user.id)
   return false
 }

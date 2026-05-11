@@ -16,6 +16,19 @@ const CRM_BOOTSTRAP_CACHE_TTL_MS = Math.max(
   1000
 )
 
+const SELLER_VISIBLE_STATUSES = [
+  'enviar_ao_cliente',
+  'enviado_ao_cliente',
+  'follow_up_1_dia',
+  'aguardando_follow_up_3_dias',
+  'follow_up_3_dias',
+  'aguardando_follow_up_7_dias',
+  'follow_up_7_dias',
+  'stand_by',
+  'fechado',
+  'perdido',
+] as const
+
 const BOOTSTRAP_SECTIONS = ['clientes', 'usuarios', 'tarefas', 'propostas'] as const
 type BootstrapSection = (typeof BOOTSTRAP_SECTIONS)[number]
 
@@ -281,7 +294,7 @@ export async function GET(request: Request) {
           case 'propostas':
             const proposalWhereClause =
               authenticatedUser.role === 'vendedor'
-                ? 'p.responsavel_id = ?'
+                ? `p.responsavel_id = ? AND p.status IN (${SELLER_VISIBLE_STATUSES.map(() => '?').join(', ')})`
                 : authenticatedUser.role === 'orcamentista'
                   ? `(p.orcamentista_id = ?
                       OR (
@@ -290,8 +303,10 @@ export async function GET(request: Request) {
                       ))`
                 : '1=1'
             const proposalParams =
-              authenticatedUser.role === 'vendedor' || authenticatedUser.role === 'orcamentista'
-                ? [authenticatedUser.id]
+              authenticatedUser.role === 'vendedor'
+                ? [authenticatedUser.id, ...SELLER_VISIBLE_STATUSES]
+                : authenticatedUser.role === 'orcamentista'
+                  ? [authenticatedUser.id]
                 : []
             return [
               section,
