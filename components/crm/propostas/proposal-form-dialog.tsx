@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Paperclip, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { useCRM } from '@/lib/context/crm-context'
-import { useProposta, useSession } from '@/lib/hooks/use-api'
+import { prefetchProposta, useProposta, useSession } from '@/lib/hooks/use-api'
 import { statusPropostaLabels, type Proposta, type StatusProposta } from '@/lib/data/types'
 import { parseProposalMaterialTags } from '@/lib/utils/proposal-material-tags'
 import { Button } from '@/components/ui/button'
@@ -377,13 +377,18 @@ export function ProposalFormDialog({
 
     try {
       if (isEditing && propostaId) {
-        await updateProposta({
+        const updatedProposal = await updateProposta({
           id: propostaId,
           ...payload,
         } as unknown as Proposta)
+        await prefetchProposta(String((updatedProposal as Proposta | undefined)?.id || propostaId))
         toast.success('Proposta atualizada com sucesso.')
       } else {
-        await addProposta(payload as unknown as Omit<Proposta, 'id' | 'criadoEm'>)
+        const createdProposal = await addProposta(payload as unknown as Omit<Proposta, 'id' | 'criadoEm'>)
+        const createdProposalId = String((createdProposal as Proposta | undefined)?.id || '')
+        if (createdProposalId) {
+          await prefetchProposta(createdProposalId)
+        }
         toast.success('Proposta criada com sucesso.')
       }
 

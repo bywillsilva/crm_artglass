@@ -64,8 +64,8 @@ interface CRMContextType {
   getTarefasByCliente: (clienteId: string) => Tarefa[]
   getTarefasHoje: () => Tarefa[]
   getTarefasAtrasadas: () => Tarefa[]
-  addProposta: (proposta: Omit<Proposta, 'id' | 'criadoEm'>) => Promise<void>
-  updateProposta: (proposta: Proposta) => Promise<void>
+  addProposta: (proposta: Omit<Proposta, 'id' | 'criadoEm'>) => Promise<unknown>
+  updateProposta: (proposta: Proposta) => Promise<unknown>
   deleteProposta: (id: string) => Promise<void>
   updatePropostaStatus: (id: string, status: StatusProposta) => Promise<void>
   getPropostasByCliente: (clienteId: string) => Proposta[]
@@ -252,14 +252,14 @@ export function CRMProvider({ children }: { children: ReactNode }) {
   )
 
   const addProposta = useCallback(async (proposta: Omit<Proposta, 'id' | 'criadoEm'>) => {
-    await createProposta({
+    return createProposta({
       ...proposta,
       titulo: proposta.titulo || 'Proposta Comercial',
     })
   }, [])
 
   const updateProposta = useCallback(async (proposta: Proposta) => {
-    await updatePropostaRequest(proposta.id, proposta)
+    return updatePropostaRequest(proposta.id, proposta)
   }, [])
 
   const deleteProposta = useCallback(async (id: string) => {

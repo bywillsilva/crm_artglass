@@ -484,9 +484,8 @@ export function ProposalDetailsSheet({
     if (!propostaId || !proposalSnapshot) return
     const hasAttachmentDetails = Array.isArray(proposalSnapshot.anexos)
     const hasCommentDetails = Array.isArray(proposalSnapshot.comentarios)
-    const hasDetailedCollections = hasAttachmentDetails || hasCommentDetails
-    const proposalPatch: Record<string, unknown> = {}
-    const proposalCollectionPatch: Record<string, unknown> = {}
+    const proposalPatch: Record<string, unknown> = { ...proposalSnapshot }
+    const proposalCollectionPatch: Record<string, unknown> = { ...proposalSnapshot }
 
     if (hasAttachmentDetails) {
       const anexos = proposalSnapshot.anexos as any[]
@@ -504,10 +503,6 @@ export function ProposalDetailsSheet({
       proposalPatch.comentarios_count = comentarios.length
       proposalCollectionPatch.comentariosCount = comentarios.length
       proposalCollectionPatch.comentarios_count = comentarios.length
-    }
-
-    if (!hasDetailedCollections) {
-      return
     }
 
     await mutate(
@@ -577,9 +572,9 @@ export function ProposalDetailsSheet({
 
     setIsSubmitting(true)
     try {
-      await updateProposta(propostaId, payload)
+      const updatedProposal = await updateProposta(propostaId, payload)
       setIsEditingValue(false)
-      await refreshProposalData()
+      await syncProposalSnapshot(updatedProposal)
       toast.success('Valor da proposta atualizado.')
     } catch (error: any) {
       toast.error(error?.message || 'Erro ao atualizar valor da proposta.')
@@ -596,9 +591,9 @@ export function ProposalDetailsSheet({
 
     setIsSubmitting(true)
     try {
-      await updateProposta(propostaId, payload)
+      const updatedProposal = await updateProposta(propostaId, payload)
       setIsEditingDescription(false)
-      await refreshProposalData()
+      await syncProposalSnapshot(updatedProposal)
       toast.success('Descricao da proposta atualizada.')
     } catch (error: any) {
       toast.error(error?.message || 'Erro ao atualizar descricao da proposta.')
@@ -660,9 +655,9 @@ export function ProposalDetailsSheet({
 
     setIsSubmitting(true)
     try {
-      await updateProposta(propostaId, payload)
+      const updatedProposal = await updateProposta(propostaId, payload)
       setIsEditingTechnicalDetails(false)
-      await refreshProposalData()
+      await syncProposalSnapshot(updatedProposal)
       toast.success('Dados tecnicos atualizados.')
     } catch (error: any) {
       toast.error(error?.message || 'Erro ao atualizar dados tecnicos.')
