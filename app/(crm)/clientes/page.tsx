@@ -1,12 +1,22 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { CRMHeader } from '@/components/crm/header'
-import { ClientsTable } from '@/components/crm/clientes/clients-table'
-import { ClientForm } from '@/components/crm/clientes/client-form'
+import { FeatureErrorBoundary } from '@/components/crm/feature-error-boundary'
 import { ModuleAccessState } from '@/components/crm/module-access-state'
 import { useSession } from '@/lib/hooks/use-api'
+
+const ClientsTable = dynamic(
+  () => import('@/components/crm/clientes/clients-table').then((mod) => mod.ClientsTable),
+  { ssr: false }
+)
+
+const ClientForm = dynamic(
+  () => import('@/components/crm/clientes/client-form').then((mod) => mod.ClientForm),
+  { ssr: false }
+)
 
 export default function ClientesPage() {
   const { user } = useSession()
@@ -27,13 +37,15 @@ export default function ClientesPage() {
         }}
       />
       <div className="flex-1 overflow-auto p-4 sm:p-6">
-        <ClientsTable onNewClient={() => setShowNewClient(true)} />
+        <FeatureErrorBoundary
+          title="A listagem de clientes encontrou um erro temporario"
+          description="Se algo inesperado acontecer aqui, a tela continua utilizavel e o usuario pode tentar novamente sem perder toda a sessao."
+        >
+          <ClientsTable onNewClient={() => setShowNewClient(true)} />
+        </FeatureErrorBoundary>
       </div>
 
-      <ClientForm
-        open={showNewClient}
-        onClose={() => setShowNewClient(false)}
-      />
+      {showNewClient ? <ClientForm open={showNewClient} onClose={() => setShowNewClient(false)} /> : null}
     </>
   )
 }

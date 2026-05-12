@@ -22,6 +22,11 @@ import {
   syncProposalAutomation,
   type ProposalWorkflowStatus,
 } from '@/lib/server/proposal-workflow'
+import {
+  getClientDocumentLabel,
+  inferClientType,
+  isValidClientDocument,
+} from '@/lib/utils/client-document'
 
 const PROPOSTA_DETAIL_CACHE_TTL_MS = Math.max(
   Number(process.env.PROPOSTA_DETAIL_CACHE_TTL_MS || 30_000),
@@ -785,13 +790,17 @@ export async function PUT(
     const justificationText = normalizeNullableText(data.justificativa)
     const rawCommentText = normalizeNullableText(data.comentario) ?? justificationText
     const commentText = formatWorkflowComment(workflowAction, nextStatus, rawCommentText)
+    const isAdminApprovalRefusalToRetification =
+      user.role === 'admin' &&
+      previousStatus === 'aguardando_aprovacao' &&
+      nextStatus === 'em_retificacao'
     const requiresReasonComment =
       isStatusChange &&
       (nextStatus === 'fechado' ||
         nextStatus === 'perdido' ||
         nextStatus === 'stand_by' ||
         (nextStatus === 'em_retificacao' &&
-          (user.role === 'vendedor' || ['admin', 'gerente'].includes(user.role))))
+          (user.role === 'vendedor' || (user.role === 'gerente' && !isAdminApprovalRefusalToRetification))))
 
     if (!isTransitionAllowed(user, previousStatus, nextStatus)) {
       return NextResponse.json(
@@ -865,7 +874,7 @@ export async function PUT(
     }
 
     const responsavelId =
-      user.role === 'admin' || user.role === 'gerente'
+      user.role === 'admin' || user.role === 'gerente' || user.role === 'orcamentista'
         ? await validateUserRole(data.responsavelId || propostaAtual.responsavel_id, ['vendedor', 'gerente'])
         : propostaAtual.responsavel_id
     const requestedOrcamentistaId =
@@ -931,6 +940,9 @@ export async function PUT(
       const currentDescricao = normalizeNullableText(propostaAtual.descricao)
       const currentTitulo = normalizeNullableText(propostaAtual.titulo)
       const currentMaterialTag = normalizeMaterialTag(propostaAtual.material_tag)
+      const isSellerClosingProposal = workflowAction === 'fechado' && nextStatus === 'fechado'
+      const requestedSellerClosedValue =
+        parseNullableNumber(data.clienteValorFechado) ?? parseNullableNumber(data.valor)
 
       const sellerIsTryingToUploadAttachments = data.anexos.length > 0
       const sellerIsTryingToChangeContent =
@@ -945,7 +957,8 @@ export async function PUT(
         valorAcessorios !== currentValorAcessorios ||
         normalizeNullableText(data.observacoesTecnicas ?? propostaAtual.observacoes_tecnicas) !== observacoesTecnicas ||
         normalizeNullableText(data.descricao ?? propostaAtual.descricao) !== currentDescricao ||
-        parseNullableNumber(data.valor ?? propostaAtual.valor) !== currentValor ||
+        (parseNullableNumber(data.valor ?? propostaAtual.valor) !== currentValor &&
+          !(isSellerClosingProposal && requestedSellerClosedValue != null && requestedSellerClosedValue > 0)) ||
         (data.desconto !== undefined &&
           parseNullableNumber(data.desconto) !== parseNullableNumber(propostaAtual.desconto)) ||
         (data.validade !== undefined &&
@@ -1018,7 +1031,7 @@ export async function PUT(
     }
 
       const [clienteAtual] = await query<any[]>(
-        `SELECT id, nome, cpf, email, telefone, endereco, status_funil
+        `SELECT id, nome, cpf, email, telefone, endereco, status_funil, empresa, cargo, tipo
          FROM clientes
          WHERE id = ? LIMIT 1`,
         [resolvedClienteId]
@@ -1029,6 +1042,8 @@ export async function PUT(
     }
 
     if (storedStatus === 'fechado') {
+      const clientType = inferClientType(clienteAtual)
+      const clientDocumentLabel = getClientDocumentLabel(clientType)
       const mergedClienteFechado = {
         nome: normalizeNullableText(data.clienteNome) ?? clienteAtual.nome,
         cpf: normalizeNullableText(data.clienteCpf) ?? clienteAtual.cpf,
@@ -1037,37 +1052,64 @@ export async function PUT(
         endereco: normalizeNullableText(data.clienteEndereco) ?? clienteAtual.endereco,
       }
 
+      const requiresMandatoryClosedClientData = user.role === 'vendedor'
+      const hasInvalidClosedClientDocument =
+        Boolean(mergedClienteFechado.cpf) && !isValidClientDocument(mergedClienteFechado.cpf, clientType)
+
       if (
-        !mergedClienteFechado.nome ||
-        !mergedClienteFechado.cpf ||
-        !mergedClienteFechado.email ||
-        !mergedClienteFechado.telefone ||
-        !mergedClienteFechado.endereco ||
-        valor <= 0
+        requiresMandatoryClosedClientData &&
+        (!mergedClienteFechado.nome ||
+          !mergedClienteFechado.cpf ||
+          !mergedClienteFechado.email ||
+          !mergedClienteFechado.telefone ||
+          !mergedClienteFechado.endereco ||
+          valor <= 0)
       ) {
         return NextResponse.json(
           {
             error:
-              'Para fechar a proposta, complete nome, CPF, e-mail, telefone, endereco e valor fechado do cliente.',
+              `Para fechar a proposta, complete nome, ${clientDocumentLabel}, e-mail, telefone, endereco e valor fechado do cliente.`,
           },
           { status: 400 }
         )
       }
 
-      await query(
-        `UPDATE clientes
-         SET nome = ?, cpf = ?, email = ?, telefone = ?, endereco = ?, status_funil = ?
-         WHERE id = ?`,
-        [
-          mergedClienteFechado.nome,
-          mergedClienteFechado.cpf,
-          mergedClienteFechado.email,
-          mergedClienteFechado.telefone,
-          mergedClienteFechado.endereco,
-          'fechado',
-          resolvedClienteId,
-        ]
-      )
+      if (hasInvalidClosedClientDocument) {
+        return NextResponse.json(
+          {
+            error: `Informe um ${clientDocumentLabel} valido antes de concluir o fechamento da proposta.`,
+          },
+          { status: 400 }
+        )
+      }
+
+      const shouldUpdateClosedClientData =
+        Boolean(mergedClienteFechado.nome || mergedClienteFechado.cpf || mergedClienteFechado.email || mergedClienteFechado.telefone || mergedClienteFechado.endereco) &&
+        (requiresMandatoryClosedClientData ||
+          normalizeNullableText(data.clienteNome) !== null ||
+          normalizeNullableText(data.clienteCpf) !== null ||
+          normalizeNullableText(data.clienteEmail) !== null ||
+          normalizeNullableText(data.clienteTelefone) !== null ||
+          normalizeNullableText(data.clienteEndereco) !== null)
+
+      if (shouldUpdateClosedClientData) {
+        await query(
+          `UPDATE clientes
+           SET nome = ?, cpf = ?, email = ?, telefone = ?, endereco = ?, status_funil = ?
+           WHERE id = ?`,
+          [
+            mergedClienteFechado.nome,
+            mergedClienteFechado.cpf,
+            mergedClienteFechado.email,
+            mergedClienteFechado.telefone,
+            mergedClienteFechado.endereco,
+            'fechado',
+            resolvedClienteId,
+          ]
+        )
+      } else {
+        await query(`UPDATE clientes SET status_funil = ? WHERE id = ?`, ['fechado', resolvedClienteId])
+      }
     }
 
     const servicos =

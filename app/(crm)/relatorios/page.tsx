@@ -1,13 +1,14 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useSession } from '@/lib/hooks/use-api'
 import { CRMHeader } from '@/components/crm/header'
 import { DateRangeFilter } from '@/components/crm/date-range-filter'
+import { FeatureErrorBoundary } from '@/components/crm/feature-error-boundary'
 import { ModuleAccessState } from '@/components/crm/module-access-state'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -43,12 +44,8 @@ export default function RelatoriosPage() {
   const { state } = useCRM()
   const { appearance, formatCurrency } = useAppSettings()
   const { user } = useSession()
-  const [dateFilter, setDateFilter] = useState<DateFilterValue | null>(null)
+  const [dateFilter, setDateFilter] = useState<DateFilterValue | null>(() => createDefaultDateFilter())
   const hasRelatoriosAccess = hasModuleAccess(user, 'relatorios')
-
-  useEffect(() => {
-    setDateFilter(createDefaultDateFilter())
-  }, [])
 
   const clientesFiltrados = useMemo(
     () =>
@@ -228,6 +225,10 @@ export default function RelatoriosPage() {
       <div className="flex-1 overflow-auto space-y-4 p-4 sm:space-y-6 sm:p-6">
         {dateFilter ? <DateRangeFilter value={dateFilter} onChange={setDateFilter} /> : null}
 
+        <FeatureErrorBoundary
+          title="A tela de relatorios encontrou um erro temporario"
+          description="Os graficos e consolidacoes desta area foram isolados para evitar quebrar a tela inteira."
+        >
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {stats.map((stat) => (
             <Card key={stat.title} className="bg-card border-border">
@@ -254,6 +255,7 @@ export default function RelatoriosPage() {
           vendedoresData={vendedoresData}
           colors={colors}
         />
+        </FeatureErrorBoundary>
       </div>
     </>
   )

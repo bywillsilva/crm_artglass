@@ -1,10 +1,11 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { CRMHeader } from '@/components/crm/header'
 import { DateRangeFilter } from '@/components/crm/date-range-filter'
+import { FeatureErrorBoundary } from '@/components/crm/feature-error-boundary'
 import { ModuleAccessState } from '@/components/crm/module-access-state'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -65,15 +66,11 @@ export default function RelatorioVendedoresPage() {
   const { state, updateUsuario } = useCRM()
   const { formatCurrency } = useAppSettings()
   const { user } = useSession()
-  const [dateFilter, setDateFilter] = useState<DateFilterValue | null>(null)
+  const [dateFilter, setDateFilter] = useState<DateFilterValue | null>(() => createDefaultDateFilter())
   const [editingMetaUserId, setEditingMetaUserId] = useState<string | null>(null)
   const [metaInput, setMetaInput] = useState('')
   const hasPerformanceAccess = hasModuleAccess(user, 'performance')
   const canManageSellerGoals = user?.role === 'admin' || user?.role === 'gerente'
-
-  useEffect(() => {
-    setDateFilter(createDefaultDateFilter())
-  }, [])
 
   const vendedores = useMemo(
     () => state.usuarios.filter((usuario) => usuario.role === 'vendedor' || usuario.role === 'gerente'),
@@ -276,6 +273,10 @@ export default function RelatorioVendedoresPage() {
       <div className="flex-1 overflow-auto space-y-4 p-4 sm:space-y-6 sm:p-6">
         {dateFilter ? <DateRangeFilter value={dateFilter} onChange={setDateFilter} /> : null}
 
+        <FeatureErrorBoundary
+          title="A tela de performance encontrou um erro temporario"
+          description="Graficos, metas e consolidacoes desta area foram isolados para manter a sessao utilizavel."
+        >
         <Tabs defaultValue="vendedores" className="space-y-6">
           <TabsList className="grid w-full max-w-[420px] grid-cols-2">
             <TabsTrigger value="vendedores">Vendedores</TabsTrigger>
@@ -438,6 +439,7 @@ export default function RelatorioVendedoresPage() {
             </Card>
           </TabsContent>
         </Tabs>
+        </FeatureErrorBoundary>
       </div>
 
       <Dialog

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { mutate } from 'swr'
 import {
   AlertCircle,
@@ -62,6 +62,10 @@ interface ProposalDetailsSheetProps {
 
 function isProposalCollectionKey(key: unknown) {
   return typeof key === 'string' && (key === '/api/propostas' || key.startsWith('/api/propostas?'))
+}
+
+function compactSnapshot<T extends Record<string, unknown>>(value: T) {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as T
 }
 
 function pickProposalValue<T>(primary: T | null | undefined, fallback: T | null | undefined) {
@@ -243,6 +247,7 @@ export function ProposalDetailsSheet({
   const [editingValorAcessorios, setEditingValorAcessorios] = useState('')
   const [editingObservacoesTecnicas, setEditingObservacoesTecnicas] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null)
   const detailErrorMessage = useMemo(() => {
     if (!error) return null
     if (error instanceof Error && error.message) {
@@ -478,7 +483,54 @@ export function ProposalDetailsSheet({
     const hasAttachmentDetails = Array.isArray(proposalSnapshot.anexos)
     const hasCommentDetails = Array.isArray(proposalSnapshot.comentarios)
     const proposalPatch: Record<string, unknown> = { ...proposalSnapshot }
-    const proposalCollectionPatch: Record<string, unknown> = { ...proposalSnapshot }
+    const proposalCollectionPatch: Record<string, unknown> = compactSnapshot({
+      id: proposalSnapshot.id,
+      clienteId: proposalSnapshot.clienteId,
+      cliente_id: proposalSnapshot.clienteId,
+      clienteNome: proposalSnapshot.clienteNome,
+      cliente_nome: proposalSnapshot.clienteNome,
+      numero: proposalSnapshot.numero,
+      titulo: proposalSnapshot.titulo,
+      materialTag: proposalSnapshot.materialTag,
+      material_tag: proposalSnapshot.materialTag,
+      areaM2: proposalSnapshot.areaM2,
+      area_m2: proposalSnapshot.areaM2,
+      perfisBruto: proposalSnapshot.perfisBruto,
+      perfis_bruto: proposalSnapshot.perfisBruto,
+      perfisLiquidos: proposalSnapshot.perfisLiquidos,
+      perfis_liquidos: proposalSnapshot.perfisLiquidos,
+      valorPerfil: proposalSnapshot.valorPerfil,
+      valor_perfil: proposalSnapshot.valorPerfil,
+      valorVidro: proposalSnapshot.valorVidro,
+      valor_vidro: proposalSnapshot.valorVidro,
+      valorAcessorios: proposalSnapshot.valorAcessorios,
+      valor_acessorios: proposalSnapshot.valorAcessorios,
+      observacoesTecnicas: proposalSnapshot.observacoesTecnicas,
+      observacoes_tecnicas: proposalSnapshot.observacoesTecnicas,
+      kanbanOrder: proposalSnapshot.kanbanOrder,
+      kanban_order: proposalSnapshot.kanbanOrder,
+      valor: proposalSnapshot.valor,
+      descricao: proposalSnapshot.descricao,
+      status: proposalSnapshot.status,
+      responsavelId: proposalSnapshot.responsavelId,
+      responsavel_id: proposalSnapshot.responsavelId,
+      responsavelNome: proposalSnapshot.responsavelNome,
+      responsavel_nome: proposalSnapshot.responsavelNome,
+      orcamentistaId: proposalSnapshot.orcamentistaId,
+      orcamentista_id: proposalSnapshot.orcamentistaId,
+      orcamentistaNome: proposalSnapshot.orcamentistaNome,
+      orcamentista_nome: proposalSnapshot.orcamentistaNome,
+      retificacoesCount: proposalSnapshot.retificacoesCount,
+      retificacoes_count: proposalSnapshot.retificacoesCount,
+      followUpBaseAt: proposalSnapshot.followUpBaseAt,
+      follow_up_base_at: proposalSnapshot.followUpBaseAt,
+      followUpTime: proposalSnapshot.followUpTime,
+      follow_up_time: proposalSnapshot.followUpTime,
+      dataEnvio: proposalSnapshot.dataEnvio,
+      criadoEm: proposalSnapshot.criadoEm,
+      updatedAt: proposalSnapshot.updatedAt,
+      updated_at: proposalSnapshot.updatedAt,
+    })
 
     if (hasAttachmentDetails) {
       const anexos = proposalSnapshot.anexos as any[]
@@ -919,6 +971,30 @@ export function ProposalDetailsSheet({
     }
   }
 
+  const handleSelectAttachments = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(event.target.files || [])
+    event.target.value = ''
+
+    if (!propostaId || !selectedFiles.length) {
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      const updatedProposal = await updateProposta(propostaId, {
+        anexos: selectedFiles as unknown as Proposta['anexos'],
+      })
+      await syncProposalSnapshot(updatedProposal)
+      toast.success(
+        selectedFiles.length === 1 ? 'Anexo enviado com sucesso.' : 'Anexos enviados com sucesso.'
+      )
+    } catch (error: any) {
+      toast.error(error?.message || 'Erro ao enviar os anexos da proposta.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent key={propostaId || 'proposal-details'} side="right" className="w-full overflow-x-hidden sm:max-w-5xl">
@@ -1281,9 +1357,31 @@ export function ProposalDetailsSheet({
                 </div>
 
                 <div className="min-w-0 space-y-3 rounded-xl border border-border bg-card p-4">
-                  <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                    <Paperclip className="h-4 w-4 text-muted-foreground" />
-                    Anexos
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                      <Paperclip className="h-4 w-4 text-muted-foreground" />
+                      Anexos
+                    </div>
+                    {canManageProposalContent ? (
+                      <>
+                        <input
+                          ref={attachmentInputRef}
+                          type="file"
+                          multiple
+                          className="hidden"
+                          onChange={(event) => void handleSelectAttachments(event)}
+                        />
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => attachmentInputRef.current?.click()}
+                          disabled={isSubmitting}
+                        >
+                          Adicionar anexo
+                        </Button>
+                      </>
+                    ) : null}
                   </div>
                   {propostaSource.anexos?.length ? (
                     <div className="space-y-2">

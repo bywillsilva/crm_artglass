@@ -6,6 +6,8 @@ import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { formatDateTime } from '@/lib/server/proposal-workflow'
 import { jsonNoStore } from '@/lib/server/http-cache'
+import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
+import { inferClientType } from '@/lib/utils/client-document'
 
 const CLIENTE_DETAIL_CACHE_TTL_MS = Math.max(
   Number(process.env.CLIENTE_DETAIL_CACHE_TTL_MS || 30_000),
@@ -20,6 +22,7 @@ const CLIENT_SELECT_COLUMNS = `
   c.telefone,
   c.empresa,
   c.cargo,
+  c.tipo,
   c.endereco,
   c.cidade,
   c.estado,
@@ -77,6 +80,7 @@ export async function GET(
     if (!user) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
+    await ensureSystemDatabaseSchema()
 
     const cacheKey = `cliente:detail:${user.role}:${user.id}:${id}`
     const cachedCliente = getRuntimeCache<any>(cacheKey)
@@ -137,13 +141,14 @@ export async function PUT(
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
+    await ensureSystemDatabaseSchema()
 
     const { id } = await params
     const data = (await request.json()) as Record<string, unknown>
 
       const [clienteAtual] = await query<any[]>(
         `SELECT
-        id, nome, cpf, email, telefone, empresa, cargo, endereco, cidade, estado, cep,
+        id, nome, cpf, email, telefone, empresa, cargo, tipo, endereco, cidade, estado, cep,
         origem, status_funil, observacoes
        FROM clientes
        WHERE id = ?`,
@@ -167,6 +172,13 @@ export async function PUT(
       telefone: hasOwn(data, 'telefone') ? normalizeNullableText(data.telefone) : clienteAtual.telefone,
       empresa: hasOwn(data, 'empresa') ? normalizeNullableText(data.empresa) : clienteAtual.empresa,
       cargo: hasOwn(data, 'cargo') ? normalizeNullableText(data.cargo) : clienteAtual.cargo,
+      tipo: hasOwn(data, 'tipo')
+        ? inferClientType({
+            tipo: typeof data.tipo === 'string' ? data.tipo : null,
+            empresa: hasOwn(data, 'empresa') ? normalizeNullableText(data.empresa) : clienteAtual.empresa,
+            cargo: hasOwn(data, 'cargo') ? normalizeNullableText(data.cargo) : clienteAtual.cargo,
+          })
+        : inferClientType(clienteAtual),
       endereco: hasOwn(data, 'endereco') ? normalizeNullableText(data.endereco) : clienteAtual.endereco,
       cidade: hasOwn(data, 'cidade') ? normalizeNullableText(data.cidade) : clienteAtual.cidade,
       estado: hasOwn(data, 'estado') ? normalizeNullableText(data.estado) : clienteAtual.estado,
@@ -179,7 +191,7 @@ export async function PUT(
 
     await query(
       `UPDATE clientes SET
-        nome = ?, cpf = ?, email = ?, telefone = ?, empresa = ?, cargo = ?,
+        nome = ?, cpf = ?, email = ?, telefone = ?, empresa = ?, cargo = ?, tipo = ?,
         endereco = ?, cidade = ?, estado = ?, cep = ?, origem = ?,
         status_funil = ?, observacoes = ?
        WHERE id = ?`,
@@ -190,6 +202,7 @@ export async function PUT(
         mergedCliente.telefone,
         mergedCliente.empresa,
         mergedCliente.cargo,
+        mergedCliente.tipo,
         mergedCliente.endereco,
         mergedCliente.cidade,
         mergedCliente.estado,

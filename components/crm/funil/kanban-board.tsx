@@ -17,6 +17,14 @@ import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { prefetchProposta, useProposta, useSession } from '@/lib/hooks/use-api'
 import { formatBrazilPhone } from '@/lib/utils/phone'
+import {
+  formatClientDocument,
+  getClientDocumentLabel,
+  getClientDocumentPlaceholder,
+  getClientDocumentValidationMessage,
+  inferClientType,
+  isValidClientDocument,
+} from '@/lib/utils/client-document'
 import { parseProposalMaterialTags } from '@/lib/utils/proposal-material-tags'
 import {
   getProposalCardVisualState,
@@ -291,15 +299,6 @@ function getSellerActionOptions(status: StatusProposta): SellerMoveAction[] {
     default:
       return []
   }
-}
-
-function formatCpf(value: string) {
-  const digits = value.replace(/\D/g, '').slice(0, 11)
-  if (!digits) return ''
-  if (digits.length <= 3) return digits
-  if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`
-  if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`
-  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`
 }
 
 function isPdfFile(file: File) {
@@ -773,13 +772,13 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       if (sellerWorkflowAction === 'stand_by') return true
 
       if (!sellerWorkflowAction && ['fechado', 'em_retificacao', 'perdido', 'stand_by'].includes(targetStatus)) {
-        const isApprovalRefusalToRetification =
-          ['admin', 'gerente'].includes(user?.role || '') &&
+        const isAdminApprovalRefusalToRetification =
+          user?.role === 'admin' &&
           proposta.status === 'aguardando_aprovacao' &&
           targetStatus === 'em_retificacao'
 
-        if (isApprovalRefusalToRetification) {
-          return true
+        if (isAdminApprovalRefusalToRetification) {
+          return false
         }
 
         return true
@@ -1353,8 +1352,16 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         ? `Para enviar esta proposta para aprovacao, complete os itens obrigatorios: ${approvalRequirementItems.join('; ')}.`
         : 'Esta proposta ja tem os dados obrigatorios para seguir para aprovacao.'
     : null
+  const closeClientTipo = inferClientType(pendingMoveClient)
+  const closeClientDocumentLabel = getClientDocumentLabel(closeClientTipo)
+  const closeClientDocumentPlaceholder = getClientDocumentPlaceholder(closeClientTipo)
   const requiresClosedClientData =
     effectiveSellerAction === 'fechado' || (!isSellerMove && resolvedTargetStatus === 'fechado')
+  const requiresMandatoryClosedClientData = requiresClosedClientData && user?.role === 'vendedor'
+  const hasInvalidClosedClientDocument =
+    requiresClosedClientData &&
+    closeClientCpf.trim() !== '' &&
+    !isValidClientDocument(closeClientCpf, closeClientTipo)
   const hasInvalidMoveValue = moveValue.trim() !== '' && parsedMoveValue === null
   const isSchedulingFollowUp = requiresFollowUpTime
   const pendingMoveTargetLabel = pendingMove ? statusPropostaLabels[pendingMove.targetStatus] : ''
@@ -1907,7 +1914,9 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
             {requiresClosedClientData && (
               <div className="space-y-4 rounded-xl border border-border bg-secondary/20 p-4">
                 <p className="text-sm font-medium text-foreground">
-                  Complete os dados do cliente para seguir com o fechamento e o contrato.
+                  {requiresMandatoryClosedClientData
+                    ? 'Complete os dados do cliente para seguir com o fechamento e o contrato.'
+                    : 'Se quiser, voce pode complementar os dados do cliente e o valor fechado antes de concluir o fechamento.'}
                 </p>
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="space-y-2">
@@ -1915,13 +1924,20 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                     <Input value={closeClientName} onChange={(event) => setCloseClientName(event.target.value)} />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground">CPF</label>
+                    <label className="text-sm font-medium text-foreground">{closeClientDocumentLabel}</label>
                     <Input
                       value={closeClientCpf}
-                      placeholder="000.000.000-00"
+                      placeholder={closeClientDocumentPlaceholder}
                       onChange={(event) => setCloseClientCpf(event.target.value)}
-                      onBlur={(event) => setCloseClientCpf(formatCpf(event.target.value))}
+                      onBlur={(event) =>
+                        setCloseClientCpf(formatClientDocument(event.target.value, closeClientTipo))
+                      }
                     />
+                    {hasInvalidClosedClientDocument ? (
+                      <p className="text-sm text-destructive">
+                        {getClientDocumentValidationMessage(closeClientTipo)}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-foreground">Telefone</label>
@@ -1973,13 +1989,14 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                     !approvalRequirementsReady ||
                     (isSellerMove && !effectiveSellerAction) ||
                     (isAdminCommercialMove && !resolvedTargetStatus) ||
+                    hasInvalidClosedClientDocument ||
                     hasInvalidMoveValue ||
                     (proposalNeedsApprovalValue && (parseProposalNumericInput(moveValue) ?? 0) <= 0) ||
                     proposalNeedsTechnicalData ||
                     !hasRequiredPdfAttachment ||
                     (requiresMoveComment && !moveComment.trim()) ||
                     (requiresFollowUpTime && !followUpTime) ||
-                    (requiresClosedClientData &&
+                    (requiresMandatoryClosedClientData &&
                       (!closeClientName.trim() ||
                         !closeClientCpf.trim() ||
                         !closeClientPhone.trim() ||

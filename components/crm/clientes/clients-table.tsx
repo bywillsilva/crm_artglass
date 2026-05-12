@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { useCRM } from '@/lib/context/crm-context'
@@ -45,6 +45,7 @@ export function ClientsTable({ onNewClient }: ClientsTableProps) {
   const { state, deleteCliente } = useCRM()
   const { formatDate } = useAppSettings()
   const [search, setSearch] = useState('')
+  const deferredSearch = useDeferredValue(search)
   const [editingClient, setEditingClient] = useState<Cliente | null>(null)
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(10)
   const [currentPage, setCurrentPage] = useState(1)
@@ -53,13 +54,13 @@ export function ClientsTable({ onNewClient }: ClientsTableProps) {
     () =>
       state.clientes.filter((cliente) => {
         const matchesSearch =
-          cliente.nome.toLowerCase().includes(search.toLowerCase()) ||
-          cliente.telefone.includes(search) ||
-          cliente.email.toLowerCase().includes(search.toLowerCase())
+          cliente.nome.toLowerCase().includes(deferredSearch.toLowerCase()) ||
+          cliente.telefone.includes(deferredSearch) ||
+          cliente.email.toLowerCase().includes(deferredSearch.toLowerCase())
 
         return matchesSearch
       }),
-    [search, state.clientes]
+    [deferredSearch, state.clientes]
   )
 
   const totalPages = Math.max(1, Math.ceil(filteredClientes.length / pageSize))

@@ -5,11 +5,13 @@ import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
+import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import {
   getNextProposalNumber,
   formatDateTime,
   setProposalKanbanPosition,
 } from '@/lib/server/proposal-workflow'
+import { inferClientType } from '@/lib/utils/client-document'
 
 const CLIENTES_CACHE_TTL_MS = Math.max(Number(process.env.CLIENTES_CACHE_TTL_MS || 30_000), 1000)
 
@@ -21,6 +23,7 @@ const CLIENT_SELECT_COLUMNS = `
   c.email,
   c.empresa,
   c.cargo,
+  c.tipo,
   c.endereco,
   c.cidade,
   c.estado,
@@ -204,6 +207,7 @@ export async function GET(request: NextRequest) {
     if (!user) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
+    await ensureSystemDatabaseSchema()
 
     const cacheKey = `clientes:list:${user.role}:${user.id}:${status || 'todos'}:${search || ''}:${updatedSince || ''}`
     const cachedClientes = getRuntimeCache<any[]>(cacheKey)
@@ -290,6 +294,7 @@ export async function POST(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
+    await ensureSystemDatabaseSchema()
 
     const data = (await request.json()) as Record<string, unknown>
     const id = uuidv4()
@@ -309,6 +314,11 @@ export async function POST(request: NextRequest) {
       telefone: normalizeNullableText(data.telefone),
       empresa: normalizeNullableText(data.empresa),
       cargo: normalizeNullableText(data.cargo),
+      tipo: inferClientType({
+        tipo: typeof data.tipo === 'string' ? data.tipo : null,
+        empresa: normalizeNullableText(data.empresa),
+        cargo: normalizeNullableText(data.cargo),
+      }),
       endereco: normalizeNullableText(data.endereco),
       cidade: normalizeNullableText(data.cidade),
       estado: normalizeNullableText(data.estado),
@@ -325,6 +335,7 @@ export async function POST(request: NextRequest) {
       email: payload.email,
       empresa: payload.empresa,
       cargo: payload.cargo,
+      tipo: payload.tipo,
       endereco: payload.endereco,
       cidade: payload.cidade,
       estado: payload.estado,
@@ -342,20 +353,21 @@ export async function POST(request: NextRequest) {
 
       await connection.execute(
         `INSERT INTO clientes (
-        id, nome, cpf, email, telefone, empresa, cargo, endereco, cidade, estado, cep,
+        id, nome, cpf, email, telefone, empresa, cargo, tipo, endereco, cidade, estado, cep,
         origem, status_funil, observacoes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
         [
           id,
           payload.nome,
           payload.cpf,
           payload.email,
           payload.telefone,
-        payload.empresa,
-        payload.cargo,
-        payload.endereco,
-        payload.cidade,
-        payload.estado,
+          payload.empresa,
+          payload.cargo,
+          payload.tipo,
+          payload.endereco,
+          payload.cidade,
+          payload.estado,
           payload.cep,
           payload.origem,
           payload.statusFunil,

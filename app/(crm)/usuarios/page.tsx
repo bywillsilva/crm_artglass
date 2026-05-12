@@ -12,6 +12,7 @@ import { useAppSettings } from "@/lib/context/app-settings-context"
 import { useSession } from "@/lib/hooks/use-api"
 import type { RoleUsuario, Usuario } from "@/lib/data/types"
 import { CRMHeader } from "@/components/crm/header"
+import { FeatureErrorBoundary } from "@/components/crm/feature-error-boundary"
 import { ModuleAccessState } from "@/components/crm/module-access-state"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -244,6 +245,10 @@ export default function UsuariosPage() {
       />
 
       <div className="flex-1 overflow-auto p-6 space-y-6">
+        <FeatureErrorBoundary
+          title="A tela de usuarios encontrou um erro temporario"
+          description="Os filtros, listagens e modais desta area foram isolados para manter a sessao utilizavel."
+        >
         <div className="grid gap-4 md:grid-cols-6">
           <SummaryCard title="Total" value={userStats.total} icon={<Users className="h-4 w-4 text-muted-foreground" />} />
           <SummaryCard title="Ativos" value={userStats.ativos} icon={<div className="h-2 w-2 rounded-full bg-green-500" />} />
@@ -356,6 +361,7 @@ export default function UsuariosPage() {
             </div>
           </CardContent>
         </Card>
+        </FeatureErrorBoundary>
       </div>
 
       {isDialogOpen && (

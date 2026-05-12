@@ -828,7 +828,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
                   )}
                   onSelect={() => {
                     setCommandOpen(false)
-                    router.push('/propostas')
+                    router.push(`/propostas?proposta=${proposta.id}`)
                   }}
                 >
                   <FileText className="h-4 w-4" />

@@ -32,23 +32,19 @@ import {
 } from '@/components/ui/form'
 import type { Cliente } from '@/lib/data/types'
 import { formatBrazilPhone, isValidBrazilPhone } from '@/lib/utils/phone'
-
-const cpfRegex = /^\d{3}\.\d{3}\.\d{3}-\d{2}$/
-
-function formatCpf(value: string) {
-  const digits = value.replace(/\D/g, '').slice(0, 11)
-  if (!digits) return ''
-  if (digits.length <= 3) return digits
-  if (digits.length <= 6) return `${digits.slice(0, 3)}.${digits.slice(3)}`
-  if (digits.length <= 9) return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6)}`
-  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`
-}
+import {
+  formatClientDocument,
+  getClientDocumentLabel,
+  getClientDocumentPlaceholder,
+  getClientDocumentValidationMessage,
+  isValidClientDocument,
+} from '@/lib/utils/client-document'
 
 function getClientFormDefaults(cliente?: Cliente) {
   if (cliente) {
       return {
         nome: cliente.nome,
-        cpf: formatCpf(cliente.cpf || ''),
+        cpf: formatClientDocument(cliente.cpf || '', cliente.tipo),
         telefone: formatBrazilPhone(cliente.telefone || ''),
         email: cliente.email || '',
       empresa: cliente.empresa || '',
@@ -117,28 +113,33 @@ const optionalPhoneSchema = z
   .trim()
   .refine((value) => !value || isValidBrazilPhone(value), 'Telefone deve estar em um formato brasileiro valido')
 
-const optionalCpfSchema = z
-  .string()
-  .trim()
-  .refine((value) => !value || cpfRegex.test(value), 'CPF deve estar no formato 000.000.000-00')
-
 const optionalAddressSchema = z
   .string()
   .trim()
   .refine((value) => !value || value.length >= 5, 'Endereco muito curto')
 
-const clienteSchema = z.object({
-  nome: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
-  cpf: optionalCpfSchema,
-  telefone: optionalPhoneSchema,
-  email: emailSchema,
-  empresa: z.string().optional(),
-  cargo: z.string().optional(),
-  endereco: optionalAddressSchema,
-  tipo: z.enum(['residencial', 'comercial']),
-  origem: z.string().optional(),
-  observacoes: z.string().optional(),
-})
+const clienteSchema = z
+  .object({
+    nome: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
+    cpf: z.string().trim(),
+    telefone: optionalPhoneSchema,
+    email: emailSchema,
+    empresa: z.string().optional(),
+    cargo: z.string().optional(),
+    endereco: optionalAddressSchema,
+    tipo: z.enum(['residencial', 'comercial']),
+    origem: z.string().optional(),
+    observacoes: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.cpf && !isValidClientDocument(data.cpf, data.tipo)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['cpf'],
+        message: getClientDocumentValidationMessage(data.tipo),
+      })
+    }
+  })
 
 type ClienteFormData = z.infer<typeof clienteSchema>
 
@@ -164,6 +165,15 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
   const tipoSelecionado = form.watch('tipo')
 
   useEffect(() => {
+    const currentDocument = form.getValues('cpf')
+    const formattedDocument = formatClientDocument(currentDocument || '', tipoSelecionado)
+
+    if (currentDocument !== formattedDocument) {
+      form.setValue('cpf', formattedDocument, { shouldDirty: true, shouldValidate: true })
+    }
+  }, [form, tipoSelecionado])
+
+  useEffect(() => {
     if (open) {
       form.reset(getClientFormDefaults(cliente))
       setSubmitError('')
@@ -179,7 +189,7 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
 
     const normalizedData = {
       ...data,
-      cpf: formatCpf(data.cpf),
+      cpf: formatClientDocument(data.cpf, data.tipo),
       empresa: data.tipo === 'comercial' ? normalizeOptionalText(data.empresa) : '',
       cargo: data.tipo === 'comercial' ? normalizeOptionalText(data.cargo) : '',
       email: data.email.trim(),
@@ -250,14 +260,14 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
                 name="cpf"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>CPF</FormLabel>
+                    <FormLabel>{getClientDocumentLabel(tipoSelecionado)}</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder="000.000.000-00"
+                        placeholder={getClientDocumentPlaceholder(tipoSelecionado)}
                         value={field.value}
                         onChange={(e) => field.onChange(e.target.value)}
                         onBlur={(e) => {
-                          field.onChange(formatCpf(e.target.value))
+                          field.onChange(formatClientDocument(e.target.value, tipoSelecionado))
                           field.onBlur()
                         }}
                       />

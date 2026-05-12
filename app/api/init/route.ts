@@ -28,6 +28,7 @@ export async function POST() {
         telefone VARCHAR(20),
         empresa VARCHAR(255),
         cargo VARCHAR(255),
+        tipo ENUM('residencial', 'comercial') NOT NULL DEFAULT 'residencial',
         endereco TEXT,
         cidade VARCHAR(100),
         estado VARCHAR(2),
@@ -230,13 +231,13 @@ export async function POST() {
       )
 
       await query(`
-        INSERT INTO clientes (id, nome, email, telefone, empresa, cargo, cidade, estado, origem, status_funil, observacoes) VALUES
-        ('cli-1', 'Roberto Mendes', 'roberto@industria.com', '(11) 99999-1111', 'Industria ABC', 'Diretor', 'Sao Paulo', 'SP', 'site', 'negociacao', 'Cliente interessado em sistema de 50kWp para industria'),
-        ('cli-2', 'Fernanda Lima', 'fernanda@comercio.com', '(11) 99999-2222', 'Comercio XYZ', 'Gerente', 'Campinas', 'SP', 'indicacao', 'orcamento_enviado', 'Indicacao do cliente Roberto'),
-        ('cli-3', 'Marcelo Souza', 'marcelo@fazenda.com', '(19) 99999-3333', 'Fazenda Sol Nascente', 'Proprietario', 'Ribeirao Preto', 'SP', 'google', 'em_atendimento', 'Interessado em sistema rural de grande porte'),
-        ('cli-4', 'Patricia Alves', 'patricia@residencial.com', '(11) 99999-4444', NULL, NULL, 'Santos', 'SP', 'facebook', 'lead_novo', 'Residencia com alto consumo mensal'),
-        ('cli-5', 'Ricardo Gomes', 'ricardo@hotel.com', '(13) 99999-5555', 'Hotel Praia Azul', 'Administrador', 'Guaruja', 'SP', 'instagram', 'fechado', 'Projeto concluido - sistema de 80kWp'),
-        ('cli-6', 'Amanda Ferreira', 'amanda@escola.com', '(11) 99999-6666', 'Colegio Educar', 'Diretora', 'Sao Bernardo', 'SP', 'telefone', 'negociacao', 'Escola particular interessada em energia solar')
+        INSERT INTO clientes (id, nome, email, telefone, empresa, cargo, tipo, cidade, estado, origem, status_funil, observacoes) VALUES
+        ('cli-1', 'Roberto Mendes', 'roberto@industria.com', '(11) 99999-1111', 'Industria ABC', 'Diretor', 'comercial', 'Sao Paulo', 'SP', 'site', 'negociacao', 'Cliente interessado em sistema de 50kWp para industria'),
+        ('cli-2', 'Fernanda Lima', 'fernanda@comercio.com', '(11) 99999-2222', 'Comercio XYZ', 'Gerente', 'comercial', 'Campinas', 'SP', 'indicacao', 'orcamento_enviado', 'Indicacao do cliente Roberto'),
+        ('cli-3', 'Marcelo Souza', 'marcelo@fazenda.com', '(19) 99999-3333', 'Fazenda Sol Nascente', 'Proprietario', 'comercial', 'Ribeirao Preto', 'SP', 'google', 'em_atendimento', 'Interessado em sistema rural de grande porte'),
+        ('cli-4', 'Patricia Alves', 'patricia@residencial.com', '(11) 99999-4444', NULL, NULL, 'residencial', 'Santos', 'SP', 'facebook', 'lead_novo', 'Residencia com alto consumo mensal'),
+        ('cli-5', 'Ricardo Gomes', 'ricardo@hotel.com', '(13) 99999-5555', 'Hotel Praia Azul', 'Administrador', 'comercial', 'Guaruja', 'SP', 'instagram', 'fechado', 'Projeto concluido - sistema de 80kWp'),
+        ('cli-6', 'Amanda Ferreira', 'amanda@escola.com', '(11) 99999-6666', 'Colegio Educar', 'Diretora', 'comercial', 'Sao Bernardo', 'SP', 'telefone', 'negociacao', 'Escola particular interessada em energia solar')
       `)
 
       await query(`

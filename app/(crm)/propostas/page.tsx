@@ -2,6 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { useCRM } from '@/lib/context/crm-context'
@@ -9,6 +10,7 @@ import { useAppSettings } from '@/lib/context/app-settings-context'
 import { prefetchProposta, useSession } from '@/lib/hooks/use-api'
 import { parseProposalMaterialTags } from '@/lib/utils/proposal-material-tags'
 import { CRMHeader } from '@/components/crm/header'
+import { FeatureErrorBoundary } from '@/components/crm/feature-error-boundary'
 import { ModuleAccessState } from '@/components/crm/module-access-state'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -95,15 +97,22 @@ export default function PropostasPage() {
   const { state, getCliente, deleteProposta } = useCRM()
   const { formatCurrency, formatDate } = useAppSettings()
   const { user } = useSession()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editingPropostaId, setEditingPropostaId] = useState<string | null>(null)
   const [detailsPropostaId, setDetailsPropostaId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]['key']>('todas')
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(10)
   const [currentPage, setCurrentPage] = useState(1)
+  const detailProposalParam = searchParams.get('proposta')
   const openProposalDetails = (proposalId: string) => {
     void prefetchProposta(proposalId)
     setDetailsPropostaId(proposalId)
+    const nextParams = new URLSearchParams(searchParams.toString())
+    nextParams.set('proposta', proposalId)
+    router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false })
   }
   const hasPropostasAccess = hasModuleAccess(user, 'propostas')
   const canCreateProposal = user?.role !== 'vendedor'
@@ -172,6 +181,15 @@ export default function PropostasPage() {
       setCurrentPage(totalPages)
     }
   }, [currentPage, totalPages])
+
+  useEffect(() => {
+    if (!detailProposalParam) {
+      return
+    }
+
+    void prefetchProposta(detailProposalParam)
+    setDetailsPropostaId(detailProposalParam)
+  }, [detailProposalParam])
 
   if (!hasPropostasAccess) {
     return <ModuleAccessState module="propostas" />
@@ -475,6 +493,10 @@ export default function PropostasPage() {
       />
 
       <div className="flex-1 overflow-auto space-y-4 p-4 sm:space-y-6 sm:p-6">
+        <FeatureErrorBoundary
+          title="A tela de propostas encontrou um erro temporario"
+          description="A interface continua utilizavel e voce pode tentar novamente sem perder toda a sessao."
+        >
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
           {stats.map((stat) => (
             <Card key={stat.title} className="border-border bg-card">
@@ -640,6 +662,7 @@ export default function PropostasPage() {
             )
           })}
         </Tabs>
+        </FeatureErrorBoundary>
       </div>
 
       {canCreateProposal ? (
@@ -656,7 +679,15 @@ export default function PropostasPage() {
       {detailsPropostaId ? (
         <ProposalDetailsSheet
           open={Boolean(detailsPropostaId)}
-          onOpenChange={(open) => !open && setDetailsPropostaId(null)}
+          onOpenChange={(open) => {
+            if (open) return
+
+            setDetailsPropostaId(null)
+            const nextParams = new URLSearchParams(searchParams.toString())
+            nextParams.delete('proposta')
+            const nextQuery = nextParams.toString()
+            router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname, { scroll: false })
+          }}
           propostaId={detailsPropostaId}
           propostaInicial={detailsProposta}
         />

@@ -4,6 +4,7 @@ import { useAppSettings } from '@/lib/context/app-settings-context'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { MapPin, Phone, Mail, Building2, Calendar, User, Briefcase, IdCard } from 'lucide-react'
 import type { Cliente } from '@/lib/data/types'
+import { getClientDocumentLabel } from '@/lib/utils/client-document'
 
 interface InfoTabProps {
   cliente: Cliente
@@ -12,11 +13,12 @@ interface InfoTabProps {
 export function InfoTab({ cliente }: InfoTabProps) {
   const { formatDate } = useAppSettings()
   const origemLabel = cliente.origem?.trim() || 'Nao informado'
+  const clientDocumentLabel = getClientDocumentLabel(cliente.tipo)
 
   const infoItems = [
     { icon: Phone, label: 'Telefone', value: cliente.telefone, href: `tel:${cliente.telefone}` },
     { icon: Mail, label: 'E-mail', value: cliente.email, href: `mailto:${cliente.email}` },
-    ...(cliente.cpf ? [{ icon: IdCard, label: 'CPF', value: cliente.cpf }] : []),
+    ...(cliente.cpf ? [{ icon: IdCard, label: clientDocumentLabel, value: cliente.cpf }] : []),
     { icon: MapPin, label: 'Endereco', value: cliente.endereco },
     { icon: Building2, label: 'Tipo', value: cliente.tipo === 'comercial' ? 'Comercial' : 'Residencial' },
     ...(cliente.empresa ? [{ icon: Building2, label: 'Empresa', value: cliente.empresa }] : []),

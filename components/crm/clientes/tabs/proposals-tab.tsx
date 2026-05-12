@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Plus, FileText, Calendar, Paperclip, MessageSquare, UserRound, BriefcaseBusiness } from 'lucide-react'
-import { sellerReleasedProposalStatuses, statusPropostaColors, statusPropostaLabels } from '@/lib/data/types'
+import { sellerReleasedProposalStatuses, statusPropostaColors, statusPropostaLabels, type Proposta } from '@/lib/data/types'
 
 interface ProposalsTabProps {
   clienteId: string
@@ -24,9 +24,11 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingPropostaId, setEditingPropostaId] = useState<string | null>(null)
   const [detailsPropostaId, setDetailsPropostaId] = useState<string | null>(null)
-  const openProposalDetails = useCallback((proposalId: string) => {
-    void prefetchProposta(proposalId)
-    setDetailsPropostaId(proposalId)
+  const [detailsPropostaSnapshot, setDetailsPropostaSnapshot] = useState<Proposta | null>(null)
+  const openProposalDetails = useCallback((proposal: Proposta) => {
+    void prefetchProposta(proposal.id)
+    setDetailsPropostaId(proposal.id)
+    setDetailsPropostaSnapshot(proposal)
   }, [])
 
   const propostas = useMemo(
@@ -162,7 +164,7 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
                       variant="ghost"
                       onPointerEnter={() => void prefetchProposta(proposta.id)}
                       onFocus={() => void prefetchProposta(proposta.id)}
-                      onClick={() => openProposalDetails(proposta.id)}
+                      onClick={() => openProposalDetails(proposta)}
                     >
                       Ver detalhes
                     </Button>
@@ -195,9 +197,16 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
       />
       <ProposalDetailsSheet
         open={Boolean(detailsPropostaId)}
-        onOpenChange={(open) => !open && setDetailsPropostaId(null)}
+        onOpenChange={(open) => {
+          if (open) return
+          setDetailsPropostaId(null)
+          setDetailsPropostaSnapshot(null)
+        }}
         propostaId={detailsPropostaId}
-        propostaInicial={propostas.find((proposta) => proposta.id === detailsPropostaId) ?? null}
+        propostaInicial={
+          propostas.find((proposta) => proposta.id === detailsPropostaId) ??
+          detailsPropostaSnapshot
+        }
       />
     </>
   )

@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { createTarefa, updateTarefa, updateTarefaStatus, deleteTarefa, useSession } from '@/lib/hooks/use-api'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useCRM } from '@/lib/context/crm-context'
 import { CRMHeader } from '@/components/crm/header'
+import { FeatureErrorBoundary } from '@/components/crm/feature-error-boundary'
 import { ModuleAccessState } from '@/components/crm/module-access-state'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -51,19 +52,16 @@ export default function TarefasPage() {
   const [responsavelId, setResponsavelId] = useState('')
   const [clienteId, setClienteId] = useState('')
   const [clienteSearch, setClienteSearch] = useState('')
+  const deferredClienteSearch = useDeferredValue(clienteSearch)
   const [editingTarefaId, setEditingTarefaId] = useState<string | null>(null)
   const [editDescricao, setEditDescricao] = useState('')
   const [editDataHora, setEditDataHora] = useState('')
   const [editResponsavelId, setEditResponsavelId] = useState('')
   const [editClienteId, setEditClienteId] = useState('')
-  const [currentMonth, setCurrentMonth] = useState<Date | null>(null)
+  const [currentMonth, setCurrentMonth] = useState<Date | null>(() => new Date())
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [isCreatingTask, setIsCreatingTask] = useState(false)
   const [isSavingTask, setIsSavingTask] = useState(false)
-
-  useEffect(() => {
-    setCurrentMonth(new Date())
-  }, [])
 
   useEffect(() => {
     if (!canChooseCreateResponsavel && user?.id) {
@@ -71,7 +69,7 @@ export default function TarefasPage() {
     }
   }, [canChooseCreateResponsavel, user?.id])
 
-  const clienteSearchTerm = clienteSearch.trim().toLowerCase()
+  const clienteSearchTerm = deferredClienteSearch.trim().toLowerCase()
 
   const {
     tarefasHoje,
@@ -311,6 +309,10 @@ export default function TarefasPage() {
       />
 
       <div className="flex-1 overflow-auto p-4 sm:p-6">
+        <FeatureErrorBoundary
+          title="A tela de tarefas encontrou um erro temporario"
+          description="Se algo inesperado acontecer nesta area, o usuario pode tentar novamente sem perder a sessao inteira."
+        >
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div className="order-2 lg:order-1 lg:col-span-2">
             <Tabs defaultValue="hoje">
@@ -425,6 +427,7 @@ export default function TarefasPage() {
             </Card>
           </div>
         </div>
+        </FeatureErrorBoundary>
       </div>
 
       <Dialog open={showAddForm} onOpenChange={setShowAddForm}>

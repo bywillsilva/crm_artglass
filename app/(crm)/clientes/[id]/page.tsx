@@ -1,20 +1,38 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { use, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { useCRM } from '@/lib/context/crm-context'
 import { useSession } from '@/lib/hooks/use-api'
 import { CRMHeader } from '@/components/crm/header'
+import { FeatureErrorBoundary } from '@/components/crm/feature-error-boundary'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ArrowLeft, Phone, Pencil } from 'lucide-react'
-import { InfoTab } from '@/components/crm/clientes/tabs/info-tab'
-import { HistoryTab } from '@/components/crm/clientes/tabs/history-tab'
-import { TasksTab } from '@/components/crm/clientes/tabs/tasks-tab'
-import { ProposalsTab } from '@/components/crm/clientes/tabs/proposals-tab'
-import { ClientForm } from '@/components/crm/clientes/client-form'
 import { ModuleAccessState } from '@/components/crm/module-access-state'
+
+const InfoTab = dynamic(
+  () => import('@/components/crm/clientes/tabs/info-tab').then((mod) => mod.InfoTab),
+  { ssr: false }
+)
+const HistoryTab = dynamic(
+  () => import('@/components/crm/clientes/tabs/history-tab').then((mod) => mod.HistoryTab),
+  { ssr: false }
+)
+const TasksTab = dynamic(
+  () => import('@/components/crm/clientes/tabs/tasks-tab').then((mod) => mod.TasksTab),
+  { ssr: false }
+)
+const ProposalsTab = dynamic(
+  () => import('@/components/crm/clientes/tabs/proposals-tab').then((mod) => mod.ProposalsTab),
+  { ssr: false }
+)
+const ClientForm = dynamic(
+  () => import('@/components/crm/clientes/client-form').then((mod) => mod.ClientForm),
+  { ssr: false }
+)
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -92,25 +110,33 @@ export default function ClienteDetailPage({ params }: PageProps) {
             </TabsList>
 
             <TabsContent value="info">
-              <InfoTab cliente={cliente} />
+              <FeatureErrorBoundary title="Nao foi possivel carregar as informacoes do cliente">
+                <InfoTab cliente={cliente} />
+              </FeatureErrorBoundary>
             </TabsContent>
 
             <TabsContent value="history">
-              <HistoryTab clienteId={cliente.id} />
+              <FeatureErrorBoundary title="Nao foi possivel carregar o historico do cliente">
+                <HistoryTab clienteId={cliente.id} />
+              </FeatureErrorBoundary>
             </TabsContent>
 
             <TabsContent value="tasks">
-              <TasksTab clienteId={cliente.id} />
+              <FeatureErrorBoundary title="Nao foi possivel carregar as tarefas deste cliente">
+                <TasksTab clienteId={cliente.id} />
+              </FeatureErrorBoundary>
             </TabsContent>
 
             <TabsContent value="proposals">
-              <ProposalsTab clienteId={cliente.id} />
+              <FeatureErrorBoundary title="Nao foi possivel carregar as propostas deste cliente">
+                <ProposalsTab clienteId={cliente.id} />
+              </FeatureErrorBoundary>
             </TabsContent>
           </Tabs>
         </div>
       </div>
 
-      <ClientForm open={showEditForm} onClose={() => setShowEditForm(false)} cliente={cliente} />
+      {showEditForm ? <ClientForm open={showEditForm} onClose={() => setShowEditForm(false)} cliente={cliente} /> : null}
     </>
   )
 }

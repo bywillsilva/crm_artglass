@@ -6,6 +6,7 @@ import {
   formatMysqlDateTimeValue,
   parseDateTimeValue,
 } from '@/lib/utils/date-time'
+import { inferClientType } from '@/lib/utils/client-document'
 import { getDateFilterQueryParams, type DateFilterValue } from '@/lib/utils/date-filter'
 import { formatBrazilPhone } from '@/lib/utils/phone'
 import type {
@@ -125,7 +126,7 @@ function joinAddress(row: JsonRecord) {
 }
 
 function inferTipoCliente(row: JsonRecord): TipoCliente {
-  return row.empresa || row.cargo ? 'comercial' : 'residencial'
+  return inferClientType(row)
 }
 
 function mapPropostaStatusFromApi(status?: string): StatusProposta {
@@ -1487,6 +1488,7 @@ export async function createProposta(data: Partial<Proposta> & JsonRecord) {
 }
 
 export async function updateProposta(id: string, data: Partial<Proposta> & JsonRecord) {
+  const hasOwnField = (field: string) => Object.prototype.hasOwnProperty.call(data, field)
   const parsedValor = parseNumberLike(data.valor)
   const parsedDesconto = parseNumberLike(data.desconto)
   const parsedClienteValorFechado = parseNumberLike(data.clienteValorFechado)
@@ -1508,45 +1510,50 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
   const hasExplicitValorPerfil = hasFilledValue(data.valorPerfil)
   const hasExplicitValorVidro = hasFilledValue(data.valorVidro)
   const hasExplicitValorAcessorios = hasFilledValue(data.valorAcessorios)
-  const payload = {
-    titulo: data.titulo || 'Proposta Comercial',
-    materialTag: data.materialTag === undefined ? undefined : (data.materialTag || null),
-    areaM2: hasExplicitAreaM2 ? parsedAreaM2 : null,
-    perfisBruto: hasExplicitPerfisBruto ? parsedPerfisBruto : null,
-    perfisLiquidos: hasExplicitPerfisLiquidos ? parsedPerfisLiquidos : null,
-    valorPerfil: hasExplicitValorPerfil ? parsedValorPerfil : null,
-    valorVidro: hasExplicitValorVidro ? parsedValorVidro : null,
-    valorAcessorios: hasExplicitValorAcessorios ? parsedValorAcessorios : null,
-    observacoesTecnicas:
-      data.observacoesTecnicas === undefined ? undefined : (data.observacoesTecnicas || null),
-    descricao: data.descricao || '',
-    valor: hasExplicitValor ? (parsedValor ?? 0) : null,
-    desconto: hasExplicitDesconto ? (parsedDesconto ?? 0) : null,
-    status: mapPropostaStatusToApi(data.status),
-    validade: data.validade || null,
-    servicos: data.servicos || [],
-    condicoes: data.condicoes || null,
-    responsavelId: data.responsavelId || null,
-    orcamentistaId: data.orcamentistaId || null,
-    comentario: data.comentario || null,
-    justificativa: data.justificativa || null,
-    workflowAction: data.workflowAction || null,
-    clienteId: data.clienteId || null,
-    followUpTime: data.followUpTime || null,
-    clienteNome: data.clienteNome || null,
-    clienteCpf: data.clienteCpf || null,
-    clienteTelefone: formatBrazilPhone(data.clienteTelefone) || null,
-    clienteEmail: data.clienteEmail || null,
-    clienteEndereco: data.clienteEndereco || null,
-    clienteValorFechado: parsedClienteValorFechado ?? null,
-    kanbanPosition: parsedKanbanPosition,
-  }
+  const payload = compactObject({
+    titulo: hasOwnField('titulo') ? (data.titulo || 'Proposta Comercial') : undefined,
+    materialTag: hasOwnField('materialTag') ? (data.materialTag || null) : undefined,
+    areaM2: hasOwnField('areaM2') ? (hasExplicitAreaM2 ? parsedAreaM2 : null) : undefined,
+    perfisBruto: hasOwnField('perfisBruto') ? (hasExplicitPerfisBruto ? parsedPerfisBruto : null) : undefined,
+    perfisLiquidos: hasOwnField('perfisLiquidos')
+      ? (hasExplicitPerfisLiquidos ? parsedPerfisLiquidos : null)
+      : undefined,
+    valorPerfil: hasOwnField('valorPerfil') ? (hasExplicitValorPerfil ? parsedValorPerfil : null) : undefined,
+    valorVidro: hasOwnField('valorVidro') ? (hasExplicitValorVidro ? parsedValorVidro : null) : undefined,
+    valorAcessorios: hasOwnField('valorAcessorios')
+      ? (hasExplicitValorAcessorios ? parsedValorAcessorios : null)
+      : undefined,
+    observacoesTecnicas: hasOwnField('observacoesTecnicas')
+      ? (data.observacoesTecnicas || null)
+      : undefined,
+    descricao: hasOwnField('descricao') ? (data.descricao || '') : undefined,
+    valor: hasOwnField('valor') ? (hasExplicitValor ? (parsedValor ?? 0) : null) : undefined,
+    desconto: hasOwnField('desconto') ? (hasExplicitDesconto ? (parsedDesconto ?? 0) : null) : undefined,
+    status: hasOwnField('status') ? mapPropostaStatusToApi(data.status) : undefined,
+    validade: hasOwnField('validade') ? (data.validade || null) : undefined,
+    servicos: hasOwnField('servicos') ? (data.servicos || []) : undefined,
+    condicoes: hasOwnField('condicoes') ? (data.condicoes || null) : undefined,
+    responsavelId: hasOwnField('responsavelId') ? (data.responsavelId || null) : undefined,
+    orcamentistaId: hasOwnField('orcamentistaId') ? (data.orcamentistaId || null) : undefined,
+    comentario: hasOwnField('comentario') ? (data.comentario || null) : undefined,
+    justificativa: hasOwnField('justificativa') ? (data.justificativa || null) : undefined,
+    workflowAction: hasOwnField('workflowAction') ? (data.workflowAction || null) : undefined,
+    clienteId: hasOwnField('clienteId') ? (data.clienteId || null) : undefined,
+    followUpTime: hasOwnField('followUpTime') ? (data.followUpTime || null) : undefined,
+    clienteNome: hasOwnField('clienteNome') ? (data.clienteNome || null) : undefined,
+    clienteCpf: hasOwnField('clienteCpf') ? (data.clienteCpf || null) : undefined,
+    clienteTelefone: hasOwnField('clienteTelefone') ? (formatBrazilPhone(data.clienteTelefone) || null) : undefined,
+    clienteEmail: hasOwnField('clienteEmail') ? (data.clienteEmail || null) : undefined,
+    clienteEndereco: hasOwnField('clienteEndereco') ? (data.clienteEndereco || null) : undefined,
+    clienteValorFechado: hasOwnField('clienteValorFechado') ? (parsedClienteValorFechado ?? null) : undefined,
+    kanbanPosition: hasOwnField('kanbanPosition') ? parsedKanbanPosition : undefined,
+  })
   const anexos = Array.isArray(data.anexos)
     ? (data.anexos as unknown[]).filter((item): item is File => item instanceof File)
     : []
   const isMultipart = anexos.some((item) => item instanceof File)
   const body = isMultipart ? buildProposalFormData(payload, anexos) : JSON.stringify(payload)
-  const optimisticStatus = mapPropostaStatusToApi(data.status)
+  const optimisticStatus = hasOwnField('status') ? mapPropostaStatusToApi(data.status) : undefined
   const optimisticPatch = compactObject({
     titulo: payload.titulo,
     materialTag: payload.materialTag,

@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { useSession } from '@/lib/hooks/use-api'
+import { FeatureErrorBoundary } from '@/components/crm/feature-error-boundary'
 import { ModuleAccessState } from '@/components/crm/module-access-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -92,5 +93,12 @@ export default function DashboardPage() {
     return <ModuleAccessState module="dashboard" />
   }
 
-  return <DashboardContent />
+  return (
+    <FeatureErrorBoundary
+      title="O dashboard encontrou um erro temporario"
+      description="Se algo inesperado acontecer aqui, o restante da sessao continua protegido."
+    >
+      <DashboardContent />
+    </FeatureErrorBoundary>
+  )
 }

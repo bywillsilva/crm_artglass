@@ -3,6 +3,7 @@ import { isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysq
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
+import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import { syncDueFollowUpStatuses } from '@/lib/server/proposal-workflow'
 
 type AuthenticatedUser = {
@@ -40,6 +41,7 @@ const BOOTSTRAP_CLIENT_SELECT_COLUMNS = `
   c.email,
   c.empresa,
   c.cargo,
+  c.tipo,
   c.endereco,
   c.cidade,
   c.estado,
@@ -228,6 +230,7 @@ export async function GET(request: Request) {
   let isAuthenticated = false
 
   try {
+    await ensureSystemDatabaseSchema()
     await syncDueFollowUpStatuses()
 
     const authenticatedUser = await getAuthenticatedServerUser()
