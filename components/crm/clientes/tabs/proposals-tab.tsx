@@ -23,6 +23,7 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
   const { user } = useSession()
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingPropostaId, setEditingPropostaId] = useState<string | null>(null)
+  const [editingPropostaSnapshot, setEditingPropostaSnapshot] = useState<Proposta | null>(null)
   const [detailsPropostaId, setDetailsPropostaId] = useState<string | null>(null)
   const [detailsPropostaSnapshot, setDetailsPropostaSnapshot] = useState<Proposta | null>(null)
   const openProposalDetails = useCallback((proposal: Proposta) => {
@@ -169,7 +170,10 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
                       Ver detalhes
                     </Button>
                     {canEditProposal(proposta) && (
-                      <Button size="sm" variant="outline" onClick={() => setEditingPropostaId(proposta.id)}>
+                      <Button size="sm" variant="outline" onClick={() => {
+                        setEditingPropostaId(proposta.id)
+                        setEditingPropostaSnapshot(proposta)
+                      }}>
                         Editar
                       </Button>
                     )}
@@ -191,9 +195,16 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
       ) : null}
       <ProposalFormDialog
         open={Boolean(editingPropostaId)}
-        onOpenChange={(open) => !open && setEditingPropostaId(null)}
+        onOpenChange={(open) => {
+          if (open) return
+          setEditingPropostaId(null)
+          setEditingPropostaSnapshot(null)
+        }}
         propostaId={editingPropostaId}
-        propostaInicial={propostas.find((proposta) => proposta.id === editingPropostaId) ?? null}
+        propostaInicial={
+          propostas.find((proposta) => proposta.id === editingPropostaId) ??
+          editingPropostaSnapshot
+        }
       />
       <ProposalDetailsSheet
         open={Boolean(detailsPropostaId)}

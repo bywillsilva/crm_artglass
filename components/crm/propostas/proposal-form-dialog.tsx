@@ -158,6 +158,44 @@ export function ProposalFormDialog({
       ].join(':')
     : null
   useEffect(() => {
+    if (!open || !isEditing || !propostaInicial) {
+      return
+    }
+
+    const initialHydrationKey = [
+      propostaInicial.id,
+      propostaInicial.clienteId,
+      propostaInicial.responsavelId,
+      propostaInicial.orcamentistaId,
+      propostaInicial.valor,
+      propostaInicial.status,
+      propostaInicial.materialTag || '',
+      propostaInicial.descricao || '',
+    ].join(':')
+
+    if (hydratedKeyRef.current === initialHydrationKey) {
+      return
+    }
+
+    if (hydratedKeyRef.current !== null && isDirtyRef.current) {
+      return
+    }
+
+    hydratedKeyRef.current = initialHydrationKey
+    setClienteId(propostaInicial.clienteId)
+    setClienteSearch('')
+    setResponsavelId(propostaInicial.responsavelId || '')
+    setOrcamentistaId(propostaInicial.orcamentistaId || '')
+    const hydratedValor = formatEditableProposalValue(propostaInicial.valor)
+    latestValorRef.current = hydratedValor
+    setValor(hydratedValor)
+    setMaterialTag(propostaInicial.materialTag || '')
+    setDescricao(propostaInicial.descricao || '')
+    setStatus(propostaInicial.status)
+    setFiles([])
+    isDirtyRef.current = false
+  }, [isEditing, open, propostaInicial])
+  useEffect(() => {
     if (!open) {
       hydratedKeyRef.current = null
       isDirtyRef.current = false

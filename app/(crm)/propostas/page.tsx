@@ -102,6 +102,7 @@ export default function PropostasPage() {
   const searchParams = useSearchParams()
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editingPropostaId, setEditingPropostaId] = useState<string | null>(null)
+  const [editingPropostaSnapshot, setEditingPropostaSnapshot] = useState<(typeof state.propostas)[number] | null>(null)
   const [detailsPropostaId, setDetailsPropostaId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]['key']>('todas')
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(10)
@@ -147,7 +148,7 @@ export default function PropostasPage() {
   const propostasFechadas = propostasPorTab.fechadas
   const propostasPerdidas = propostasPorTab.perdidas
   const editingProposta = editingPropostaId
-    ? propostasOrdenadas.find((proposta) => proposta.id === editingPropostaId) ?? null
+    ? propostasOrdenadas.find((proposta) => proposta.id === editingPropostaId) ?? editingPropostaSnapshot
     : null
   const detailsProposta = detailsPropostaId
     ? propostasOrdenadas.find((proposta) => proposta.id === detailsPropostaId) ?? null
@@ -309,7 +310,10 @@ export default function PropostasPage() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               {canEditProposal && (
-                <DropdownMenuItem onClick={() => setEditingPropostaId(proposta.id)}>
+                <DropdownMenuItem onClick={() => {
+                  setEditingPropostaId(proposta.id)
+                  setEditingPropostaSnapshot(proposta)
+                }}>
                   <Pencil className="mr-2 h-4 w-4" />
                   Editar proposta
                 </DropdownMenuItem>
@@ -402,7 +406,10 @@ export default function PropostasPage() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 {canEditProposal && (
-                  <DropdownMenuItem onClick={() => setEditingPropostaId(proposta.id)}>
+                  <DropdownMenuItem onClick={() => {
+                    setEditingPropostaId(proposta.id)
+                    setEditingPropostaSnapshot(proposta)
+                  }}>
                     <Pencil className="mr-2 h-4 w-4" />
                     Editar proposta
                   </DropdownMenuItem>
@@ -671,7 +678,11 @@ export default function PropostasPage() {
       {editingPropostaId ? (
         <ProposalFormDialog
           open={Boolean(editingPropostaId)}
-          onOpenChange={(open) => !open && setEditingPropostaId(null)}
+          onOpenChange={(open) => {
+            if (open) return
+            setEditingPropostaId(null)
+            setEditingPropostaSnapshot(null)
+          }}
           propostaId={editingPropostaId}
           propostaInicial={editingProposta}
         />
