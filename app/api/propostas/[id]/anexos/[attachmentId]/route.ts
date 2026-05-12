@@ -232,6 +232,13 @@ export async function DELETE(
       return NextResponse.json({ error: 'Proposta nao encontrada' }, { status: 404 })
     }
 
+    if (user.role === 'vendedor') {
+      return NextResponse.json(
+        { error: 'Vendedores nao podem excluir anexos diretamente da proposta.' },
+        { status: 403 }
+      )
+    }
+
     if (!canManageProposal(user, proposta)) {
       return NextResponse.json({ error: 'Voce nao pode excluir anexos desta proposta' }, { status: 403 })
     }

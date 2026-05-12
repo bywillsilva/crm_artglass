@@ -36,7 +36,6 @@ import {
   CommandList,
   CommandSeparator,
 } from '@/components/ui/command'
-import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useClientes, useInteracoes, usePropostas, useReadNotifications, useSession, useTarefas } from '@/lib/hooks/use-api'
 import { statusPropostaLabels, type Cliente, type Interacao, type Proposta, type StatusProposta, type Tarefa } from '@/lib/data/types'
@@ -102,9 +101,15 @@ function formatProposalNotificationDescription(interacao: Interacao) {
   return interacao.descricao
 }
 
+function normalizeSearchText(...values: Array<string | number | null | undefined>) {
+  return values
+    .map((value) => String(value ?? '').trim().toLowerCase())
+    .filter(Boolean)
+    .join(' ')
+}
+
 export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
   const router = useRouter()
-  const { state } = useCRM()
   const { notifications } = useAppSettings()
   const { user } = useSession()
   const [shouldLoadProposalNotifications, setShouldLoadProposalNotifications] = useState(false)
@@ -134,7 +139,13 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const saved = window.localStorage.getItem(getReadStorageKey(`${user?.id}:browser`))
+    let saved: string | null = null
+
+    try {
+      saved = window.localStorage.getItem(getReadStorageKey(`${user?.id}:browser`))
+    } catch {
+      saved = null
+    }
 
     try {
       shownBrowserNotificationIds.current = new Set(saved ? JSON.parse(saved) : [])
@@ -348,10 +359,14 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
     })
 
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem(
-        getReadStorageKey(`${user?.id}:browser`),
-        JSON.stringify([...shownBrowserNotificationIds.current])
-      )
+      try {
+        window.localStorage.setItem(
+          getReadStorageKey(`${user?.id}:browser`),
+          JSON.stringify([...shownBrowserNotificationIds.current])
+        )
+      } catch {
+        // Ignora falhas de storage em navegadores mobile mais restritos.
+      }
     }
 
     if (
@@ -364,7 +379,11 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
     }
 
     browserCandidates.slice(0, 3).forEach((item) => {
-      new Notification(item.title, { body: item.description })
+      try {
+        new Notification(item.title, { body: item.description })
+      } catch {
+        // Ignora falhas isoladas do Notification API.
+      }
     })
   }, [actionNotifications, notifications.browser, taskNotifications])
 
@@ -375,23 +394,25 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
     if (!term) return { clientes: [], tarefas: [], propostas: [] }
 
     return {
-      clientes: state.clientes.filter((cliente) =>
-        [cliente.nome, cliente.email, cliente.telefone].some((value) =>
-          value?.toLowerCase().includes(term)
-        )
+      clientes: headerClientes.filter((cliente) =>
+        normalizeSearchText(cliente.nome, cliente.email, cliente.telefone).includes(term)
       ),
-      tarefas: state.tarefas.filter((tarefa) =>
-        [tarefa.titulo || '', tarefa.descricao].some((value) =>
-          value.toLowerCase().includes(term)
-        )
+      tarefas: headerTarefas.filter((tarefa) =>
+        normalizeSearchText(tarefa.titulo || '', tarefa.descricao).includes(term)
       ),
-      propostas: state.propostas.filter((proposta) =>
-        [proposta.titulo || '', proposta.descricao || ''].some((value) =>
-          value.toLowerCase().includes(term)
-        )
+      propostas: headerPropostas.filter((proposta) =>
+        normalizeSearchText(
+          proposta.numero,
+          proposta.titulo || '',
+          proposta.descricao || '',
+          proposta.clienteNome,
+          proposta.materialTag,
+          proposta.responsavelNome,
+          proposta.orcamentistaNome
+        ).includes(term)
       ),
     }
-  }, [commandOpen, deferredQuery, state.clientes, state.propostas, state.tarefas])
+  }, [commandOpen, deferredQuery, headerClientes, headerPropostas, headerTarefas])
 
   const markNotificationAsRead = async (item: HeaderNotification) => {
     if (item.persistent) return
@@ -760,6 +781,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
               {results.clientes.slice(0, 6).map((cliente) => (
                 <CommandItem
                   key={cliente.id}
+                  value={normalizeSearchText(cliente.nome, cliente.email, cliente.telefone)}
                   onSelect={() => {
                     setCommandOpen(false)
                     router.push(`/clientes/${cliente.id}`)
@@ -777,6 +799,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
               {results.tarefas.slice(0, 6).map((tarefa) => (
                 <CommandItem
                   key={tarefa.id}
+                  value={normalizeSearchText(tarefa.titulo || '', tarefa.descricao)}
                   onSelect={() => {
                     setCommandOpen(false)
                     router.push('/tarefas')
@@ -794,13 +817,22 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
               {results.propostas.slice(0, 6).map((proposta) => (
                 <CommandItem
                   key={proposta.id}
+                  value={normalizeSearchText(
+                    proposta.numero,
+                    proposta.titulo || '',
+                    proposta.descricao || '',
+                    proposta.clienteNome,
+                    proposta.materialTag,
+                    proposta.responsavelNome,
+                    proposta.orcamentistaNome
+                  )}
                   onSelect={() => {
                     setCommandOpen(false)
                     router.push('/propostas')
                   }}
                 >
                   <FileText className="h-4 w-4" />
-                  <span>{proposta.titulo || proposta.descricao}</span>
+                  <span>{proposta.clienteNome || proposta.titulo || proposta.descricao}</span>
                 </CommandItem>
               ))}
             </CommandGroup>

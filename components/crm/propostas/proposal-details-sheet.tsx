@@ -197,21 +197,6 @@ function isOrcamentistaEditableStatus(status?: string | null) {
   )
 }
 
-function isSellerEditableStatus(status?: string | null) {
-  return [
-    'enviar_ao_cliente',
-    'enviado_ao_cliente',
-    'follow_up_1_dia',
-    'aguardando_follow_up_3_dias',
-    'follow_up_3_dias',
-    'aguardando_follow_up_7_dias',
-    'follow_up_7_dias',
-    'stand_by',
-    'fechado',
-    'perdido',
-  ].includes(String(status || ''))
-}
-
 type InlineProposalUpdatePayload = Record<string, unknown>
 
 export function ProposalDetailsSheet({
@@ -340,9 +325,6 @@ export function ProposalDetailsSheet({
   const canInlineEdit = useMemo(() => {
     if (!user || !propostaSource) return false
     if (user.role === 'admin' || user.role === 'gerente') return true
-    if (user.role === 'vendedor') {
-      return propostaSource.responsavelId === user.id && isSellerEditableStatus(propostaSource.status)
-    }
     if (user.role === 'orcamentista') {
       return (
         (!propostaSource.orcamentistaId || propostaSource.orcamentistaId === user.id) &&
@@ -355,8 +337,19 @@ export function ProposalDetailsSheet({
   const canManageProposalContent = useMemo(() => {
     if (!user || !propostaSource) return false
     if (user.role === 'admin' || user.role === 'gerente') return true
+    if (user.role === 'orcamentista') {
+      return (
+        (!propostaSource.orcamentistaId || propostaSource.orcamentistaId === user.id) &&
+        isOrcamentistaEditableStatus(propostaSource.status)
+      )
+    }
+    return false
+  }, [propostaSource, user])
+  const canManageProposalComments = useMemo(() => {
+    if (!user || !propostaSource) return false
+    if (user.role === 'admin' || user.role === 'gerente') return true
     if (user.role === 'vendedor') {
-      return propostaSource.responsavelId === user.id && isSellerEditableStatus(propostaSource.status)
+      return propostaSource.responsavelId === user.id
     }
     if (user.role === 'orcamentista') {
       return (
@@ -1354,7 +1347,7 @@ export function ProposalDetailsSheet({
                   {propostaSource.comentarios?.length ? (
                     propostaSource.comentarios.map((item) => {
                       const canManageComment =
-                        canManageProposalContent &&
+                        canManageProposalComments &&
                         (
                           user?.role === 'admin' ||
                           user?.role === 'gerente' ||
@@ -1446,7 +1439,7 @@ export function ProposalDetailsSheet({
                 </div>
               </ScrollArea>
 
-              {canManageProposalContent ? (
+              {canManageProposalComments ? (
                 <>
                   <Separator />
 
@@ -1468,6 +1461,15 @@ export function ProposalDetailsSheet({
                         Registrar comentario
                       </Button>
                     </div>
+                  </div>
+                </>
+              ) : user?.role === 'vendedor' ? (
+                <>
+                  <Separator />
+                  <div className="min-w-0 px-4 py-4 text-sm text-muted-foreground">
+                    O vendedor pode comentar nesta proposta, mas nao pode alterar valor, anexos ou qualquer
+                    outra informacao. Para isso, envie a proposta para retificacao no funil com a justificativa
+                    obrigatoria.
                   </div>
                 </>
               ) : null}

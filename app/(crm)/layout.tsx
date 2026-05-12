@@ -1,5 +1,6 @@
 import { CRMProvider } from '@/lib/context/crm-context'
 import { AppSettingsProvider } from '@/lib/context/app-settings-context'
+import { FeatureErrorBoundary } from '@/components/crm/feature-error-boundary'
 import { CRMSidebar } from '@/components/crm/sidebar'
 import { getAuthenticatedServerUser, getServerSession } from '@/lib/auth/session'
 import { redirect } from 'next/navigation'
@@ -61,14 +62,19 @@ export default async function CRMLayout({
     >
         <AppSettingsProvider>
           <CRMProvider>
-            <div className="flex min-h-screen bg-background">
-              <CRMSidebar />
-              <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-                {children}
-              </main>
-            </div>
+            <FeatureErrorBoundary
+              title="O CRM encontrou um erro temporario"
+              description="A interface foi protegida para evitar que uma falha client-side derrube toda a aplicacao no aparelho do usuario."
+            >
+              <div className="flex min-h-screen bg-background">
+                <CRMSidebar />
+                <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                  {children}
+                </main>
+              </div>
+            </FeatureErrorBoundary>
           </CRMProvider>
-      </AppSettingsProvider>
+        </AppSettingsProvider>
     </SWRConfig>
   )
 }

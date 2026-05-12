@@ -921,6 +921,51 @@ export async function PUT(
         ? normalizeNullableText(propostaAtual.observacoes_tecnicas)
         : normalizeNullableText(data.observacoesTecnicas)
 
+    if (user.role === 'vendedor') {
+      const currentAreaM2 = parseNullableNumber(propostaAtual.area_m2)
+      const currentPerfisBruto = parseNullableNumber(propostaAtual.perfis_bruto)
+      const currentPerfisLiquidos = parseNullableNumber(propostaAtual.perfis_liquidos)
+      const currentValorVidro = parseNullableNumber(propostaAtual.valor_vidro)
+      const currentValorAcessorios = parseNullableNumber(propostaAtual.valor_acessorios)
+      const currentValor = parseNullableNumber(propostaAtual.valor)
+      const currentDescricao = normalizeNullableText(propostaAtual.descricao)
+      const currentTitulo = normalizeNullableText(propostaAtual.titulo)
+      const currentMaterialTag = normalizeMaterialTag(propostaAtual.material_tag)
+
+      const sellerIsTryingToUploadAttachments = data.anexos.length > 0
+      const sellerIsTryingToChangeContent =
+        sellerIsTryingToUploadAttachments ||
+        (data.clienteId !== undefined && data.clienteId !== propostaAtual.cliente_id) ||
+        normalizeNullableText(data.titulo ?? propostaAtual.titulo) !== currentTitulo ||
+        normalizeMaterialTag(data.materialTag ?? propostaAtual.material_tag) !== currentMaterialTag ||
+        areaM2 !== currentAreaM2 ||
+        perfisBruto !== currentPerfisBruto ||
+        perfisLiquidos !== currentPerfisLiquidos ||
+        valorVidro !== currentValorVidro ||
+        valorAcessorios !== currentValorAcessorios ||
+        normalizeNullableText(data.observacoesTecnicas ?? propostaAtual.observacoes_tecnicas) !== observacoesTecnicas ||
+        normalizeNullableText(data.descricao ?? propostaAtual.descricao) !== currentDescricao ||
+        parseNullableNumber(data.valor ?? propostaAtual.valor) !== currentValor ||
+        (data.desconto !== undefined &&
+          parseNullableNumber(data.desconto) !== parseNullableNumber(propostaAtual.desconto)) ||
+        (data.validade !== undefined &&
+          normalizeNullableText(data.validade) !== normalizeNullableText(propostaAtual.validade)) ||
+        (data.condicoes !== undefined &&
+          normalizeNullableText(data.condicoes) !== normalizeNullableText(propostaAtual.condicoes)) ||
+        (data.responsavelId !== undefined && data.responsavelId !== propostaAtual.responsavel_id) ||
+        (data.orcamentistaId !== undefined && data.orcamentistaId !== propostaAtual.orcamentista_id)
+
+      if (sellerIsTryingToChangeContent) {
+        return NextResponse.json(
+          {
+            error:
+              'O vendedor nao pode alterar valor, anexos ou outros dados da proposta diretamente. Envie a proposta para retificacao no funil com a justificativa obrigatoria.',
+          },
+          { status: 403 }
+        )
+      }
+    }
+
     if (mustValidateApprovalRequirements && !hasExistingProposalPdf && !hasNewProposalPdf) {
       return NextResponse.json(
         { error: 'Anexe obrigatoriamente a proposta em PDF antes de enviar para aprovacao.' },
