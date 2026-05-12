@@ -311,6 +311,7 @@ export default function PropostasPage() {
             <DropdownMenuContent align="end">
               {canEditProposal && (
                 <DropdownMenuItem onClick={() => {
+                  void prefetchProposta(proposta.id)
                   setEditingPropostaId(proposta.id)
                   setEditingPropostaSnapshot(proposta)
                 }}>
@@ -407,6 +408,7 @@ export default function PropostasPage() {
               <DropdownMenuContent align="end">
                 {canEditProposal && (
                   <DropdownMenuItem onClick={() => {
+                    void prefetchProposta(proposta.id)
                     setEditingPropostaId(proposta.id)
                     setEditingPropostaSnapshot(proposta)
                   }}>
@@ -677,6 +679,7 @@ export default function PropostasPage() {
       ) : null}
       {editingPropostaId ? (
         <ProposalFormDialog
+          key={editingPropostaId}
           open={Boolean(editingPropostaId)}
           onOpenChange={(open) => {
             if (open) return

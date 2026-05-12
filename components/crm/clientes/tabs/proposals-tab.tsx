@@ -171,6 +171,7 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
                     </Button>
                     {canEditProposal(proposta) && (
                       <Button size="sm" variant="outline" onClick={() => {
+                        void prefetchProposta(proposta.id)
                         setEditingPropostaId(proposta.id)
                         setEditingPropostaSnapshot(proposta)
                       }}>
@@ -193,19 +194,22 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
           clienteIdInicial={clienteId}
         />
       ) : null}
-      <ProposalFormDialog
-        open={Boolean(editingPropostaId)}
-        onOpenChange={(open) => {
-          if (open) return
-          setEditingPropostaId(null)
-          setEditingPropostaSnapshot(null)
-        }}
-        propostaId={editingPropostaId}
-        propostaInicial={
-          propostas.find((proposta) => proposta.id === editingPropostaId) ??
-          editingPropostaSnapshot
-        }
-      />
+      {editingPropostaId ? (
+        <ProposalFormDialog
+          key={editingPropostaId}
+          open={Boolean(editingPropostaId)}
+          onOpenChange={(open) => {
+            if (open) return
+            setEditingPropostaId(null)
+            setEditingPropostaSnapshot(null)
+          }}
+          propostaId={editingPropostaId}
+          propostaInicial={
+            propostas.find((proposta) => proposta.id === editingPropostaId) ??
+            editingPropostaSnapshot
+          }
+        />
+      ) : null}
       <ProposalDetailsSheet
         open={Boolean(detailsPropostaId)}
         onOpenChange={(open) => {
