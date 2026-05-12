@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { CRMHeader } from '@/components/crm/header'
 import { DateRangeFilter } from '@/components/crm/date-range-filter'
+import { FeatureErrorBoundary } from '@/components/crm/feature-error-boundary'
 import { ModuleAccessState } from '@/components/crm/module-access-state'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCRM } from '@/lib/context/crm-context'
@@ -66,7 +67,12 @@ export default function FunilPage() {
       />
       <div className="flex-1 overflow-hidden p-6 space-y-6">
         {dateFilter ? <DateRangeFilter value={dateFilter} onChange={setDateFilter} /> : null}
-        <KanbanBoard propostas={propostasFiltradas} />
+        <FeatureErrorBoundary
+          title="O funil encontrou um erro temporario"
+          description="Se algo inesperado acontecer nesta tela, a interface continua carregada e o usuario pode tentar novamente sem perder toda a sessao."
+        >
+          <KanbanBoard propostas={propostasFiltradas} />
+        </FeatureErrorBoundary>
       </div>
       {canCreateProposal && showCreateDialog ? (
         <ProposalFormDialog open={showCreateDialog} onOpenChange={setShowCreateDialog} />

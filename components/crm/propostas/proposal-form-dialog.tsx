@@ -165,7 +165,11 @@ export function ProposalFormDialog({
     }
 
     if (propostaSource && isEditing) {
-      if (hydratedKeyRef.current !== null) {
+      if (hydratedKeyRef.current === propostaHydrationKey) {
+        return
+      }
+
+      if (hydratedKeyRef.current !== null && isDirtyRef.current) {
         return
       }
 

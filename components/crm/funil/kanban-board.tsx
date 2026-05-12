@@ -453,22 +453,38 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   useEffect(() => {
     if (typeof window === 'undefined') return
 
-    const mediaQuery = window.matchMedia('(pointer: coarse), (hover: none)')
+    let mediaQuery: MediaQueryList | null = null
+    try {
+      mediaQuery = typeof window.matchMedia === 'function'
+        ? window.matchMedia('(pointer: coarse), (hover: none)')
+        : null
+    } catch {
+      mediaQuery = null
+    }
+
     const updateTouchState = () => {
-      setIsTouchDevice(mediaQuery.matches || navigator.maxTouchPoints > 0)
+      const hasCoarsePointer = mediaQuery?.matches ?? false
+      const hasTouchPoints = (() => {
+        try {
+          return typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0
+        } catch {
+          return false
+        }
+      })()
+      setIsTouchDevice(hasCoarsePointer || hasTouchPoints)
     }
 
     updateTouchState()
-    if (typeof mediaQuery.addEventListener === 'function') {
+    if (mediaQuery && typeof mediaQuery.addEventListener === 'function') {
       mediaQuery.addEventListener('change', updateTouchState)
-    } else {
+    } else if (mediaQuery) {
       mediaQuery.addListener(updateTouchState)
     }
 
     return () => {
-      if (typeof mediaQuery.removeEventListener === 'function') {
+      if (mediaQuery && typeof mediaQuery.removeEventListener === 'function') {
         mediaQuery.removeEventListener('change', updateTouchState)
-      } else {
+      } else if (mediaQuery) {
         mediaQuery.removeListener(updateTouchState)
       }
     }
@@ -640,8 +656,14 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     }
 
     const pending = touchPendingDragRef.current
-    if (releasePointer && pending?.element.hasPointerCapture?.(pending.pointerId)) {
-      pending.element.releasePointerCapture(pending.pointerId)
+    if (releasePointer && pending) {
+      try {
+        if (pending.element.hasPointerCapture?.(pending.pointerId)) {
+          pending.element.releasePointerCapture(pending.pointerId)
+        }
+      } catch {
+        // Ignora falhas de release em navegadores touch mais limitados.
+      }
     }
 
     touchPendingDragRef.current = null
@@ -1002,7 +1024,11 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     }
 
     if (captureElement?.hasPointerCapture?.(pointerId)) {
-      captureElement.releasePointerCapture(pointerId)
+      try {
+        captureElement.releasePointerCapture(pointerId)
+      } catch {
+        // Ignora falhas de release em navegadores touch mais limitados.
+      }
     }
 
     dragPointRef.current = null
@@ -1173,6 +1199,9 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const pendingMoveProposal = pendingMove
     ? propostasById.get(pendingMove.propostaId) || null
     : null
+  const pendingMoveClient = pendingMoveProposal
+    ? lookups.clientesById.get(pendingMoveProposal.clienteId) || null
+    : null
   const pendingMoveDisplayStatus = pendingMoveProposal
     ? resolveKanbanDisplayStatus(pendingMoveProposal.status)
     : null
@@ -1334,6 +1363,51 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     void prefetchProposta(proposalId)
     setDetailsPropostaId(proposalId)
   }, [])
+
+  useEffect(() => {
+    if (!requiresClosedClientData || !pendingMoveProposal) {
+      return
+    }
+
+    const proposalFallbackName = pendingMoveProposal.clienteNome || ''
+    const clientName = pendingMoveClient?.nome || ''
+    const nextCloseClientData = {
+      nome: clientName || proposalFallbackName,
+      cpf: pendingMoveClient?.cpf || '',
+      email: pendingMoveClient?.email || '',
+      telefone: pendingMoveClient?.telefone || '',
+      endereco: pendingMoveClient?.endereco || '',
+    }
+
+    setCloseClientName((current) =>
+      !current.trim()
+        ? nextCloseClientData.nome
+        : clientName && current === proposalFallbackName && current !== clientName
+          ? clientName
+          : current
+    )
+    setCloseClientCpf((current) =>
+      !current.trim() && nextCloseClientData.cpf ? nextCloseClientData.cpf : current
+    )
+    setCloseClientEmail((current) =>
+      !current.trim() && nextCloseClientData.email ? nextCloseClientData.email : current
+    )
+    setCloseClientPhone((current) =>
+      !current.trim() && nextCloseClientData.telefone ? nextCloseClientData.telefone : current
+    )
+    setCloseClientAddress((current) =>
+      !current.trim() && nextCloseClientData.endereco ? nextCloseClientData.endereco : current
+    )
+  }, [
+    pendingMove?.targetStatus,
+    pendingMoveClient?.cpf,
+    pendingMoveClient?.email,
+    pendingMoveClient?.endereco,
+    pendingMoveClient?.nome,
+    pendingMoveClient?.telefone,
+    pendingMoveProposal,
+    requiresClosedClientData,
+  ])
   useEffect(() => {
     if (!dragState || typeof window === 'undefined') {
       if (autoScrollFrameRef.current !== null) {
