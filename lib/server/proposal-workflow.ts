@@ -741,7 +741,6 @@ export async function ensureUserManagementSchema() {
     }
 
     await ensureTableIndexes('usuarios', [
-      { name: 'idx_usuarios_email', columns: 'email' },
       { name: 'idx_usuarios_role_ativo_nome', columns: 'role, ativo, nome' },
       { name: 'idx_usuarios_updated_at', columns: 'updated_at' },
     ])

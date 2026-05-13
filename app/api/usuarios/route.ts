@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { isTransientDatabaseError, query } from '@/lib/db/mysql'
+import { getConnection, isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
 import bcrypt from 'bcryptjs'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
@@ -10,6 +10,7 @@ import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { jsonNoStore } from '@/lib/server/http-cache'
+import { syncNormalizedUserPermissions } from '@/lib/server/user-permissions-store'
 
 const USUARIOS_CACHE_TTL_MS = Math.max(Number(process.env.USUARIOS_CACHE_TTL_MS || 30_000), 1000)
 
@@ -141,27 +142,52 @@ export async function POST(request: NextRequest) {
       .toUpperCase()
       .slice(0, 2)
 
-    await query(
-      `INSERT INTO usuarios (id, nome, email, senha, avatar, role, ativo, meta_vendas, module_permissions, rule_permissions)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id,
-        data.nome,
-        data.email,
-        senhaHash,
-        iniciais,
-        data.role || 'vendedor',
-        data.ativo ?? true,
-        parseNullableNumber(data.metaVendas ?? data.meta_vendas, 0),
-        JSON.stringify(modulePermissions),
-        JSON.stringify(rulePermissions),
-      ]
-    )
+    const connection = await getConnection()
+    let usuario: any
 
-    const [usuario] = await query<any[]>(
-      'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, rule_permissions, created_at FROM usuarios WHERE id = ?',
-      [id]
-    )
+    try {
+      await connection.beginTransaction()
+
+      await connection.execute(
+        `INSERT INTO usuarios (id, nome, email, senha, avatar, role, ativo, meta_vendas, module_permissions, rule_permissions)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          data.nome,
+          data.email,
+          senhaHash,
+          iniciais,
+          data.role || 'vendedor',
+          data.ativo ?? true,
+          parseNullableNumber(data.metaVendas ?? data.meta_vendas, 0),
+          JSON.stringify(modulePermissions),
+          JSON.stringify(rulePermissions),
+        ]
+      )
+
+      await syncNormalizedUserPermissions(
+        {
+          userId: id,
+          role: (data.role || 'vendedor'),
+          modulePermissions,
+          rulePermissions,
+        },
+        connection
+      )
+
+      const [rows] = await connection.execute(
+        'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, rule_permissions, created_at FROM usuarios WHERE id = ?',
+        [id]
+      )
+      ;[usuario] = rows as any[]
+
+      await connection.commit()
+    } catch (error) {
+      await connection.rollback()
+      throw error
+    } finally {
+      connection.release()
+    }
 
     await publishRealtimeEvent({
       actorUserId: user.id,

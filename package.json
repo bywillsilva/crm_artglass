@@ -2,11 +2,13 @@
   "name": "my-project",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "npm@11.9.0",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start -H 0.0.0.0",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit --incremental false"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

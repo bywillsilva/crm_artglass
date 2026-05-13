@@ -337,6 +337,18 @@ function normalizeInteracao(row: JsonRecord): Interacao {
     typeof row.dados === 'string'
       ? parseJsonObject(row.dados)
       : row.dados ?? null
+  const mergedDados = {
+    ...(parsedDados || {}),
+    ...(row.proposta_id || row.propostaId ? { proposta_id: row.proposta_id ?? row.propostaId } : {}),
+    ...(row.novo_status || row.novoStatus ? { novo_status: row.novo_status ?? row.novoStatus } : {}),
+    ...(row.notification_kind || row.notificationKind
+      ? { notification_kind: row.notification_kind ?? row.notificationKind }
+      : {}),
+    ...(row.origem ? { origem: row.origem } : {}),
+    ...(row.silent_notification !== undefined && row.silent_notification !== null
+      ? { silent_notification: Boolean(row.silent_notification) }
+      : {}),
+  }
 
   return {
     id: row.id,
@@ -344,7 +356,7 @@ function normalizeInteracao(row: JsonRecord): Interacao {
     tipo,
     descricao: row.descricao ?? '',
     usuarioId: row.usuarioId ?? row.usuario_id ?? '',
-    dados: parsedDados,
+    dados: Object.keys(mergedDados).length > 0 ? mergedDados : null,
     criadoEm: toDate(row.criadoEm ?? row.created_at),
   }
 }

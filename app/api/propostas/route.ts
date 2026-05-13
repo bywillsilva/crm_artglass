@@ -4,6 +4,7 @@ import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { persistSavedProposalFiles, saveProposalFiles } from '@/lib/server/proposal-files'
+import { syncProposalServices } from '@/lib/server/proposal-services'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
@@ -631,6 +632,8 @@ export async function POST(request: NextRequest) {
         ]
       )
     }
+
+    await syncProposalServices(propostaId, data.servicos || [])
 
     if (data.comentario?.trim()) {
       await persistProposalComment(propostaId, user.id, data.comentario)

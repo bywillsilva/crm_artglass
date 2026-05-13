@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { isTransientDatabaseError, query } from '@/lib/db/mysql'
+import { getConnection, isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
@@ -10,6 +10,7 @@ import { hasModuleAccess } from '@/lib/auth/module-access'
 import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
+import { syncNormalizedUserPermissions } from '@/lib/server/user-permissions-store'
 
 const USUARIO_DETAIL_CACHE_TTL_MS = Math.max(
   Number(process.env.USUARIO_DETAIL_CACHE_TTL_MS || 30_000),
@@ -190,12 +191,36 @@ export async function PUT(
     sql += ' WHERE id = ?'
     queryParams.push(id)
 
-    await query(sql, queryParams)
+    const connection = await getConnection()
+    let usuario: any
 
-    const [usuario] = await query<any[]>(
-      'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, rule_permissions, created_at FROM usuarios WHERE id = ?',
-      [id]
-    )
+    try {
+      await connection.beginTransaction()
+
+      await connection.execute(sql, queryParams as any[])
+      await syncNormalizedUserPermissions(
+        {
+          userId: id,
+          role: nextRole,
+          modulePermissions,
+          rulePermissions,
+        },
+        connection
+      )
+
+      const [rows] = await connection.execute(
+        'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, rule_permissions, created_at FROM usuarios WHERE id = ?',
+        [id]
+      )
+      ;[usuario] = rows as any[]
+
+      await connection.commit()
+    } catch (error) {
+      await connection.rollback()
+      throw error
+    } finally {
+      connection.release()
+    }
 
     await publishRealtimeEvent({
       actorUserId: session?.userId || null,

@@ -5,6 +5,7 @@ import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import { deleteStoredFiles, persistSavedProposalFiles, saveProposalFiles } from '@/lib/server/proposal-files'
+import { syncProposalServices } from '@/lib/server/proposal-services'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { statusPropostaLabels } from '@/lib/data/types'
@@ -1273,6 +1274,8 @@ export async function PUT(
         id,
       ]
     )
+
+    await syncProposalServices(id, servicos)
 
     const savedFilesPromise = saveProposalFiles(id, data.anexos)
     const commentPromise = commentText

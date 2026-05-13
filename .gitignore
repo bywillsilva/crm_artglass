@@ -17,6 +17,7 @@ node_modules/
 .next/
 .DS_Store
 .vercel
+certificates/
 tmp/
 tmp_*.json
 tmp_*.log
@@ -24,3 +25,8 @@ tmp_*.out
 prod_smoke_cookies.txt
 .codex-*.log
 *.tsbuildinfo
+public/uploads/*
+!public/uploads/.gitkeep
+!public/uploads/propostas/
+public/uploads/propostas/*
+!public/uploads/propostas/.gitkeep

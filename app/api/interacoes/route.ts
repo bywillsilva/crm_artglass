@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
+import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import { formatDateTime } from '@/lib/server/proposal-workflow'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
@@ -15,6 +16,11 @@ const INTERACTION_SELECT_COLUMNS = `
   i.tipo,
   i.descricao,
   i.dados,
+  i.proposta_id,
+  i.novo_status,
+  i.notification_kind,
+  i.origem,
+  i.silent_notification,
   i.created_at
 `
 
@@ -27,6 +33,7 @@ export async function GET(request: NextRequest) {
   const limit = limitParam ? Math.min(Math.max(Number(limitParam) || 0, 1), 200) : null
 
   try {
+    await ensureSystemDatabaseSchema()
     const user = await getAuthenticatedServerUser()
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
@@ -50,7 +57,7 @@ export async function GET(request: NextRequest) {
       SELECT ${INTERACTION_SELECT_COLUMNS}, u.nome as usuario_nome
       FROM interacoes i
       LEFT JOIN usuarios u ON i.usuario_id = u.id
-      LEFT JOIN propostas p ON p.id = JSON_UNQUOTE(JSON_EXTRACT(i.dados, '$.proposta_id'))
+      LEFT JOIN propostas p ON p.id = i.proposta_id
       LEFT JOIN clientes c ON c.id = i.cliente_id
       ${whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : ''}
       ORDER BY i.created_at DESC
@@ -70,7 +77,7 @@ export async function GET(request: NextRequest) {
       SELECT ${INTERACTION_SELECT_COLUMNS}, u.nome as usuario_nome
       FROM interacoes i
       LEFT JOIN usuarios u ON i.usuario_id = u.id
-      LEFT JOIN propostas p ON p.id = JSON_UNQUOTE(JSON_EXTRACT(i.dados, '$.proposta_id'))
+      LEFT JOIN propostas p ON p.id = i.proposta_id
       LEFT JOIN clientes c ON c.id = i.cliente_id
       ${whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : ''}
       ORDER BY i.created_at DESC
@@ -109,6 +116,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    await ensureSystemDatabaseSchema()
     const user = await getAuthenticatedServerUser()
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
