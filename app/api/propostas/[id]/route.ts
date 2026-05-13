@@ -9,6 +9,7 @@ import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/
 import { statusPropostaLabels } from '@/lib/data/types'
 import { notifyProposalEmail } from '@/lib/server/email-notifications'
 import { jsonNoStore } from '@/lib/server/http-cache'
+import { ensureProposalReadSideReady } from '@/lib/server/read-side-maintenance'
 import {
   canOrcamentistaAccessProposal,
   canOrcamentistaViewProposal,
@@ -18,7 +19,6 @@ import {
   requiresOrcamentistaAssignment,
   requiresPositiveProposalValue,
   setProposalKanbanPosition,
-  syncDueFollowUpStatuses,
   syncProposalAutomation,
   type ProposalWorkflowStatus,
 } from '@/lib/server/proposal-workflow'
@@ -227,7 +227,7 @@ const WORKFLOW_ALLOWED_TRANSITIONS: Partial<Record<ProposalWorkflowStatus, Propo
 }
 
 async function ensureBaseSchema() {
-  await syncDueFollowUpStatuses()
+  await ensureProposalReadSideReady()
 }
 
 function normalizeNullableText(value: unknown) {

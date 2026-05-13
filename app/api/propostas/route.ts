@@ -6,6 +6,7 @@ import { persistSavedProposalFiles, saveProposalFiles } from '@/lib/server/propo
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
+import { ensureProposalReadSideReady } from '@/lib/server/read-side-maintenance'
 import {
   getNextProposalNumber,
   formatDateTime,
@@ -14,7 +15,6 @@ import {
   requiresOrcamentistaAssignment,
   requiresPositiveProposalValue,
   setProposalKanbanPosition,
-  syncDueFollowUpStatuses,
   type ProposalWorkflowStatus,
 } from '@/lib/server/proposal-workflow'
 
@@ -306,7 +306,7 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
 }
 
 async function ensureBaseSchema() {
-  await syncDueFollowUpStatuses()
+  await ensureProposalReadSideReady()
 }
 
 async function getAuthenticatedUser() {

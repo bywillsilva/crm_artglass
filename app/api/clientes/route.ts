@@ -5,7 +5,7 @@ import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
-import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
+import { ensureSchemaReadyForReads } from '@/lib/server/read-side-maintenance'
 import {
   getNextProposalNumber,
   formatDateTime,
@@ -207,7 +207,7 @@ export async function GET(request: NextRequest) {
     if (!user) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
-    await ensureSystemDatabaseSchema()
+    await ensureSchemaReadyForReads()
 
     const cacheKey = `clientes:list:${user.role}:${user.id}:${status || 'todos'}:${search || ''}:${updatedSince || ''}`
     const cachedClientes = getRuntimeCache<any[]>(cacheKey)
@@ -294,7 +294,7 @@ export async function POST(request: NextRequest) {
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
-    await ensureSystemDatabaseSchema()
+    await ensureSchemaReadyForReads()
 
     const data = (await request.json()) as Record<string, unknown>
     const id = uuidv4()

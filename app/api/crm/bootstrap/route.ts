@@ -3,8 +3,7 @@ import { isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysq
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
-import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
-import { syncDueFollowUpStatuses } from '@/lib/server/proposal-workflow'
+import { ensureProposalReadSideReady, ensureSchemaReadyForReads } from '@/lib/server/read-side-maintenance'
 
 type AuthenticatedUser = {
   id: string
@@ -230,8 +229,8 @@ export async function GET(request: Request) {
   let isAuthenticated = false
 
   try {
-    await ensureSystemDatabaseSchema()
-    await syncDueFollowUpStatuses()
+    await ensureSchemaReadyForReads()
+    await ensureProposalReadSideReady()
 
     const authenticatedUser = await getAuthenticatedServerUser()
     if (!authenticatedUser?.ativo) {

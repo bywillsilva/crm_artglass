@@ -842,18 +842,6 @@ export function ProposalDetailsSheet({
     )
   }
 
-  useEffect(() => {
-    if (!open || !propostaId || !proposta) {
-      return
-    }
-
-    if (!Array.isArray(proposta.anexos) && !Array.isArray(proposta.comentarios)) {
-      return
-    }
-
-    void syncProposalSnapshot(proposta)
-  }, [open, proposta, propostaId])
-
   const handleCreateComment = async () => {
     if (!propostaId || !newComment.trim()) return
 

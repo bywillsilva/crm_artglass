@@ -41,7 +41,7 @@ const READ_ONLY_SWR_OPTIONS = {
   revalidateOnReconnect: false,
   revalidateOnFocus: false,
   revalidateIfStale: false,
-  dedupingInterval: 2000,
+  dedupingInterval: 10_000,
 } as const
 
 const proposalDetailPrefetches = new Map<string, Promise<unknown>>()
@@ -422,6 +422,36 @@ const BOOTSTRAP_COLLECTION_ENDPOINTS: Record<BootstrapCollectionKey, string> = {
   usuarios: '/api/usuarios',
   tarefas: '/api/tarefas',
   propostas: '/api/propostas',
+}
+
+function getEntitySnapshotFromCache(
+  cache: ReturnType<typeof useSWRConfig>['cache'],
+  collection: BootstrapCollectionKey,
+  id: string
+) {
+  const directKey = `${BOOTSTRAP_COLLECTION_ENDPOINTS[collection]}/${id}`
+  const direct = cache.get(directKey)
+  if (direct && typeof direct === 'object') {
+    return direct as JsonRecord
+  }
+
+  const bootstrapItems = getBootstrapCollectionFromCache(cache, collection)
+  if (Array.isArray(bootstrapItems)) {
+    const bootstrapMatch = bootstrapItems.find((item) => String(item?.id ?? '') === id)
+    if (bootstrapMatch && typeof bootstrapMatch === 'object') {
+      return bootstrapMatch as JsonRecord
+    }
+  }
+
+  const collectionItems = getCollectionListFromCache(cache, BOOTSTRAP_COLLECTION_ENDPOINTS[collection])
+  if (Array.isArray(collectionItems)) {
+    const collectionMatch = collectionItems.find((item) => String(item?.id ?? '') === id)
+    if (collectionMatch && typeof collectionMatch === 'object') {
+      return collectionMatch as JsonRecord
+    }
+  }
+
+  return undefined
 }
 
 function mutateBootstrapCollection(
@@ -881,8 +911,9 @@ export function useCrmBootstrap(sections?: BootstrapCollectionKey[]) {
   const fallbackData = getBootstrapFallbackData(cache, sections)
   const { data, error, isLoading, mutate: localMutate } = useSWR(key, fetcher, {
     ...READ_ONLY_SWR_OPTIONS,
-    dedupingInterval: 2000,
+    dedupingInterval: 15_000,
     fallbackData,
+    revalidateOnMount: !fallbackData,
   })
 
   const clientes = useMemo(() => getUniqueEntities(data?.clientes).map(normalizeCliente), [data?.clientes])
@@ -917,6 +948,7 @@ export function useClientes(params?: { status?: string; responsavel?: string; se
   const { data, error, isLoading } = useSWR(url, fetcher, {
     ...READ_ONLY_SWR_OPTIONS,
     fallbackData,
+    revalidateOnMount: !fallbackData,
   })
   const clientes = useMemo(() => getUniqueEntities(data).map(normalizeCliente), [data])
 
@@ -929,8 +961,14 @@ export function useClientes(params?: { status?: string; responsavel?: string; se
 }
 
 export function useCliente(id: string | null) {
+  const { cache } = useSWRConfig()
   const key = id ? `/api/clientes/${id}` : null
-  const { data, error, isLoading } = useSWR(key, fetcher, READ_ONLY_SWR_OPTIONS)
+  const fallbackData = id ? getEntitySnapshotFromCache(cache, 'clientes', id) : undefined
+  const { data, error, isLoading } = useSWR(key, fetcher, {
+    ...READ_ONLY_SWR_OPTIONS,
+    fallbackData,
+    revalidateOnMount: !fallbackData,
+  })
   const cliente = useMemo(() => (data ? normalizeCliente(data) : undefined), [data])
 
   return {
@@ -958,6 +996,7 @@ export function useTarefas(params?: { status?: string; tipo?: string; responsave
   const { data, error, isLoading } = useSWR(url, fetcher, {
     ...READ_ONLY_SWR_OPTIONS,
     fallbackData,
+    revalidateOnMount: !fallbackData,
   })
   const tarefas = useMemo(() => getUniqueEntities(data).map(normalizeTarefa), [data])
 
@@ -984,6 +1023,7 @@ export function usePropostas(params?: { status?: string; clienteId?: string }) {
   const { data, error, isLoading } = useSWR(url, fetcher, {
     ...READ_ONLY_SWR_OPTIONS,
     fallbackData,
+    revalidateOnMount: !fallbackData,
   })
   const propostas = useMemo(() => getUniqueEntities(data).map(normalizeProposta), [data])
 
@@ -1026,6 +1066,7 @@ export function useUsuarios(params?: { role?: string; ativo?: string }) {
   const { data, error, isLoading } = useSWR(url, fetcher, {
     ...READ_ONLY_SWR_OPTIONS,
     fallbackData,
+    revalidateOnMount: !fallbackData,
   })
   const usuarios = useMemo(() => getUniqueEntities(data).map(normalizeUsuario), [data])
 
@@ -1038,8 +1079,14 @@ export function useUsuarios(params?: { role?: string; ativo?: string }) {
 }
 
 export function useUsuario(id: string | null) {
+  const { cache } = useSWRConfig()
   const key = id ? `/api/usuarios/${id}` : null
-  const { data, error, isLoading } = useSWR(key, fetcher, READ_ONLY_SWR_OPTIONS)
+  const fallbackData = id ? getEntitySnapshotFromCache(cache, 'usuarios', id) : undefined
+  const { data, error, isLoading } = useSWR(key, fetcher, {
+    ...READ_ONLY_SWR_OPTIONS,
+    fallbackData,
+    revalidateOnMount: !fallbackData,
+  })
   const usuario = useMemo(() => (data ? normalizeUsuario(data) : undefined), [data])
 
   return {

@@ -6,7 +6,7 @@ import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { formatDateTime } from '@/lib/server/proposal-workflow'
 import { jsonNoStore } from '@/lib/server/http-cache'
-import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
+import { ensureSchemaReadyForReads } from '@/lib/server/read-side-maintenance'
 import { inferClientType } from '@/lib/utils/client-document'
 
 const CLIENTE_DETAIL_CACHE_TTL_MS = Math.max(
@@ -80,7 +80,7 @@ export async function GET(
     if (!user) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
-    await ensureSystemDatabaseSchema()
+    await ensureSchemaReadyForReads()
 
     const cacheKey = `cliente:detail:${user.role}:${user.id}:${id}`
     const cachedCliente = getRuntimeCache<any>(cacheKey)
@@ -141,7 +141,7 @@ export async function PUT(
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
-    await ensureSystemDatabaseSchema()
+    await ensureSchemaReadyForReads()
 
     const { id } = await params
     const data = (await request.json()) as Record<string, unknown>

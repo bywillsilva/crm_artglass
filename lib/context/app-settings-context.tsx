@@ -138,10 +138,10 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
     shouldRetryOnError: false,
   })
   const { data: publicCompanyConfig } = useSWR('/api/configuracoes?chave=empresa', fetcher, {
-    revalidateOnFocus: true,
-    revalidateOnReconnect: true,
-    refreshInterval: 15000,
-    dedupingInterval: 10000,
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+    revalidateIfStale: false,
+    dedupingInterval: 300000,
     errorRetryCount: 0,
     shouldRetryOnError: false,
   })
@@ -287,6 +287,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
     await Promise.all(requests)
 
     mutate('/api/configuracoes')
+    mutate('/api/configuracoes?chave=empresa')
   }, [appearance, company, general, notifications, user?.role])
 
   const formatCurrency = useMemo(
