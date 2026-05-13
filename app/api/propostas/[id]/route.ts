@@ -279,6 +279,10 @@ function isUnknownColumnError(error: unknown) {
   return code === 'ER_BAD_FIELD_ERROR' || /unknown column/i.test(message)
 }
 
+function hasExplicitAssigneeId(value: string | null | undefined): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
 function canViewTechnicalProposalData(user: any) {
   return user?.role === 'admin' || user?.role === 'orcamentista'
 }
@@ -424,41 +428,51 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
       }
     }
 
+    const hasField = (name: string) => formData.has(name)
+    const getOptionalString = (name: string) =>
+      hasField(name) ? String(formData.get(name) || '') || null : undefined
+    const getOptionalNormalizedText = (name: string) =>
+      hasField(name) ? normalizeNullableText(formData.get(name)) : undefined
+    const getOptionalNumber = (name: string) =>
+      hasField(name) ? parseNullableNumber(formData.get(name)) : undefined
+
       return {
-        titulo: String(formData.get('titulo') || '') || undefined,
-        materialTag: normalizeMaterialTag(formData.get('materialTag')),
-        areaM2: parseNullableNumber(formData.get('areaM2')),
-        perfisBruto: parseNullableNumber(formData.get('perfisBruto')),
-        perfisLiquidos: parseNullableNumber(formData.get('perfisLiquidos')),
-        valorPerfil: parseNullableNumber(formData.get('valorPerfil')),
-        valorVidro: parseNullableNumber(formData.get('valorVidro')),
-        valorAcessorios: parseNullableNumber(formData.get('valorAcessorios')),
-        observacoesTecnicas: normalizeNullableText(formData.get('observacoesTecnicas')),
-        descricao: String(formData.get('descricao') || '') || undefined,
-        valor: parseNullableNumber(formData.get('valor')),
-        desconto: parseNullableNumber(formData.get('desconto')),
-      status: String(formData.get('status') || '') || undefined,
-      validade: String(formData.get('validade') || '') || null,
-      servicos: parseJsonValue(formData.get('servicos'), [] as unknown[]),
-      condicoes: String(formData.get('condicoes') || '') || null,
-      responsavelId: String(formData.get('responsavelId') || '') || null,
-      orcamentistaId: String(formData.get('orcamentistaId') || '') || null,
-      comentario: String(formData.get('comentario') || '') || null,
-      justificativa: String(formData.get('justificativa') || '') || null,
-        workflowAction: String(formData.get('workflowAction') || '') || null,
-        followUpTime: String(formData.get('followUpTime') || '') || null,
-        kanbanPosition: parseKanbanPosition(formData.get('kanbanPosition')),
-        clienteId: String(formData.get('clienteId') || '') || undefined,
+        titulo: hasField('titulo') ? String(formData.get('titulo') || '') || undefined : undefined,
+        materialTag: hasField('materialTag') ? normalizeMaterialTag(formData.get('materialTag')) : undefined,
+        areaM2: getOptionalNumber('areaM2'),
+        perfisBruto: getOptionalNumber('perfisBruto'),
+        perfisLiquidos: getOptionalNumber('perfisLiquidos'),
+        valorPerfil: getOptionalNumber('valorPerfil'),
+        valorVidro: getOptionalNumber('valorVidro'),
+        valorAcessorios: getOptionalNumber('valorAcessorios'),
+        observacoesTecnicas: getOptionalNormalizedText('observacoesTecnicas'),
+        descricao: hasField('descricao') ? String(formData.get('descricao') || '') || undefined : undefined,
+        valor: getOptionalNumber('valor'),
+        desconto: getOptionalNumber('desconto'),
+      status: hasField('status') ? String(formData.get('status') || '') || undefined : undefined,
+      validade: getOptionalString('validade'),
+      servicos: hasField('servicos') ? parseJsonValue(formData.get('servicos'), [] as unknown[]) : undefined,
+      condicoes: getOptionalString('condicoes'),
+      responsavelId: getOptionalString('responsavelId'),
+      orcamentistaId: getOptionalString('orcamentistaId'),
+      comentario: getOptionalString('comentario'),
+      justificativa: getOptionalString('justificativa'),
+        workflowAction: getOptionalString('workflowAction'),
+        followUpTime: getOptionalString('followUpTime'),
+        kanbanPosition: hasField('kanbanPosition') ? parseKanbanPosition(formData.get('kanbanPosition')) : undefined,
+        clienteId: hasField('clienteId') ? String(formData.get('clienteId') || '') || undefined : undefined,
       clienteTipo:
-        formData.get('clienteTipo') === 'comercial' || formData.get('clienteTipo') === 'residencial'
-          ? (String(formData.get('clienteTipo')) as 'residencial' | 'comercial')
-          : null,
-      clienteNome: String(formData.get('clienteNome') || '') || null,
-      clienteCpf: String(formData.get('clienteCpf') || '') || null,
-      clienteTelefone: String(formData.get('clienteTelefone') || '') || null,
-      clienteEmail: String(formData.get('clienteEmail') || '') || null,
-      clienteEndereco: String(formData.get('clienteEndereco') || '') || null,
-      clienteValorFechado: parseNullableNumber(formData.get('clienteValorFechado')),
+        !hasField('clienteTipo')
+          ? undefined
+          : formData.get('clienteTipo') === 'comercial' || formData.get('clienteTipo') === 'residencial'
+            ? (String(formData.get('clienteTipo')) as 'residencial' | 'comercial')
+            : null,
+      clienteNome: getOptionalString('clienteNome'),
+      clienteCpf: getOptionalString('clienteCpf'),
+      clienteTelefone: getOptionalString('clienteTelefone'),
+      clienteEmail: getOptionalString('clienteEmail'),
+      clienteEndereco: getOptionalString('clienteEndereco'),
+      clienteValorFechado: getOptionalNumber('clienteValorFechado'),
       anexos: formData
         .getAll('anexos')
         .filter((value): value is File => value instanceof File && value.size > 0),
@@ -466,39 +480,49 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
   }
 
   const data = await request.json()
+  const hasOwnField = (field: string) => Object.prototype.hasOwnProperty.call(data, field)
+  const getOptionalJsonNumber = (field: string) =>
+    hasOwnField(field) ? parseNullableNumber(data[field]) : undefined
+  const getOptionalJsonText = (field: string) =>
+    hasOwnField(field) ? normalizeNullableText(data[field]) : undefined
+
   return {
-    titulo: data.titulo,
-    materialTag: normalizeMaterialTag(data.materialTag),
-    areaM2: parseNullableNumber(data.areaM2),
-    perfisBruto: parseNullableNumber(data.perfisBruto),
-    perfisLiquidos: parseNullableNumber(data.perfisLiquidos),
-    valorPerfil: parseNullableNumber(data.valorPerfil),
-    valorVidro: parseNullableNumber(data.valorVidro),
-    valorAcessorios: parseNullableNumber(data.valorAcessorios),
-    observacoesTecnicas: normalizeNullableText(data.observacoesTecnicas),
-    descricao: data.descricao,
-    valor: parseNullableNumber(data.valor),
-    desconto: parseNullableNumber(data.desconto),
-    status: data.status,
-    validade: data.validade || null,
-    servicos: Array.isArray(data.servicos) ? data.servicos : undefined,
-    condicoes: data.condicoes || null,
-    responsavelId: data.responsavelId || null,
-    orcamentistaId: data.orcamentistaId || null,
-    comentario: data.comentario || null,
-    justificativa: data.justificativa || null,
-    workflowAction: data.workflowAction || null,
-    followUpTime: data.followUpTime || null,
-    kanbanPosition: parseKanbanPosition(data.kanbanPosition),
-    clienteId: data.clienteId,
+    titulo: hasOwnField('titulo') ? data.titulo : undefined,
+    materialTag: hasOwnField('materialTag') ? normalizeMaterialTag(data.materialTag) : undefined,
+    areaM2: getOptionalJsonNumber('areaM2'),
+    perfisBruto: getOptionalJsonNumber('perfisBruto'),
+    perfisLiquidos: getOptionalJsonNumber('perfisLiquidos'),
+    valorPerfil: getOptionalJsonNumber('valorPerfil'),
+    valorVidro: getOptionalJsonNumber('valorVidro'),
+    valorAcessorios: getOptionalJsonNumber('valorAcessorios'),
+    observacoesTecnicas: getOptionalJsonText('observacoesTecnicas'),
+    descricao: hasOwnField('descricao') ? data.descricao : undefined,
+    valor: getOptionalJsonNumber('valor'),
+    desconto: getOptionalJsonNumber('desconto'),
+    status: hasOwnField('status') ? data.status : undefined,
+    validade: hasOwnField('validade') ? data.validade || null : undefined,
+    servicos: hasOwnField('servicos') && Array.isArray(data.servicos) ? data.servicos : undefined,
+    condicoes: hasOwnField('condicoes') ? data.condicoes || null : undefined,
+    responsavelId: hasOwnField('responsavelId') ? data.responsavelId || null : undefined,
+    orcamentistaId: hasOwnField('orcamentistaId') ? data.orcamentistaId || null : undefined,
+    comentario: hasOwnField('comentario') ? data.comentario || null : undefined,
+    justificativa: hasOwnField('justificativa') ? data.justificativa || null : undefined,
+    workflowAction: hasOwnField('workflowAction') ? data.workflowAction || null : undefined,
+    followUpTime: hasOwnField('followUpTime') ? data.followUpTime || null : undefined,
+    kanbanPosition: hasOwnField('kanbanPosition') ? parseKanbanPosition(data.kanbanPosition) : undefined,
+    clienteId: hasOwnField('clienteId') ? data.clienteId : undefined,
     clienteTipo:
-      data.clienteTipo === 'comercial' || data.clienteTipo === 'residencial' ? data.clienteTipo : null,
-    clienteNome: data.clienteNome || null,
-    clienteCpf: data.clienteCpf || null,
-    clienteTelefone: data.clienteTelefone || null,
-    clienteEmail: data.clienteEmail || null,
-    clienteEndereco: data.clienteEndereco || null,
-    clienteValorFechado: parseNullableNumber(data.clienteValorFechado),
+      !hasOwnField('clienteTipo')
+        ? undefined
+        : data.clienteTipo === 'comercial' || data.clienteTipo === 'residencial'
+          ? data.clienteTipo
+          : null,
+    clienteNome: hasOwnField('clienteNome') ? data.clienteNome || null : undefined,
+    clienteCpf: hasOwnField('clienteCpf') ? data.clienteCpf || null : undefined,
+    clienteTelefone: hasOwnField('clienteTelefone') ? data.clienteTelefone || null : undefined,
+    clienteEmail: hasOwnField('clienteEmail') ? data.clienteEmail || null : undefined,
+    clienteEndereco: hasOwnField('clienteEndereco') ? data.clienteEndereco || null : undefined,
+    clienteValorFechado: getOptionalJsonNumber('clienteValorFechado'),
     anexos: [],
   }
 }
@@ -887,20 +911,30 @@ export async function PUT(
       )
     }
 
+    const isWorkflowDrivenUpdate =
+      Boolean(workflowAction) || isStatusChange || data.kanbanPosition !== undefined
+    const requestedClienteId =
+      data.clienteId === undefined || (isWorkflowDrivenUpdate && !data.clienteId)
+        ? propostaAtual.cliente_id
+        : data.clienteId
+    const requestedResponsavelId =
+      !hasExplicitAssigneeId(data.responsavelId) || (isWorkflowDrivenUpdate && !data.responsavelId)
+        ? propostaAtual.responsavel_id
+        : data.responsavelId
     const responsavelId =
       user.role === 'admin' || user.role === 'gerente' || user.role === 'orcamentista'
-        ? await validateUserRole(data.responsavelId || propostaAtual.responsavel_id, ['vendedor', 'gerente'])
+        ? await validateUserRole(requestedResponsavelId, ['vendedor', 'gerente'])
         : propostaAtual.responsavel_id
     const requestedOrcamentistaId =
-      data.orcamentistaId === undefined ? propostaAtual.orcamentista_id : data.orcamentistaId
-    const resolvedOrcamentistaId =
-      user.role === 'orcamentista' &&
-      !requestedOrcamentistaId &&
-      requiresOrcamentistaAssignment(nextStatus)
-        ? user.id
-        : requestedOrcamentistaId
-    const orcamentistaId = await validateUserRole(resolvedOrcamentistaId, ['orcamentista'])
-    const isOrcamentistaFieldChanging = data.orcamentistaId !== undefined
+      !hasExplicitAssigneeId(data.orcamentistaId) || (isWorkflowDrivenUpdate && !data.orcamentistaId)
+        ? propostaAtual.orcamentista_id
+        : data.orcamentistaId
+    let orcamentistaId = await validateUserRole(requestedOrcamentistaId, ['orcamentista'])
+    if (!orcamentistaId && user.role === 'orcamentista' && requiresOrcamentistaAssignment(nextStatus)) {
+      orcamentistaId = user.id
+    }
+    const isOrcamentistaFieldChanging =
+      hasExplicitAssigneeId(data.orcamentistaId) && data.orcamentistaId !== propostaAtual.orcamentista_id
 
     if (
       requiresOrcamentistaAssignment(nextStatus) &&
@@ -917,30 +951,33 @@ export async function PUT(
     const hasExistingProposalPdf = anexosAtuais.some(isPdfAttachmentRecord)
     const hasNewProposalPdf = data.anexos.some(isPdfFile)
 
+    const shouldPreserveTechnicalField = (value: unknown) => isWorkflowDrivenUpdate && value == null
     const areaM2 =
-      data.areaM2 === undefined ? parseNullableNumber(propostaAtual.area_m2) : parseNullableNumber(data.areaM2)
+      data.areaM2 === undefined || shouldPreserveTechnicalField(data.areaM2)
+        ? parseNullableNumber(propostaAtual.area_m2)
+        : parseNullableNumber(data.areaM2)
     const perfisBruto =
-      data.perfisBruto === undefined
+      data.perfisBruto === undefined || shouldPreserveTechnicalField(data.perfisBruto)
         ? parseNullableNumber(propostaAtual.perfis_bruto)
         : parseNullableNumber(data.perfisBruto)
     const perfisLiquidos =
-      data.perfisLiquidos === undefined
+      data.perfisLiquidos === undefined || shouldPreserveTechnicalField(data.perfisLiquidos)
         ? parseNullableNumber(propostaAtual.perfis_liquidos)
         : parseNullableNumber(data.perfisLiquidos)
     const valorPerfil =
-      data.valorPerfil === undefined
+      data.valorPerfil === undefined || shouldPreserveTechnicalField(data.valorPerfil)
         ? parseNullableNumber(propostaAtual.valor_perfil)
         : parseNullableNumber(data.valorPerfil)
     const valorVidro =
-      data.valorVidro === undefined
+      data.valorVidro === undefined || shouldPreserveTechnicalField(data.valorVidro)
         ? parseNullableNumber(propostaAtual.valor_vidro)
         : parseNullableNumber(data.valorVidro)
     const valorAcessorios =
-      data.valorAcessorios === undefined
+      data.valorAcessorios === undefined || shouldPreserveTechnicalField(data.valorAcessorios)
         ? parseNullableNumber(propostaAtual.valor_acessorios)
         : parseNullableNumber(data.valorAcessorios)
     const observacoesTecnicas =
-      data.observacoesTecnicas === undefined
+      data.observacoesTecnicas === undefined || shouldPreserveTechnicalField(data.observacoesTecnicas)
         ? normalizeNullableText(propostaAtual.observacoes_tecnicas)
         : normalizeNullableText(data.observacoesTecnicas)
 
@@ -954,9 +991,8 @@ export async function PUT(
       const currentDescricao = normalizeNullableText(propostaAtual.descricao)
       const currentTitulo = normalizeNullableText(propostaAtual.titulo)
       const currentMaterialTag = normalizeMaterialTag(propostaAtual.material_tag)
-      const isSellerClosingProposal = workflowAction === 'fechado' && nextStatus === 'fechado'
-      const requestedSellerClosedValue =
-        parseNullableNumber(data.clienteValorFechado) ?? parseNullableNumber(data.valor)
+      const isSellerClosingProposal = workflowAction === 'fechado'
+      const sellerIsTryingToUploadAttachments = data.anexos.length > 0
       const sellerIsTryingToChangeClientData =
         data.clienteTipo === 'comercial' ||
         data.clienteTipo === 'residencial' ||
@@ -967,12 +1003,11 @@ export async function PUT(
         data.clienteEndereco !== undefined
       const sellerIsTryingToChangeClosedValue =
         data.clienteValorFechado !== undefined || data.valor !== undefined
+      const sellerIsInClosingContext =
+        isSellerClosingProposal || sellerIsTryingToChangeClientData || sellerIsTryingToChangeClosedValue
 
-      const sellerIsTryingToUploadAttachments = data.anexos.length > 0
-      const sellerIsTryingToChangeContent =
+      const sellerIsTryingToChangeProtectedProposalContent =
         sellerIsTryingToUploadAttachments ||
-        (!isSellerClosingProposal && sellerIsTryingToChangeClientData) ||
-        (!isSellerClosingProposal && sellerIsTryingToChangeClosedValue) ||
         (data.clienteId !== undefined && data.clienteId !== propostaAtual.cliente_id) ||
         normalizeNullableText(data.titulo ?? propostaAtual.titulo) !== currentTitulo ||
         normalizeMaterialTag(data.materialTag ?? propostaAtual.material_tag) !== currentMaterialTag ||
@@ -983,8 +1018,6 @@ export async function PUT(
         valorAcessorios !== currentValorAcessorios ||
         normalizeNullableText(data.observacoesTecnicas ?? propostaAtual.observacoes_tecnicas) !== observacoesTecnicas ||
         normalizeNullableText(data.descricao ?? propostaAtual.descricao) !== currentDescricao ||
-        (parseNullableNumber(data.valor ?? propostaAtual.valor) !== currentValor &&
-          !(isSellerClosingProposal && requestedSellerClosedValue != null && requestedSellerClosedValue > 0)) ||
         (data.desconto !== undefined &&
           parseNullableNumber(data.desconto) !== parseNullableNumber(propostaAtual.desconto)) ||
         (data.validade !== undefined &&
@@ -994,7 +1027,10 @@ export async function PUT(
         (data.responsavelId !== undefined && data.responsavelId !== propostaAtual.responsavel_id) ||
         (data.orcamentistaId !== undefined && data.orcamentistaId !== propostaAtual.orcamentista_id)
 
-      if (sellerIsTryingToChangeContent) {
+      const sellerIsTryingToChangeValueOutsideClosing =
+        !sellerIsInClosingContext && parseNullableNumber(data.valor ?? propostaAtual.valor) !== currentValor
+
+      if (sellerIsTryingToChangeProtectedProposalContent || sellerIsTryingToChangeValueOutsideClosing) {
         return NextResponse.json(
           {
             error:
@@ -1047,7 +1083,7 @@ export async function PUT(
     const valor = requestedClosedValue ?? requestedProposalValue ?? parseNullableNumber(propostaAtual.valor) ?? 0
     const desconto = requestedDiscount ?? parseNullableNumber(propostaAtual.desconto) ?? 0
     const valorFinal = valor - (valor * desconto) / 100
-    const resolvedClienteId = data.clienteId || propostaAtual.cliente_id
+    const resolvedClienteId = requestedClienteId
 
     if (requiresPositiveProposalValue(storedStatus) && valor <= 0) {
       return NextResponse.json(

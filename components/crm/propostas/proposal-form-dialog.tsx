@@ -408,7 +408,7 @@ export function ProposalFormDialog({
         : user?.role === 'orcamentista'
           ? responsavelId || clienteResponsavelSelecionado || propostaSource?.responsavelId || ''
           : user?.id,
-      orcamentistaId: orcamentistaId || null,
+      ...(isEditing ? (orcamentistaId ? { orcamentistaId } : {}) : { orcamentistaId: orcamentistaId || null }),
       anexos: files,
       dataEnvio: new Date(),
       criadoEm: proposta?.criadoEm || new Date(),

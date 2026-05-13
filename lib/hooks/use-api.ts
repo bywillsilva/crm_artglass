@@ -1752,11 +1752,3 @@ export async function saveConfiguracao(chave: string, valor: any) {
     body: JSON.stringify({ chave, valor }),
   })
 }
-
-export async function initDatabase() {
-  return requestJson('/api/init', { method: 'POST' })
-}
-
-export async function checkDatabase() {
-  return requestJson('/api/init')
-}

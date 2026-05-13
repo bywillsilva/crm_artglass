@@ -139,6 +139,61 @@ const SELLER_ACTION_LABELS: Record<SellerMoveAction, string> = {
   stand_by: 'Stand-by',
 }
 
+function getSellerActionDialogCopy(action: SellerMoveAction | '') {
+  switch (action) {
+    case 'enviado_ao_cliente':
+      return {
+        title: 'Confirmar envio ao cliente',
+        heading: 'Confirmar envio da proposta para o cliente.',
+        description:
+          'Ao confirmar, o card sera movido para Enviado ao cliente e o fluxo seguira normalmente.',
+      }
+    case 'fechado':
+      return {
+        title: 'Fechar proposta',
+        heading: 'Confirmar fechamento da proposta.',
+        description:
+          'Ao confirmar, o card sera movido para Fechado e o sistema registrara os dados finais do cliente e do valor de fechamento.',
+      }
+    case 'perdido':
+      return {
+        title: 'Marcar proposta como perdida',
+        heading: 'Confirmar perda da proposta.',
+        description:
+          'Ao confirmar, o card sera movido para Perdido e a justificativa sera registrada nos comentarios.',
+      }
+    case 'em_retificacao':
+      return {
+        title: 'Enviar proposta para retificacao',
+        heading: 'Confirmar envio para retificacao.',
+        description:
+          'Ao confirmar, o card sera movido para Em retificacao e a justificativa sera registrada nos comentarios.',
+      }
+    case 'stand_by':
+      return {
+        title: 'Colocar proposta em stand-by',
+        heading: 'Confirmar envio para stand-by.',
+        description:
+          'Ao confirmar, o card sera movido para Stand-by e a justificativa sera registrada nos comentarios.',
+      }
+    case 'follow_up_1_dia':
+    case 'follow_up_3_dias':
+    case 'follow_up_7_dias':
+      return {
+        title: 'Atualizar status da proposta',
+        heading: `Confirmar envio para ${SELLER_ACTION_LABELS[action]}.`,
+        description:
+          'Ao confirmar, o card sera movido para a etapa selecionada e o proximo horario de follow-up sera considerado.',
+      }
+    default:
+      return {
+        title: 'Atualizar status da proposta',
+        heading: 'Atualizar status da proposta.',
+        description: 'Confirme a movimentacao desta proposta para continuar o fluxo.',
+      }
+  }
+}
+
 function formatFollowUpTimeForSubmission(date: Date) {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
@@ -559,6 +614,41 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       )),
     [optimisticPropostas, propostas, state.propostas]
   )
+
+  useEffect(() => {
+    const sourcePropostas = propostas || state.propostas
+
+    setOptimisticPropostas((current) => {
+      const entries = Object.entries(current)
+      if (entries.length === 0) {
+        return current
+      }
+
+      const sourceById = new Map(sourcePropostas.map((proposta) => [proposta.id, proposta] as const))
+      let changed = false
+      const next = { ...current }
+
+      for (const [proposalId, patch] of entries) {
+        const source = sourceById.get(proposalId)
+        if (!source) {
+          continue
+        }
+
+        const patchEntries = Object.entries(patch).filter(([, value]) => value !== undefined)
+        const sourceRecord = source as unknown as Record<string, unknown>
+        const patchAlreadyReflected = patchEntries.every(([key, value]) => {
+          return Object.is(sourceRecord[key], value)
+        })
+
+        if (patchAlreadyReflected) {
+          delete next[proposalId]
+          changed = true
+        }
+      }
+
+      return changed ? next : current
+    })
+  }, [propostas, state.propostas])
 
   const propostasVisiveis = useMemo(() => {
     const source = propostasBase
@@ -1067,6 +1157,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         followUpTime?: string
         moveValue?: string
         moveFiles?: File[]
+        orcamentistaIdOverride?: string | null
         closeClientData?: {
           tipo: TipoCliente
           nome: string
@@ -1101,6 +1192,12 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         (resolvedStatus === 'enviado_ao_cliente'
           ? formatFollowUpTimeForSubmission(new Date())
           : proposta.followUpTime || null)
+      const isBudgetWorkflowMove = ['em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(
+        persistedStatus
+      )
+      const resolvedMoveOrcamentistaId =
+        (options.orcamentistaIdOverride !== undefined ? options.orcamentistaIdOverride : proposta.orcamentistaId) ||
+        (user?.role === 'orcamentista' && isBudgetWorkflowMove ? user.id : null)
 
       const parsedSubmittedValue = parseProposalNumericInput(options.moveValue || '')
       const shouldUseSubmittedValue =
@@ -1127,6 +1224,12 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
           ...(effectiveSellerWorkflowAction ? { workflowAction: effectiveSellerWorkflowAction } : {}),
           ...(persistedStatus === 'aguardando_aprovacao' && (parsedSubmittedValue ?? 0) > 0
             ? { valor: nextValue }
+            : {}),
+          ...(isBudgetWorkflowMove
+            ? {
+                responsavelId: proposta.responsavelId || null,
+                orcamentistaId: resolvedMoveOrcamentistaId,
+              }
             : {}),
           ...(persistedStatus === 'fechado'
             ? {
@@ -1165,14 +1268,9 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
           delete next[proposta.id]
           return next
         })
-        setOptimisticPropostas((prev) => {
-          const next = { ...prev }
-          delete next[proposta.id]
-          return next
-        })
       }
     },
-    [isSubmittingMove, resetPendingMoveDialog, restorePendingMoveDialog, updateProposta]
+    [isSubmittingMove, resetPendingMoveDialog, restorePendingMoveDialog, updateProposta, user?.id, user?.role]
   )
 
   const confirmMove = async () => {
@@ -1209,6 +1307,8 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       followUpTime: followUpTime || proposta.followUpTime || undefined,
       moveValue,
       moveFiles,
+      orcamentistaIdOverride:
+        resolvedTargetStatus === 'aguardando_aprovacao' ? resolvedApprovalOrcamentistaId : undefined,
       closeClientData: requiresClosedClientData
         ? {
             tipo: closeClientTipo,
@@ -1260,7 +1360,11 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
           'stand_by',
         ].includes(pendingMove.targetStatus)
     )
-  const sellerCanOnlyConfirmSend = isSellerMove && pendingMoveProposal?.status === 'enviar_ao_cliente'
+  const sellerCanOnlyConfirmSend =
+    isSellerMove &&
+    pendingMoveProposal?.status === 'enviar_ao_cliente' &&
+    !isSellerDirectTargetMove &&
+    (!selectedSellerAction || selectedSellerAction === 'enviado_ao_cliente')
   const effectiveSellerAction =
     isSellerDirectTargetMove && pendingMove?.targetStatus
       ? (pendingMove.targetStatus as SellerMoveAction)
@@ -1380,6 +1484,10 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         ? `Para enviar esta proposta para aprovacao, complete os itens obrigatorios: ${approvalRequirementItems.join('; ')}.`
         : 'Esta proposta ja tem os dados obrigatorios para seguir para aprovacao.'
     : null
+  const resolvedApprovalOrcamentistaId =
+    approvalTargetProposal?.orcamentistaId ||
+    pendingMoveProposal?.orcamentistaId ||
+    (user?.role === 'orcamentista' && resolvedTargetStatus === 'aguardando_aprovacao' ? user.id : null)
   const closeClientDocumentLabel = getClientDocumentLabel(closeClientTipo)
   const closeClientDocumentPlaceholder = getClientDocumentPlaceholder(closeClientTipo)
   const requiresClosedClientData =
@@ -1393,10 +1501,46 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const isSchedulingFollowUp = requiresFollowUpTime
   const pendingMoveTargetLabel = pendingMove ? statusPropostaLabels[pendingMove.targetStatus] : ''
   const draggedTouchProposal = dragState ? propostasById.get(dragState.propostaId) || null : null
+  const sellerActionDialogCopy = getSellerActionDialogCopy(effectiveSellerAction)
   const openProposalDetails = useCallback((proposalId: string) => {
     void prefetchProposta(proposalId)
     setDetailsPropostaId(proposalId)
   }, [])
+
+  useEffect(() => {
+    if (!isSellerMove || !pendingMoveProposal || !pendingMove?.targetStatus) {
+      return
+    }
+
+    const directActionTargets: SellerMoveAction[] = [
+      'enviado_ao_cliente',
+      'follow_up_1_dia',
+      'follow_up_3_dias',
+      'follow_up_7_dias',
+      'fechado',
+      'perdido',
+      'em_retificacao',
+      'stand_by',
+    ]
+
+    if (
+      pendingMoveProposal.status === 'enviar_ao_cliente' &&
+      pendingMove.targetStatus === pendingMoveProposal.status
+    ) {
+      if (sellerAction !== 'enviado_ao_cliente') {
+        setSellerAction('enviado_ao_cliente')
+      }
+      return
+    }
+
+    if (
+      pendingMove.targetStatus !== pendingMoveProposal.status &&
+      directActionTargets.includes(pendingMove.targetStatus as SellerMoveAction) &&
+      sellerAction !== pendingMove.targetStatus
+    ) {
+      setSellerAction(pendingMove.targetStatus as SellerMoveAction)
+    }
+  }, [isSellerMove, pendingMove?.targetStatus, pendingMoveProposal, sellerAction])
 
   useEffect(() => {
     if (!requiresClosedClientData || !pendingMoveProposal) {
@@ -1794,8 +1938,8 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {sellerCanOnlyConfirmSend
-                ? 'Confirmar envio ao cliente'
+              {isSellerMove && !shouldShowSellerActionSelect
+                ? sellerActionDialogCopy.title
                 : isSellerMove || isAdminCommercialMove
                 ? 'Atualizar status da proposta'
                 : isSchedulingFollowUp
@@ -1848,10 +1992,10 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                 ) : (
                   <>
                     <p className="text-sm font-medium text-foreground">
-                      Confirmar envio da proposta para o cliente.
+                      {sellerActionDialogCopy.heading}
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      Ao confirmar, o card sera movido para Enviado ao cliente e o fluxo seguira normalmente.
+                      {sellerActionDialogCopy.description}
                     </p>
                   </>
                 )}

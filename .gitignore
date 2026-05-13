@@ -17,3 +17,10 @@ node_modules/
 .next/
 .DS_Store
 .vercel
+tmp/
+tmp_*.json
+tmp_*.log
+tmp_*.out
+prod_smoke_cookies.txt
+.codex-*.log
+*.tsbuildinfo
