@@ -36,7 +36,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { statusPropostaLabels, type Proposta, type StatusProposta } from '@/lib/data/types'
+import { statusPropostaLabels, type Proposta, type StatusProposta, type TipoCliente } from '@/lib/data/types'
 
 const columns: StatusProposta[] = [
   'novo_cliente',
@@ -85,6 +85,7 @@ type PendingMoveDialogSnapshot = {
   moveValue: string
   moveFiles: File[]
   closeClientData: {
+    tipo: TipoCliente
     nome: string
     cpf: string
     email: string
@@ -391,6 +392,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const [followUpTime, setFollowUpTime] = useState('')
   const [moveValue, setMoveValue] = useState('')
   const [moveFiles, setMoveFiles] = useState<File[]>([])
+  const [closeClientTipo, setCloseClientTipo] = useState<TipoCliente>('residencial')
   const [closeClientName, setCloseClientName] = useState('')
   const [closeClientCpf, setCloseClientCpf] = useState('')
   const [closeClientEmail, setCloseClientEmail] = useState('')
@@ -421,6 +423,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     setFollowUpTime('')
     setMoveValue('')
     setMoveFiles([])
+    setCloseClientTipo('residencial')
     setCloseClientName('')
     setCloseClientCpf('')
     setCloseClientEmail('')
@@ -436,6 +439,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     setFollowUpTime(snapshot.followUpTime)
     setMoveValue(snapshot.moveValue)
     setMoveFiles(snapshot.moveFiles)
+    setCloseClientTipo(snapshot.closeClientData.tipo)
     setCloseClientName(snapshot.closeClientData.nome)
     setCloseClientCpf(snapshot.closeClientData.cpf)
     setCloseClientEmail(snapshot.closeClientData.email)
@@ -899,11 +903,13 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     setMoveComment('')
     setMoveValue(proposta.valor > 0 ? String(proposta.valor) : '')
     setMoveFiles([])
+    setCloseClientTipo(inferClientType(cliente || null))
     setFollowUpTime(
       ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias'].includes(targetStatus)
         ? (proposta.followUpTime || currentTime).slice(0, 5)
         : (proposta.followUpTime || '').slice(0, 5)
     )
+    setCloseClientTipo(inferClientType(cliente))
     setCloseClientName(cliente?.nome || proposta.clienteNome || '')
     setCloseClientCpf(cliente?.cpf || '')
     setCloseClientEmail(cliente?.email || '')
@@ -1062,6 +1068,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         moveValue?: string
         moveFiles?: File[]
         closeClientData?: {
+          tipo: TipoCliente
           nome: string
           cpf: string
           email: string
@@ -1123,6 +1130,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
             : {}),
           ...(persistedStatus === 'fechado'
             ? {
+                clienteTipo: options.closeClientData?.tipo || null,
                 clienteNome: options.closeClientData?.nome || null,
                 clienteCpf: options.closeClientData?.cpf || null,
                 clienteEmail: options.closeClientData?.email || null,
@@ -1181,6 +1189,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       moveValue,
       moveFiles,
       closeClientData: {
+        tipo: closeClientTipo,
         nome: closeClientName,
         cpf: closeClientCpf,
         email: closeClientEmail,
@@ -1202,6 +1211,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       moveFiles,
       closeClientData: requiresClosedClientData
         ? {
+            tipo: closeClientTipo,
             nome: closeClientName,
             cpf: closeClientCpf,
             email: closeClientEmail,
@@ -1370,7 +1380,6 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         ? `Para enviar esta proposta para aprovacao, complete os itens obrigatorios: ${approvalRequirementItems.join('; ')}.`
         : 'Esta proposta ja tem os dados obrigatorios para seguir para aprovacao.'
     : null
-  const closeClientTipo = inferClientType(pendingMoveClient)
   const closeClientDocumentLabel = getClientDocumentLabel(closeClientTipo)
   const closeClientDocumentPlaceholder = getClientDocumentPlaceholder(closeClientTipo)
   const requiresClosedClientData =
@@ -1396,7 +1405,9 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
 
     const proposalFallbackName = pendingMoveProposal.clienteNome || ''
     const clientName = pendingMoveClient?.nome || ''
+    const nextClientType = inferClientType(pendingMoveClient)
     const nextCloseClientData = {
+      tipo: nextClientType,
       nome: clientName || proposalFallbackName,
       cpf: pendingMoveClient?.cpf || '',
       email: pendingMoveClient?.email || '',
@@ -1404,6 +1415,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       endereco: pendingMoveClient?.endereco || '',
     }
 
+    setCloseClientTipo((current) => (current !== nextCloseClientData.tipo ? nextCloseClientData.tipo : current))
     setCloseClientName((current) =>
       !current.trim()
         ? nextCloseClientData.nome
@@ -1775,6 +1787,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
             setFollowUpTime('')
             setMoveValue('')
             setMoveFiles([])
+            setCloseClientTipo('residencial')
           }
         }}
       >
@@ -1937,6 +1950,27 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                     : 'Se quiser, voce pode complementar os dados do cliente e o valor fechado antes de concluir o fechamento.'}
                 </p>
                 <div className="grid gap-3 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Tipo de cliente</label>
+                    <Select
+                      value={closeClientTipo}
+                      onValueChange={(value) => {
+                        const nextTipo = value as TipoCliente
+                        setCloseClientTipo(nextTipo)
+                        setCloseClientCpf((current) =>
+                          current.trim() ? formatClientDocument(current, nextTipo) : current
+                        )
+                      }}
+                    >
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Selecione o tipo do cliente" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="residencial">Residencial</SelectItem>
+                        <SelectItem value="comercial">Comercial</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-foreground">Nome completo</label>
                     <Input value={closeClientName} onChange={(event) => setCloseClientName(event.target.value)} />

@@ -130,6 +130,7 @@ type ProposalPayload = {
   workflowAction?: string | null
   followUpTime?: string | null
   clienteId?: string
+  clienteTipo?: 'residencial' | 'comercial' | null
   clienteNome?: string | null
   clienteCpf?: string | null
   clienteTelefone?: string | null
@@ -448,6 +449,10 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
         followUpTime: String(formData.get('followUpTime') || '') || null,
         kanbanPosition: parseKanbanPosition(formData.get('kanbanPosition')),
         clienteId: String(formData.get('clienteId') || '') || undefined,
+      clienteTipo:
+        formData.get('clienteTipo') === 'comercial' || formData.get('clienteTipo') === 'residencial'
+          ? (String(formData.get('clienteTipo')) as 'residencial' | 'comercial')
+          : null,
       clienteNome: String(formData.get('clienteNome') || '') || null,
       clienteCpf: String(formData.get('clienteCpf') || '') || null,
       clienteTelefone: String(formData.get('clienteTelefone') || '') || null,
@@ -486,6 +491,8 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
     followUpTime: data.followUpTime || null,
     kanbanPosition: parseKanbanPosition(data.kanbanPosition),
     clienteId: data.clienteId,
+    clienteTipo:
+      data.clienteTipo === 'comercial' || data.clienteTipo === 'residencial' ? data.clienteTipo : null,
     clienteNome: data.clienteNome || null,
     clienteCpf: data.clienteCpf || null,
     clienteTelefone: data.clienteTelefone || null,
@@ -950,10 +957,22 @@ export async function PUT(
       const isSellerClosingProposal = workflowAction === 'fechado' && nextStatus === 'fechado'
       const requestedSellerClosedValue =
         parseNullableNumber(data.clienteValorFechado) ?? parseNullableNumber(data.valor)
+      const sellerIsTryingToChangeClientData =
+        data.clienteTipo === 'comercial' ||
+        data.clienteTipo === 'residencial' ||
+        data.clienteNome !== undefined ||
+        data.clienteCpf !== undefined ||
+        data.clienteEmail !== undefined ||
+        data.clienteTelefone !== undefined ||
+        data.clienteEndereco !== undefined
+      const sellerIsTryingToChangeClosedValue =
+        data.clienteValorFechado !== undefined || data.valor !== undefined
 
       const sellerIsTryingToUploadAttachments = data.anexos.length > 0
       const sellerIsTryingToChangeContent =
         sellerIsTryingToUploadAttachments ||
+        (!isSellerClosingProposal && sellerIsTryingToChangeClientData) ||
+        (!isSellerClosingProposal && sellerIsTryingToChangeClosedValue) ||
         (data.clienteId !== undefined && data.clienteId !== propostaAtual.cliente_id) ||
         normalizeNullableText(data.titulo ?? propostaAtual.titulo) !== currentTitulo ||
         normalizeMaterialTag(data.materialTag ?? propostaAtual.material_tag) !== currentMaterialTag ||
@@ -979,7 +998,7 @@ export async function PUT(
         return NextResponse.json(
           {
             error:
-              'O vendedor nao pode alterar valor, anexos ou outros dados da proposta diretamente. Envie a proposta para retificacao no funil com a justificativa obrigatoria.',
+              'O vendedor nao pode alterar valor, anexos ou outros dados da proposta diretamente fora do fluxo de fechamento. Envie a proposta para retificacao no funil com a justificativa obrigatoria.',
           },
           { status: 403 }
         )
@@ -1049,7 +1068,10 @@ export async function PUT(
     }
 
     if (storedStatus === 'fechado') {
-      const clientType = inferClientType(clienteAtual)
+      const clientType =
+        data.clienteTipo === 'comercial' || data.clienteTipo === 'residencial'
+          ? data.clienteTipo
+          : inferClientType(clienteAtual)
       const clientDocumentLabel = getClientDocumentLabel(clientType)
       const mergedClienteFechado = {
         nome: normalizeNullableText(data.clienteNome) ?? clienteAtual.nome,
@@ -1091,8 +1113,17 @@ export async function PUT(
       }
 
       const shouldUpdateClosedClientData =
-        Boolean(mergedClienteFechado.nome || mergedClienteFechado.cpf || mergedClienteFechado.email || mergedClienteFechado.telefone || mergedClienteFechado.endereco) &&
+        Boolean(
+          mergedClienteFechado.nome ||
+            mergedClienteFechado.cpf ||
+            mergedClienteFechado.email ||
+            mergedClienteFechado.telefone ||
+            mergedClienteFechado.endereco ||
+            data.clienteTipo
+        ) &&
         (requiresMandatoryClosedClientData ||
+          data.clienteTipo === 'comercial' ||
+          data.clienteTipo === 'residencial' ||
           normalizeNullableText(data.clienteNome) !== null ||
           normalizeNullableText(data.clienteCpf) !== null ||
           normalizeNullableText(data.clienteEmail) !== null ||
@@ -1102,7 +1133,7 @@ export async function PUT(
       if (shouldUpdateClosedClientData) {
         await query(
           `UPDATE clientes
-           SET nome = ?, cpf = ?, email = ?, telefone = ?, endereco = ?, status_funil = ?
+           SET nome = ?, cpf = ?, email = ?, telefone = ?, endereco = ?, tipo = ?, status_funil = ?
            WHERE id = ?`,
           [
             mergedClienteFechado.nome,
@@ -1110,12 +1141,13 @@ export async function PUT(
             mergedClienteFechado.email,
             mergedClienteFechado.telefone,
             mergedClienteFechado.endereco,
+            clientType,
             'fechado',
             resolvedClienteId,
           ]
         )
       } else {
-        await query(`UPDATE clientes SET status_funil = ? WHERE id = ?`, ['fechado', resolvedClienteId])
+        await query(`UPDATE clientes SET tipo = ?, status_funil = ? WHERE id = ?`, [clientType, 'fechado', resolvedClienteId])
       }
     }
 

@@ -1587,6 +1587,7 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     workflowAction: hasOwnField('workflowAction') ? (data.workflowAction || null) : undefined,
     clienteId: hasOwnField('clienteId') ? (data.clienteId || null) : undefined,
     followUpTime: hasOwnField('followUpTime') ? (data.followUpTime || null) : undefined,
+    clienteTipo: hasOwnField('clienteTipo') ? (data.clienteTipo || null) : undefined,
     clienteNome: hasOwnField('clienteNome') ? (data.clienteNome || null) : undefined,
     clienteCpf: hasOwnField('clienteCpf') ? (data.clienteCpf || null) : undefined,
     clienteTelefone: hasOwnField('clienteTelefone') ? (formatBrazilPhone(data.clienteTelefone) || null) : undefined,
