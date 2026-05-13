@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import Link from 'next/link'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
+import { useSession } from '@/lib/hooks/use-api'
 import {
   Table,
   TableBody,
@@ -44,11 +45,13 @@ const PAGE_SIZE_OPTIONS = [10, 50, 100] as const
 export function ClientsTable({ onNewClient }: ClientsTableProps) {
   const { state, deleteCliente } = useCRM()
   const { formatDate } = useAppSettings()
+  const { user } = useSession()
   const [search, setSearch] = useState('')
   const deferredSearch = useDeferredValue(search)
   const [editingClient, setEditingClient] = useState<Cliente | null>(null)
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(10)
   const [currentPage, setCurrentPage] = useState(1)
+  const canEditClient = user?.role !== 'vendedor'
 
   const filteredClientes = useMemo(
     () =>
@@ -150,10 +153,12 @@ export function ClientsTable({ onNewClient }: ClientsTableProps) {
                           Ver detalhes
                         </Link>
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setEditingClient(cliente)}>
-                        <Pencil className="mr-2 h-4 w-4" />
-                        Editar
-                      </DropdownMenuItem>
+                      {canEditClient ? (
+                        <DropdownMenuItem onClick={() => setEditingClient(cliente)}>
+                          <Pencil className="mr-2 h-4 w-4" />
+                          Editar
+                        </DropdownMenuItem>
+                      ) : null}
                       <DropdownMenuItem
                         className="text-destructive"
                         onClick={() => {
@@ -247,10 +252,12 @@ export function ClientsTable({ onNewClient }: ClientsTableProps) {
                                   Ver detalhes
                                 </Link>
                               </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => setEditingClient(cliente)}>
-                                <Pencil className="mr-2 h-4 w-4" />
-                                Editar
-                              </DropdownMenuItem>
+                              {canEditClient ? (
+                                <DropdownMenuItem onClick={() => setEditingClient(cliente)}>
+                                  <Pencil className="mr-2 h-4 w-4" />
+                                  Editar
+                                </DropdownMenuItem>
+                              ) : null}
                               <DropdownMenuItem
                                 className="text-destructive"
                                 onClick={() => {
@@ -353,13 +360,13 @@ export function ClientsTable({ onNewClient }: ClientsTableProps) {
         ) : null}
       </div>
 
-      {editingClient && (
+      {editingClient && canEditClient ? (
         <ClientForm
           open={!!editingClient}
           onClose={() => setEditingClient(null)}
           cliente={editingClient}
         />
-      )}
+      ) : null}
     </>
   )
 }

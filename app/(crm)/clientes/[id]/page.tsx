@@ -44,6 +44,7 @@ export default function ClienteDetailPage({ params }: PageProps) {
   const { getCliente } = useCRM()
   const { user } = useSession()
   const [showEditForm, setShowEditForm] = useState(false)
+  const canEditClient = user?.role !== 'vendedor'
 
   const cliente = getCliente(id)
 
@@ -70,7 +71,7 @@ export default function ClienteDetailPage({ params }: PageProps) {
       <CRMHeader
         title={cliente.nome}
         subtitle={cliente.tipo === 'comercial' ? 'Cliente Comercial' : 'Cliente Residencial'}
-        action={{ label: 'Editar', onClick: () => setShowEditForm(true) }}
+        action={canEditClient ? { label: 'Editar', onClick: () => setShowEditForm(true) } : undefined}
       />
 
       <div className="flex-1 overflow-auto">
@@ -92,12 +93,14 @@ export default function ClienteDetailPage({ params }: PageProps) {
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <Button variant="outline" size="sm" onClick={() => setShowEditForm(true)}>
-              <Pencil className="mr-2 h-4 w-4" />
-              Editar Cliente
-            </Button>
-          </div>
+          {canEditClient ? (
+            <div className="flex items-center gap-4">
+              <Button variant="outline" size="sm" onClick={() => setShowEditForm(true)}>
+                <Pencil className="mr-2 h-4 w-4" />
+                Editar Cliente
+              </Button>
+            </div>
+          ) : null}
         </div>
 
         <div className="p-6">
@@ -136,7 +139,9 @@ export default function ClienteDetailPage({ params }: PageProps) {
         </div>
       </div>
 
-      {showEditForm ? <ClientForm open={showEditForm} onClose={() => setShowEditForm(false)} cliente={cliente} /> : null}
+      {showEditForm && canEditClient ? (
+        <ClientForm open={showEditForm} onClose={() => setShowEditForm(false)} cliente={cliente} />
+      ) : null}
     </>
   )
 }

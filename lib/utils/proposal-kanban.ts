@@ -16,6 +16,18 @@ function isSameDay(left: Date, right: Date) {
   )
 }
 
+function isAfterCalendarDay(left: Date, right: Date) {
+  if (left.getFullYear() !== right.getFullYear()) {
+    return left.getFullYear() > right.getFullYear()
+  }
+
+  if (left.getMonth() !== right.getMonth()) {
+    return left.getMonth() > right.getMonth()
+  }
+
+  return left.getDate() > right.getDate()
+}
+
 function getHoursUntil(target: Date, now: Date) {
   return (target.getTime() - now.getTime()) / (1000 * 60 * 60)
 }
@@ -99,8 +111,10 @@ export function getProposalCardVisualState(
 
   if (isFollowUpStatus(status)) {
     const hoursUntilDue = getHoursUntil(dueDate, now)
+    const followUpDayHasPassed = isAfterCalendarDay(now, dueDate)
+    const followUpTimeExpiredOnDueDay = isSameDay(now, dueDate) && now > dueDate
 
-    if (now > dueDate) {
+    if (followUpDayHasPassed || followUpTimeExpiredOnDueDay) {
       return { classes: 'border-red-500 bg-red-500/10 ring-1 ring-red-500/30', label: 'Follow-up atrasado' }
     }
 

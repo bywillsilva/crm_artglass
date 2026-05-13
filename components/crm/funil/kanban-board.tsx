@@ -138,6 +138,10 @@ const SELLER_ACTION_LABELS: Record<SellerMoveAction, string> = {
   stand_by: 'Stand-by',
 }
 
+function formatFollowUpTimeForSubmission(date: Date) {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
 function getAdminCommercialStatusOptions(status: StatusProposta, role?: string | null): StatusProposta[] {
   switch (status) {
     case 'enviar_ao_cliente':
@@ -1085,6 +1089,11 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
           : proposta.status === 'follow_up_3_dias' && resolvedStatus === 'follow_up_7_dias'
             ? ('aguardando_follow_up_7_dias' as StatusProposta)
             : resolvedStatus
+      const followUpTimeForMove =
+        options.followUpTime ||
+        (resolvedStatus === 'enviado_ao_cliente'
+          ? formatFollowUpTimeForSubmission(new Date())
+          : proposta.followUpTime || null)
 
       const parsedSubmittedValue = parseProposalNumericInput(options.moveValue || '')
       const shouldUseSubmittedValue =
@@ -1094,7 +1103,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       const optimisticPatch: Partial<Proposta> = {
         status: persistedStatus,
         valor: nextValue,
-        followUpTime: options.followUpTime || proposta.followUpTime || null,
+        followUpTime: followUpTimeForMove,
         kanbanOrder: options.kanbanPosition ?? proposta.kanbanOrder ?? null,
       }
 
@@ -1103,23 +1112,32 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       setUpdatingProposalIds((prev) => ({ ...prev, [proposta.id]: true }))
 
       try {
-        await updateProposta({
-          ...proposta,
+        const proposalMovePayload: Record<string, unknown> = {
           status: effectiveSellerWorkflowAction ? proposta.status : resolvedStatus,
-          valor: nextValue,
-          comentario: options.comment || null,
-          justificativa: options.comment || null,
-          workflowAction: effectiveSellerWorkflowAction || null,
-          followUpTime: options.followUpTime || proposta.followUpTime || null,
-          clienteNome: persistedStatus === 'fechado' ? options.closeClientData?.nome || null : null,
-          clienteCpf: persistedStatus === 'fechado' ? options.closeClientData?.cpf || null : null,
-          clienteEmail: persistedStatus === 'fechado' ? options.closeClientData?.email || null : null,
-          clienteTelefone: persistedStatus === 'fechado' ? options.closeClientData?.telefone || null : null,
-          clienteEndereco: persistedStatus === 'fechado' ? options.closeClientData?.endereco || null : null,
-          clienteValorFechado: persistedStatus === 'fechado' ? nextValue : null,
+          followUpTime: followUpTimeForMove,
           kanbanPosition: options.kanbanPosition ?? null,
-          anexos: options.moveFiles || [],
-        } as unknown as Proposta)
+          ...(options.comment ? { comentario: options.comment, justificativa: options.comment } : {}),
+          ...(effectiveSellerWorkflowAction ? { workflowAction: effectiveSellerWorkflowAction } : {}),
+          ...(persistedStatus === 'aguardando_aprovacao' && (parsedSubmittedValue ?? 0) > 0
+            ? { valor: nextValue }
+            : {}),
+          ...(persistedStatus === 'fechado'
+            ? {
+                clienteNome: options.closeClientData?.nome || null,
+                clienteCpf: options.closeClientData?.cpf || null,
+                clienteEmail: options.closeClientData?.email || null,
+                clienteTelefone: options.closeClientData?.telefone || null,
+                clienteEndereco: options.closeClientData?.endereco || null,
+                clienteValorFechado: nextValue,
+              }
+            : {}),
+          ...(options.moveFiles?.length ? { anexos: options.moveFiles } : {}),
+        }
+
+        await updateProposta({
+          id: proposta.id,
+          ...proposalMovePayload,
+        } as Proposta)
         toast.success('Proposta atualizada com sucesso.')
         resetPendingMoveDialog()
       } catch (error: any) {

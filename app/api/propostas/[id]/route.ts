@@ -362,6 +362,13 @@ function resolveFollowUpBaseAt(params: {
   return changedAt
 }
 
+function formatFollowUpTimeFromDate(date: Date) {
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  const seconds = String(date.getSeconds()).padStart(2, '0')
+  return `${hours}:${minutes}:${seconds}`
+}
+
 function isSellerVisibleStatus(status: ProposalWorkflowStatus) {
   return SELLER_VISIBLE_STATUSES.includes(status)
 }
@@ -1134,7 +1141,11 @@ export async function PUT(
               ? changedAt
               : null
           )
-    const followUpTime = data.followUpTime ?? propostaAtual.follow_up_time ?? null
+    const followUpTime =
+      data.followUpTime ??
+      (previousStatus !== storedStatus && storedStatus === 'enviado_ao_cliente'
+        ? formatFollowUpTimeFromDate(changedAt)
+        : propostaAtual.follow_up_time ?? null)
 
     await query(
         `UPDATE propostas SET

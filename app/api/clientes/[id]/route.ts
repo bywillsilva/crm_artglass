@@ -143,6 +143,16 @@ export async function PUT(
     }
     await ensureSchemaReadyForReads()
 
+    if (user.role === 'vendedor') {
+      return NextResponse.json(
+        {
+          error:
+            'O vendedor nao pode editar os dados do cliente diretamente. Esse complemento so pode ser feito no momento do fechamento da proposta.',
+        },
+        { status: 403 }
+      )
+    }
+
     const { id } = await params
     const data = (await request.json()) as Record<string, unknown>
 
