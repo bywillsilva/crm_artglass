@@ -2,6 +2,7 @@ import { promises as fs } from 'fs'
 import path, { basename } from 'path'
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { getServerSession } from '@/lib/auth/session'
 import {
@@ -34,7 +35,7 @@ async function getAuthenticatedUser() {
   if (!session) return null
 
   const [user] = await query<any[]>(
-    'SELECT id, role, ativo FROM usuarios WHERE id = ? LIMIT 1',
+    'SELECT id, role, ativo, rule_permissions FROM usuarios WHERE id = ? LIMIT 1',
     [session.userId]
   )
 
@@ -57,9 +58,22 @@ async function getProposal(id: string) {
 function canViewProposal(user: any, proposta: any) {
   if (user.role === 'admin' || user.role === 'gerente') return true
   if (user.role === 'vendedor') {
-    return proposta.responsavel_id === user.id && SELLER_VISIBLE_STATUSES.has(String(proposta.status || ''))
+    return (
+      hasRuleAccess(user, 'allowSellerViewReleasedProposals') &&
+      proposta.responsavel_id === user.id &&
+      SELLER_VISIBLE_STATUSES.has(String(proposta.status || ''))
+    )
   }
-  if (user.role === 'orcamentista') return canOrcamentistaViewProposal(proposta, user.id)
+  if (user.role === 'orcamentista') {
+    if (canOrcamentistaAccessProposal(proposta, user.id)) {
+      return true
+    }
+
+    return (
+      hasRuleAccess(user, 'allowOrcamentistaViewAssignedProposalsOutsideScope') &&
+      canOrcamentistaViewProposal(proposta, user.id)
+    )
+  }
   return false
 }
 
@@ -84,7 +98,13 @@ function canSellerManageProposal(proposta: any, userId: string) {
 function canManageProposal(user: any, proposta: any) {
   if (user.role === 'admin' || user.role === 'gerente') return true
   if (user.role === 'vendedor') return canSellerManageProposal(proposta, user.id)
-  if (user.role === 'orcamentista') return canOrcamentistaAccessProposal(proposta, user.id)
+  if (user.role === 'orcamentista') {
+    return (
+      canOrcamentistaAccessProposal(proposta, user.id) ||
+      (hasRuleAccess(user, 'allowOrcamentistaEditAssignedProposalsOutsideScope') &&
+        proposta.orcamentista_id === user.id)
+    )
+  }
   return false
 }
 

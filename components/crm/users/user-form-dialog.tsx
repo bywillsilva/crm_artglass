@@ -1,11 +1,5 @@
 'use client'
 
-import {
-  MODULE_KEYS,
-  getDefaultModulePermissions,
-  moduleLabels,
-  normalizeModulePermissions,
-} from '@/lib/auth/module-access'
 import type { RoleUsuario, Usuario } from '@/lib/data/types'
 import { Button } from '@/components/ui/button'
 import {
@@ -35,8 +29,6 @@ type UserFormState = {
   ativo: boolean
   senha: string
   confirmarSenha: string
-  permissionMode: 'padrao' | 'personalizado'
-  modulePermissions: ReturnType<typeof getDefaultModulePermissions>
 }
 
 interface UserFormDialogProps {
@@ -62,8 +54,6 @@ export function UserFormDialog({
   onFormDataChange,
   onSubmit,
 }: UserFormDialogProps) {
-  const normalizedPermissions = normalizeModulePermissions(formData.modulePermissions, formData.role)
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
@@ -101,10 +91,6 @@ export function UserFormDialog({
                 onFormDataChange((prev) => ({
                   ...prev,
                   role: value,
-                  modulePermissions:
-                    prev.permissionMode === 'padrao'
-                      ? getDefaultModulePermissions(value)
-                      : prev.modulePermissions,
                 }))
               }
               disabled={isEditingSelfAdmin}
@@ -124,89 +110,6 @@ export function UserFormDialog({
                 O administrador nao pode alterar o proprio nivel de acesso.
               </p>
             )}
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="permission-mode">Modelo de Permissao</Label>
-            <Select
-              value={isEditingSelfAdmin || formData.role === 'admin' ? 'padrao' : formData.permissionMode}
-              onValueChange={(value: 'padrao' | 'personalizado') =>
-                onFormDataChange((prev) => ({
-                  ...prev,
-                  permissionMode: value,
-                  modulePermissions:
-                    value === 'padrao'
-                      ? getDefaultModulePermissions(prev.role)
-                      : normalizeModulePermissions(prev.modulePermissions, prev.role),
-                }))
-              }
-              disabled={isEditingSelfAdmin || formData.role === 'admin'}
-            >
-              <SelectTrigger id="permission-mode">
-                <SelectValue placeholder="Escolha o modelo" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="padrao">Permissao predefinida</SelectItem>
-                <SelectItem value="personalizado">Permissao personalizada</SelectItem>
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              O admin sempre possui acesso total. Para os demais usuarios voce pode manter o padrao da funcao ou personalizar modulo por modulo.
-            </p>
-          </div>
-          <div className="grid gap-3 rounded-lg border border-border p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-foreground">Modulos liberados</p>
-                <p className="text-xs text-muted-foreground">Controle o que este usuario pode acessar na leftbar e nas paginas.</p>
-              </div>
-              {formData.permissionMode === 'personalizado' && formData.role !== 'admin' && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    onFormDataChange((prev) => ({
-                      ...prev,
-                      modulePermissions: getDefaultModulePermissions(prev.role),
-                    }))
-                  }
-                >
-                  Reaplicar padrao
-                </Button>
-              )}
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {MODULE_KEYS.map((moduleKey) => {
-                const checked = formData.role === 'admin' ? true : normalizedPermissions[moduleKey]
-                return (
-                  <div key={moduleKey} className="flex items-center justify-between rounded-md bg-secondary/30 px-3 py-2">
-                    <div>
-                      <p className="text-sm font-medium text-foreground">{moduleLabels[moduleKey]}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {checked ? 'Acesso liberado' : 'Acesso bloqueado'}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={checked}
-                      disabled={
-                        formData.role === 'admin' ||
-                        isEditingSelfAdmin ||
-                        formData.permissionMode !== 'personalizado'
-                      }
-                      onCheckedChange={(nextChecked) =>
-                        onFormDataChange((prev) => ({
-                          ...prev,
-                          modulePermissions: {
-                            ...normalizeModulePermissions(prev.modulePermissions, prev.role),
-                            [moduleKey]: nextChecked,
-                          },
-                        }))
-                      }
-                    />
-                  </div>
-                )
-              })}
-            </div>
           </div>
           {!editingUser && (
             <>

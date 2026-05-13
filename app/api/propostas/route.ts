@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
 import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { persistSavedProposalFiles, saveProposalFiles } from '@/lib/server/proposal-files'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
@@ -445,9 +446,14 @@ export async function GET(request: NextRequest) {
     }
 
     if (user.role === 'vendedor') {
+      if (!hasRuleAccess(user, 'allowSellerViewReleasedProposals')) {
+        sql += ' AND 1=0'
+      } else {
       sql += ` AND p.responsavel_id = ? AND p.status IN (${SELLER_VISIBLE_STATUSES.map(() => '?').join(', ')})`
       params.push(user.id, ...SELLER_VISIBLE_STATUSES)
+      }
     } else if (user.role === 'orcamentista') {
+      if (hasRuleAccess(user, 'allowOrcamentistaViewAssignedProposalsOutsideScope')) {
       sql += ` AND (
         p.orcamentista_id = ?
         OR (
@@ -456,6 +462,13 @@ export async function GET(request: NextRequest) {
         )
       )`
       params.push(user.id)
+      } else {
+        sql += ` AND (
+          p.status IN ('novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao')
+          AND (p.orcamentista_id IS NULL OR p.orcamentista_id = '' OR p.orcamentista_id = ?)
+        )`
+        params.push(user.id)
+      }
     }
 
     sql += ' ORDER BY p.created_at DESC'
@@ -511,9 +524,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
     }
 
-    if (user.role === 'vendedor') {
+    if (!hasRuleAccess(user, 'canCreateProposals')) {
       return NextResponse.json(
-        { error: 'Vendedores nao podem criar novas propostas diretamente.' },
+        { error: 'Este usuario nao pode criar novas propostas diretamente.' },
         { status: 403 }
       )
     }

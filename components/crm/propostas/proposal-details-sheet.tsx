@@ -13,7 +13,9 @@ import {
   UserCircle2,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { useAppSettings } from '@/lib/context/app-settings-context'
+import { useCRM } from '@/lib/context/crm-context'
 import { prefetchProposta, updateProposta, useProposta, useSession } from '@/lib/hooks/use-api'
 import { statusPropostaColors, statusPropostaLabels, type Proposta } from '@/lib/data/types'
 import { parseProposalMaterialTags } from '@/lib/utils/proposal-material-tags'
@@ -28,6 +30,13 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Separator } from '@/components/ui/separator'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
 
@@ -210,6 +219,7 @@ export function ProposalDetailsSheet({
   propostaInicial,
 }: ProposalDetailsSheetProps) {
   const { formatCurrency, formatDateTime } = useAppSettings()
+  const { state } = useCRM()
   const { user } = useSession()
   const {
     proposta,
@@ -239,6 +249,8 @@ export function ProposalDetailsSheet({
   const [editingValue, setEditingValue] = useState('')
   const [isEditingDescription, setIsEditingDescription] = useState(false)
   const [editingDescription, setEditingDescription] = useState('')
+  const [isEditingResponsavel, setIsEditingResponsavel] = useState(false)
+  const [editingResponsavelId, setEditingResponsavelId] = useState('')
   const [isEditingTechnicalDetails, setIsEditingTechnicalDetails] = useState(false)
   const [editingAreaM2, setEditingAreaM2] = useState('')
   const [editingPerfisBruto, setEditingPerfisBruto] = useState('')
@@ -265,6 +277,19 @@ export function ProposalDetailsSheet({
     if (!displayClientName) return false
     return displayTitle.trim() !== displayClientName
   }, [displayClientName, displayTitle])
+  const availableResponsaveis = useMemo(() => {
+    const currentResponsavelId = propostaSource?.responsavelId || ''
+
+    return state.usuarios
+      .filter(
+        (usuario) =>
+          usuario.role === 'vendedor' ||
+          usuario.role === 'gerente' ||
+          (currentResponsavelId && usuario.id === currentResponsavelId)
+      )
+      .filter((usuario) => usuario.ativo || usuario.id === currentResponsavelId)
+      .sort((left, right) => left.nome.localeCompare(right.nome, 'pt-BR'))
+  }, [propostaSource?.responsavelId, state.usuarios])
 
   useEffect(() => {
     setNewComment('')
@@ -274,6 +299,8 @@ export function ProposalDetailsSheet({
     setEditingValue('')
     setIsEditingDescription(false)
     setEditingDescription('')
+    setIsEditingResponsavel(false)
+    setEditingResponsavelId('')
     setIsEditingTechnicalDetails(false)
     setEditingAreaM2('')
     setEditingPerfisBruto('')
@@ -296,6 +323,10 @@ export function ProposalDetailsSheet({
       setEditingDescription(propostaSource.descricao || '')
     }
 
+    if (!isEditingResponsavel) {
+      setEditingResponsavelId(propostaSource.responsavelId || '')
+    }
+
     if (!isEditingTechnicalDetails) {
       setEditingAreaM2(
         propostaSource.areaM2 != null ? formatTechnicalMetricValue(propostaSource.areaM2) : ''
@@ -314,7 +345,7 @@ export function ProposalDetailsSheet({
       )
       setEditingObservacoesTecnicas(propostaSource.observacoesTecnicas || '')
     }
-  }, [isEditingDescription, isEditingTechnicalDetails, isEditingValue, propostaSource])
+  }, [isEditingDescription, isEditingResponsavel, isEditingTechnicalDetails, isEditingValue, propostaSource])
 
   useEffect(() => {
     if (!open || !propostaId) {
@@ -332,8 +363,12 @@ export function ProposalDetailsSheet({
     if (user.role === 'admin' || user.role === 'gerente') return true
     if (user.role === 'orcamentista') {
       return (
-        (!propostaSource.orcamentistaId || propostaSource.orcamentistaId === user.id) &&
-        isOrcamentistaEditableStatus(propostaSource.status)
+        (
+          (!propostaSource.orcamentistaId || propostaSource.orcamentistaId === user.id) &&
+          isOrcamentistaEditableStatus(propostaSource.status)
+        ) ||
+        (hasRuleAccess(user, 'allowOrcamentistaEditAssignedProposalsOutsideScope') &&
+          propostaSource.orcamentistaId === user.id)
       )
     }
     return false
@@ -344,8 +379,12 @@ export function ProposalDetailsSheet({
     if (user.role === 'admin' || user.role === 'gerente') return true
     if (user.role === 'orcamentista') {
       return (
-        (!propostaSource.orcamentistaId || propostaSource.orcamentistaId === user.id) &&
-        isOrcamentistaEditableStatus(propostaSource.status)
+        (
+          (!propostaSource.orcamentistaId || propostaSource.orcamentistaId === user.id) &&
+          isOrcamentistaEditableStatus(propostaSource.status)
+        ) ||
+        (hasRuleAccess(user, 'allowOrcamentistaEditAssignedProposalsOutsideScope') &&
+          propostaSource.orcamentistaId === user.id)
       )
     }
     return false
@@ -354,12 +393,19 @@ export function ProposalDetailsSheet({
     if (!user || !propostaSource) return false
     if (user.role === 'admin' || user.role === 'gerente') return true
     if (user.role === 'vendedor') {
-      return propostaSource.responsavelId === user.id
+      return (
+        hasRuleAccess(user, 'allowSellerCommentsOnResponsibleProposals') &&
+        propostaSource.responsavelId === user.id
+      )
     }
     if (user.role === 'orcamentista') {
       return (
-        (!propostaSource.orcamentistaId || propostaSource.orcamentistaId === user.id) &&
-        isOrcamentistaEditableStatus(propostaSource.status)
+        (
+          (!propostaSource.orcamentistaId || propostaSource.orcamentistaId === user.id) &&
+          isOrcamentistaEditableStatus(propostaSource.status)
+        ) ||
+        (hasRuleAccess(user, 'allowOrcamentistaEditAssignedProposalsOutsideScope') &&
+          propostaSource.orcamentistaId === user.id)
       )
     }
     return false
@@ -368,6 +414,10 @@ export function ProposalDetailsSheet({
   const canViewTechnicalDetails = useMemo(
     () => user?.role === 'admin' || user?.role === 'orcamentista',
     [user?.role]
+  )
+  const canEditResponsavel = useMemo(
+    () => Boolean(user?.role === 'admin' && propostaSource),
+    [propostaSource, user?.role]
   )
 
   const canEditTechnicalDetails = useMemo(
@@ -642,6 +692,47 @@ export function ProposalDetailsSheet({
       toast.success('Descricao da proposta atualizada.')
     } catch (error: any) {
       toast.error(error?.message || 'Erro ao atualizar descricao da proposta.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleSaveResponsavel = async () => {
+    if (!propostaId || !propostaSource) return
+
+    if (!editingResponsavelId) {
+      toast.error('Selecione um vendedor responsavel para continuar.')
+      return
+    }
+
+    const responsavelSelecionado = availableResponsaveis.find(
+      (usuario) => usuario.id === editingResponsavelId
+    )
+
+    if (!responsavelSelecionado) {
+      toast.error('Nao foi possivel localizar o vendedor selecionado.')
+      return
+    }
+
+    const payload = buildInlineUpdatePayload({ responsavelId: editingResponsavelId })
+    if (!payload) return
+
+    setIsSubmitting(true)
+    try {
+      const updatedProposal = await updateProposta(propostaId, payload)
+      const updatedProposalSnapshot =
+        typeof updatedProposal === 'object' && updatedProposal !== null
+          ? { ...(updatedProposal as Record<string, unknown>) }
+          : {}
+      setIsEditingResponsavel(false)
+      await syncProposalSnapshot({
+        ...updatedProposalSnapshot,
+        responsavelId: editingResponsavelId,
+        responsavelNome: responsavelSelecionado.nome,
+      })
+      toast.success('Vendedor responsavel atualizado.')
+    } catch (error: any) {
+      toast.error(error?.message || 'Erro ao atualizar vendedor responsavel.')
     } finally {
       setIsSubmitting(false)
     }
@@ -1303,11 +1394,82 @@ export function ProposalDetailsSheet({
                 ) : null}
 
                 <div className="grid min-w-0 gap-4 md:grid-cols-2">
-                  <InfoCard
-                    title="Vendedor Responsavel"
-                    value={propostaSource.responsavelNome || '-'}
-                    subtitle="Responsavel comercial"
-                  />
+                  <div className="min-w-0 rounded-xl border border-border bg-card p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                          Vendedor Responsavel
+                        </p>
+                        {isEditingResponsavel ? (
+                          <div className="mt-3 space-y-3">
+                            <Select
+                              value={editingResponsavelId}
+                              onValueChange={setEditingResponsavelId}
+                              disabled={isSubmitting}
+                            >
+                              <SelectTrigger className="h-11 border-border/80 bg-secondary/10">
+                                <SelectValue placeholder="Selecione o vendedor responsavel" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {availableResponsaveis.map((usuario) => (
+                                  <SelectItem key={usuario.id} value={usuario.id}>
+                                    {usuario.nome}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <div className="flex items-center justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setIsEditingResponsavel(false)
+                                  setEditingResponsavelId(propostaSource.responsavelId || '')
+                                }}
+                                disabled={isSubmitting}
+                              >
+                                Cancelar
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={() => void handleSaveResponsavel()}
+                                disabled={isSubmitting || !editingResponsavelId}
+                              >
+                                Salvar vendedor
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className={`mt-2 w-full rounded-lg text-left ${canEditResponsavel ? 'transition hover:bg-secondary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background' : 'cursor-default'}`}
+                            onClick={() => {
+                              if (!canEditResponsavel) return
+                              setEditingResponsavelId(propostaSource.responsavelId || '')
+                              setIsEditingResponsavel(true)
+                            }}
+                            disabled={!canEditResponsavel}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="break-words text-base font-semibold text-foreground">
+                                  {propostaSource.responsavelNome || '-'}
+                                </p>
+                                <p className="mt-1 break-words text-sm text-muted-foreground">
+                                  Responsavel comercial
+                                </p>
+                              </div>
+                              {canEditResponsavel ? (
+                                <Pencil className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                              ) : null}
+                            </div>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                   <InfoCard
                     title="Orcamentista"
                     value={propostaSource.orcamentistaNome || '-'}
@@ -1553,9 +1715,9 @@ export function ProposalDetailsSheet({
                 <>
                   <Separator />
                   <div className="min-w-0 px-4 py-4 text-sm text-muted-foreground">
-                    O vendedor pode comentar nesta proposta, mas nao pode alterar valor, anexos ou qualquer
-                    outra informacao. Para isso, envie a proposta para retificacao no funil com a justificativa
-                    obrigatoria.
+                    {hasRuleAccess(user, 'allowSellerCommentsOnResponsibleProposals')
+                      ? 'O vendedor pode comentar nesta proposta, mas nao pode alterar valor, anexos ou qualquer outra informacao. Para isso, envie a proposta para retificacao no funil com a justificativa obrigatoria.'
+                      : 'Os comentarios desta proposta tambem estao bloqueados para este vendedor. Se precisar intervir, use o fluxo de retificacao definido para o time.'}
                   </div>
                 </>
               ) : null}

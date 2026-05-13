@@ -1,14 +1,17 @@
 import { NextResponse } from 'next/server'
 import { isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysql'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
+import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import { ensureProposalReadSideReady, ensureSchemaReadyForReads } from '@/lib/server/read-side-maintenance'
 
 type AuthenticatedUser = {
   id: string
   role: string
   ativo: boolean
+  rulePermissions?: unknown
 }
 
 const CRM_BOOTSTRAP_CACHE_TTL_MS = Math.max(
@@ -172,7 +175,7 @@ function isUnknownColumnError(error: unknown) {
 async function queryBootstrapUsers() {
   try {
     return await query<any[]>(
-      `SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, created_at
+      `SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, rule_permissions, created_at
        FROM usuarios
        ORDER BY nome ASC`
     )
@@ -229,6 +232,7 @@ export async function GET(request: Request) {
   let isAuthenticated = false
 
   try {
+    await ensureSystemDatabaseSchema()
     await ensureSchemaReadyForReads()
     await ensureProposalReadSideReady()
 
@@ -296,17 +300,26 @@ export async function GET(request: Request) {
           case 'propostas':
             const proposalWhereClause =
               authenticatedUser.role === 'vendedor'
-                ? `p.responsavel_id = ? AND p.status IN (${SELLER_VISIBLE_STATUSES.map(() => '?').join(', ')})`
+                ? hasRuleAccess(authenticatedUser, 'allowSellerViewReleasedProposals')
+                  ? `p.responsavel_id = ? AND p.status IN (${SELLER_VISIBLE_STATUSES.map(() => '?').join(', ')})`
+                  : '1=0'
                 : authenticatedUser.role === 'orcamentista'
-                  ? `(p.orcamentista_id = ?
-                      OR (
+                  ? hasRuleAccess(authenticatedUser, 'allowOrcamentistaViewAssignedProposalsOutsideScope')
+                    ? `(p.orcamentista_id = ?
+                        OR (
+                          p.status IN ('novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao')
+                          AND (p.orcamentista_id IS NULL OR p.orcamentista_id = '')
+                        ))`
+                    : `(
                         p.status IN ('novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao')
-                        AND (p.orcamentista_id IS NULL OR p.orcamentista_id = '')
-                      ))`
-                : '1=1'
+                        AND (p.orcamentista_id IS NULL OR p.orcamentista_id = '' OR p.orcamentista_id = ?)
+                      )`
+                  : '1=1'
             const proposalParams =
               authenticatedUser.role === 'vendedor'
-                ? [authenticatedUser.id, ...SELLER_VISIBLE_STATUSES]
+                ? hasRuleAccess(authenticatedUser, 'allowSellerViewReleasedProposals')
+                  ? [authenticatedUser.id, ...SELLER_VISIBLE_STATUSES]
+                  : []
                 : authenticatedUser.role === 'orcamentista'
                   ? [authenticatedUser.id]
                 : []

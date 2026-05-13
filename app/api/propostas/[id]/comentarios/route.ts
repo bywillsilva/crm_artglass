@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
 import { query } from '@/lib/db/mysql'
 import { getServerSession } from '@/lib/auth/session'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { invalidateRuntimeCache } from '@/lib/server/runtime-cache'
 import {
@@ -13,7 +14,7 @@ async function getAuthenticatedUser() {
   if (!session) return null
 
   const [user] = await query<any[]>(
-    'SELECT id, role, ativo FROM usuarios WHERE id = ? LIMIT 1',
+    'SELECT id, role, ativo, rule_permissions FROM usuarios WHERE id = ? LIMIT 1',
     [session.userId]
   )
 
@@ -57,9 +58,18 @@ function canSellerManageProposal(proposta: any, userId: string) {
 
 function canManageProposal(user: any, proposta: any) {
   if (user.role === 'admin' || user.role === 'gerente') return true
-  if (user.role === 'vendedor') return canSellerManageProposal(proposta, user.id)
+  if (user.role === 'vendedor') {
+    return (
+      hasRuleAccess(user, 'allowSellerCommentsOnResponsibleProposals') &&
+      canSellerManageProposal(proposta, user.id)
+    )
+  }
   if (user.role === 'orcamentista') {
-    return canOrcamentistaAccessProposal(proposta, user.id)
+    return (
+      canOrcamentistaAccessProposal(proposta, user.id) ||
+      (hasRuleAccess(user, 'allowOrcamentistaEditAssignedProposalsOutsideScope') &&
+        proposta.orcamentista_id === user.id)
+    )
   }
   return false
 }

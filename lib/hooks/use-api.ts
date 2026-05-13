@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import useSWR, { mutate, useSWRConfig } from 'swr'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
+import { normalizeRulePermissions } from '@/lib/auth/rule-access'
 import {
   formatDateOnlyLocalValue,
   formatMysqlDateTimeValue,
@@ -30,6 +31,7 @@ type SessionUser = {
   role: string
   ativo: boolean
   modulePermissions?: JsonRecord | null
+  rulePermissions?: JsonRecord | null
 }
 
 type JsonRecord = Record<string, any>
@@ -246,6 +248,10 @@ function normalizeUsuario(row: JsonRecord): Usuario {
     metaVendas: toNumber(row.metaVendas ?? row.meta_vendas),
     modulePermissions: normalizeModulePermissions(
       parseJsonObject(row.modulePermissions ?? row.module_permissions ?? null),
+      role
+    ),
+    rulePermissions: normalizeRulePermissions(
+      parseJsonObject(row.rulePermissions ?? row.rule_permissions ?? null),
       role
     ),
   }
@@ -1155,6 +1161,10 @@ export function useSession() {
       role,
       modulePermissions: normalizeModulePermissions(
         parseJsonObject(data.user.modulePermissions ?? null),
+        role
+      ),
+      rulePermissions: normalizeRulePermissions(
+        parseJsonObject(data.user.rulePermissions ?? null),
         role
       ),
     } as SessionUser & { role: Usuario['role'] }

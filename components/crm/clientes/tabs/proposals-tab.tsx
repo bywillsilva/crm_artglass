@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useMemo, useState } from 'react'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { prefetchProposta, useSession } from '@/lib/hooks/use-api'
@@ -36,12 +37,13 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
     () =>
       getPropostasByCliente(clienteId).filter((proposta) =>
         user?.role === 'vendedor'
-          ? sellerReleasedProposalStatuses.includes(proposta.status)
+          ? hasRuleAccess(user, 'allowSellerViewReleasedProposals') &&
+            sellerReleasedProposalStatuses.includes(proposta.status)
           : true
       ),
-    [clienteId, getPropostasByCliente, user?.role]
+    [clienteId, getPropostasByCliente, user]
   )
-  const canCreateProposal = user?.role !== 'vendedor'
+  const canCreateProposal = hasRuleAccess(user, 'canCreateProposals')
   const propostasOrdenadas = useMemo(
     () =>
       propostas
@@ -54,8 +56,12 @@ export function ProposalsTab({ clienteId }: ProposalsTabProps) {
     user?.role === 'gerente' ||
     (
       user?.role === 'orcamentista' &&
-      (!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
-      ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
+      (
+        ((!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
+          ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)) ||
+        (hasRuleAccess(user, 'allowOrcamentistaEditAssignedProposalsOutsideScope') &&
+          proposta.orcamentistaId === user.id)
+      )
     )
 
   return (

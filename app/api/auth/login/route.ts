@@ -128,6 +128,7 @@ export async function POST(request: NextRequest) {
         avatar: user.avatar,
         role: user.role,
         modulePermissions: null,
+        rulePermissions: null,
       },
     })
 

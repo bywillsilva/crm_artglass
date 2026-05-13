@@ -5,7 +5,9 @@ import { getServerSession } from '@/lib/auth/session'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
+import { normalizeRulePermissions } from '@/lib/auth/rule-access'
 import { hasModuleAccess } from '@/lib/auth/module-access'
+import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
 
@@ -59,6 +61,7 @@ export async function GET(
   const { id } = await params
 
   try {
+    await ensureSystemDatabaseSchema()
     const user = await getAuthenticatedServerUser()
     if (!user) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
@@ -75,7 +78,7 @@ export async function GET(
     }
 
     const [usuario] = await query<any[]>(
-      'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, created_at FROM usuarios WHERE id = ?',
+      'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, rule_permissions, created_at FROM usuarios WHERE id = ?',
       [id]
     )
 
@@ -109,6 +112,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureSystemDatabaseSchema()
     const authenticatedUser = await getAuthenticatedServerUser()
     if (!authenticatedUser) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
@@ -122,7 +126,7 @@ export async function PUT(
     const session = await getServerSession()
 
     const [usuarioAtual] = await query<any[]>(
-      'SELECT id, role, ativo, meta_vendas, module_permissions FROM usuarios WHERE id = ? LIMIT 1',
+      'SELECT id, role, ativo, meta_vendas, module_permissions, rule_permissions FROM usuarios WHERE id = ? LIMIT 1',
       [id]
     )
 
@@ -155,6 +159,10 @@ export async function PUT(
       canManageUsuarios ? data.modulePermissions ?? usuarioAtual.module_permissions : usuarioAtual.module_permissions,
       nextRole
     )
+    const rulePermissions = normalizeRulePermissions(
+      canManageUsuarios ? data.rulePermissions ?? usuarioAtual.rule_permissions : usuarioAtual.rule_permissions,
+      nextRole
+    )
 
     let sql = 'UPDATE usuarios SET nome = ?, email = ?, avatar = ?, role = ?, ativo = ?, meta_vendas = ?'
     const queryParams: unknown[] = [
@@ -170,6 +178,8 @@ export async function PUT(
 
     sql += ', module_permissions = ?'
     queryParams.push(JSON.stringify(modulePermissions))
+    sql += ', rule_permissions = ?'
+    queryParams.push(JSON.stringify(rulePermissions))
 
     if (data.senha) {
       const senhaHash = await bcrypt.hash(data.senha, 10)
@@ -183,7 +193,7 @@ export async function PUT(
     await query(sql, queryParams)
 
     const [usuario] = await query<any[]>(
-      'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, created_at FROM usuarios WHERE id = ?',
+      'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, rule_permissions, created_at FROM usuarios WHERE id = ?',
       [id]
     )
 
@@ -213,6 +223,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    await ensureSystemDatabaseSchema()
     const authenticatedUser = await getAuthenticatedServerUser()
     if (!authenticatedUser) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })

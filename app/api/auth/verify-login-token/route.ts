@@ -2,6 +2,7 @@ import { createHash } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createSessionToken, SESSION_COOKIE } from '@/lib/auth/session'
 import { query } from '@/lib/db/mysql'
+import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 
 async function ensureLoginVerificationTable() {
   await query(`
@@ -36,6 +37,7 @@ function isUnknownColumnError(error: unknown) {
 
 export async function POST(request: NextRequest) {
   try {
+    await ensureSystemDatabaseSchema()
     await ensureLoginVerificationTable()
     const { challengeId, token } = await request.json()
 
@@ -52,7 +54,7 @@ export async function POST(request: NextRequest) {
 
     try {
       ;[challenge] = await query<any[]>(
-        `SELECT lvt.id, lvt.usuario_id, u.id as user_id, u.nome, u.email, u.avatar, u.role, u.ativo, u.module_permissions
+        `SELECT lvt.id, lvt.usuario_id, u.id as user_id, u.nome, u.email, u.avatar, u.role, u.ativo, u.module_permissions, u.rule_permissions
          FROM login_verification_tokens lvt
          INNER JOIN usuarios u ON u.id = lvt.usuario_id
          WHERE lvt.id = ?
@@ -95,6 +97,7 @@ export async function POST(request: NextRequest) {
         avatar: challenge.avatar,
         role: challenge.role,
         modulePermissions: challenge.module_permissions,
+        rulePermissions: challenge.rule_permissions,
       },
     })
 

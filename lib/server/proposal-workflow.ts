@@ -683,13 +683,17 @@ export async function ensureUserRoleSchema() {
       `SELECT COLUMN_NAME
        FROM INFORMATION_SCHEMA.COLUMNS
        WHERE TABLE_SCHEMA = DATABASE()
-         AND TABLE_NAME = 'usuarios'
-         AND COLUMN_NAME = 'module_permissions'`
+          AND TABLE_NAME = 'usuarios'
+          AND COLUMN_NAME IN ('module_permissions', 'rule_permissions')`
     )
+    const existingPermissionColumns = new Set(permissionColumns.map((column) => String(column.COLUMN_NAME || '')))
 
     if (columnType.includes(`'orcamentista'`)) {
-      if (!permissionColumns.length) {
+      if (!existingPermissionColumns.has('module_permissions')) {
         await query(`ALTER TABLE usuarios ADD COLUMN module_permissions JSON NULL AFTER ativo`)
+      }
+      if (!existingPermissionColumns.has('rule_permissions')) {
+        await query(`ALTER TABLE usuarios ADD COLUMN rule_permissions JSON NULL AFTER module_permissions`)
       }
       return
     }
@@ -699,8 +703,11 @@ export async function ensureUserRoleSchema() {
       MODIFY COLUMN role ENUM('admin', 'gerente', 'vendedor', 'orcamentista') NOT NULL DEFAULT 'vendedor'
     `)
 
-    if (!permissionColumns.length) {
+    if (!existingPermissionColumns.has('module_permissions')) {
       await query(`ALTER TABLE usuarios ADD COLUMN module_permissions JSON NULL AFTER ativo`)
+    }
+    if (!existingPermissionColumns.has('rule_permissions')) {
+      await query(`ALTER TABLE usuarios ADD COLUMN rule_permissions JSON NULL AFTER module_permissions`)
     }
   })
 }

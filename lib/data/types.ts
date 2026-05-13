@@ -66,6 +66,21 @@ export type ModuleKey =
   | 'performance'
   | 'usuarios'
 export type ModulePermissions = Record<ModuleKey, boolean>
+export type RuleKey =
+  | 'canCreateProposals'
+  | 'canAssignTaskResponsavel'
+  | 'allowSellerCommentsOnResponsibleProposals'
+  | 'allowSellerViewReleasedProposals'
+  | 'allowOrcamentistaViewAssignedProposalsOutsideScope'
+  | 'allowOrcamentistaEditAssignedProposalsOutsideScope'
+  | 'requireRetificationJustification'
+  | 'requireStandByJustification'
+  | 'requireLostJustification'
+  | 'requireClosedClientData'
+  | 'requireApprovalPdf'
+  | 'requireApprovalTechnicalData'
+  | 'requireApprovalOrcamentista'
+export type RulePermissions = Record<RuleKey, boolean>
 
 // Interface do Cliente
 export interface Cliente {
@@ -176,6 +191,7 @@ export interface Usuario {
   ativo: boolean
   metaVendas?: number
   modulePermissions?: Partial<ModulePermissions>
+  rulePermissions?: Partial<RulePermissions>
 }
 
 // Labels para o funil

@@ -3,6 +3,7 @@
 import dynamic from 'next/dynamic'
 import { useEffect, useMemo, useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { CRMHeader } from '@/components/crm/header'
 import { DateRangeFilter } from '@/components/crm/date-range-filter'
 import { FeatureErrorBoundary } from '@/components/crm/feature-error-boundary'
@@ -33,7 +34,7 @@ export default function FunilPage() {
   const [dateFilter, setDateFilter] = useState<DateFilterValue | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const hasFunilAccess = hasModuleAccess(user, 'funil')
-  const canCreateProposal = user?.role !== 'vendedor'
+  const canCreateProposal = hasRuleAccess(user, 'canCreateProposals')
 
   useEffect(() => {
     setDateFilter(createDefaultDateFilter())

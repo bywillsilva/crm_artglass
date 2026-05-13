@@ -7,6 +7,7 @@ import {
   hasModuleAccess,
   normalizeModulePermissions,
 } from "@/lib/auth/module-access"
+import { getDefaultRulePermissions, normalizeRulePermissions } from "@/lib/auth/rule-access"
 import { useCRM } from "@/lib/context/crm-context"
 import { useAppSettings } from "@/lib/context/app-settings-context"
 import { useSession } from "@/lib/hooks/use-api"
@@ -40,6 +41,10 @@ const LazyUserFormDialog = dynamic(
   () => import("@/components/crm/users/user-form-dialog").then((mod) => mod.UserFormDialog),
   { ssr: false }
 )
+const LazyUserAccessDialog = dynamic(
+  () => import("@/components/crm/users/user-access-dialog").then((mod) => mod.UserAccessDialog),
+  { ssr: false }
+)
 
 export default function UsuariosPage() {
   const { state, addUsuario, updateUsuario, deleteUsuario } = useCRM()
@@ -48,8 +53,10 @@ export default function UsuariosPage() {
   const [search, setSearch] = useState("")
   const [roleFilter, setRoleFilter] = useState<string>("all")
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isAccessDialogOpen, setIsAccessDialogOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<Usuario | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isAccessSubmitting, setIsAccessSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     nome: "",
     email: "",
@@ -58,8 +65,12 @@ export default function UsuariosPage() {
     ativo: true,
     senha: "",
     confirmarSenha: "",
-    permissionMode: "padrao" as "padrao" | "personalizado",
+  })
+  const [accessData, setAccessData] = useState({
+    modulePermissionMode: "padrao" as "padrao" | "personalizado",
     modulePermissions: getDefaultModulePermissions("vendedor"),
+    rulePermissionMode: "padrao" as "padrao" | "personalizado",
+    rulePermissions: getDefaultRulePermissions("vendedor"),
   })
   const deferredSearch = useDeferredValue(search)
 
@@ -93,8 +104,6 @@ export default function UsuariosPage() {
         ativo: user.ativo,
         senha: "",
         confirmarSenha: "",
-        permissionMode: "personalizado",
-        modulePermissions: normalizeModulePermissions(user.modulePermissions, user.role),
       })
     } else {
       setEditingUser(null)
@@ -106,11 +115,20 @@ export default function UsuariosPage() {
         ativo: true,
         senha: "",
         confirmarSenha: "",
-        permissionMode: "padrao",
-        modulePermissions: getDefaultModulePermissions("vendedor"),
       })
     }
     setIsDialogOpen(true)
+  }
+
+  const handleOpenAccessDialog = (user: Usuario) => {
+    setEditingUser(user)
+    setAccessData({
+      modulePermissionMode: "personalizado",
+      modulePermissions: normalizeModulePermissions(user.modulePermissions, user.role),
+      rulePermissionMode: "personalizado",
+      rulePermissions: normalizeRulePermissions(user.rulePermissions, user.role),
+    })
+    setIsAccessDialogOpen(true)
   }
 
   const handleSubmit = async () => {
@@ -128,11 +146,6 @@ export default function UsuariosPage() {
       }
     }
 
-    const modulePermissions =
-      formData.permissionMode === "padrao"
-        ? getDefaultModulePermissions(formData.role)
-        : normalizeModulePermissions(formData.modulePermissions, formData.role)
-
     setIsSubmitting(true)
 
     try {
@@ -144,7 +157,8 @@ export default function UsuariosPage() {
           role: formData.role,
           avatar: formData.avatar,
           ativo: formData.ativo,
-          modulePermissions,
+          modulePermissions: editingUser.modulePermissions,
+          rulePermissions: editingUser.rulePermissions,
         })
         toast.success("Usuario atualizado com sucesso.")
       } else {
@@ -155,7 +169,8 @@ export default function UsuariosPage() {
           avatar: formData.avatar,
           ativo: formData.ativo,
           senha: formData.senha,
-          modulePermissions,
+          modulePermissions: getDefaultModulePermissions(formData.role),
+          rulePermissions: getDefaultRulePermissions(formData.role),
         })
         toast.success("Usuario criado com sucesso.")
       }
@@ -166,6 +181,44 @@ export default function UsuariosPage() {
       toast.error(error?.message || "Nao foi possivel salvar o usuario.")
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const handleAccessSubmit = async () => {
+    if (!editingUser || isAccessSubmitting) return
+
+    setIsAccessSubmitting(true)
+
+    try {
+      const modulePermissions =
+        accessData.modulePermissionMode === "padrao"
+          ? getDefaultModulePermissions(editingUser.role)
+          : normalizeModulePermissions(accessData.modulePermissions, editingUser.role)
+      const rulePermissions =
+        accessData.rulePermissionMode === "padrao"
+          ? getDefaultRulePermissions(editingUser.role)
+          : normalizeRulePermissions(accessData.rulePermissions, editingUser.role)
+
+      await updateUsuario({
+        ...editingUser,
+        modulePermissions,
+        rulePermissions,
+      })
+      toast.success("Acessos atualizados com sucesso.")
+      setEditingUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              modulePermissions,
+              rulePermissions,
+            }
+          : prev
+      )
+      setIsAccessDialogOpen(false)
+    } catch (error: any) {
+      toast.error(error?.message || "Nao foi possivel salvar os acessos do usuario.")
+    } finally {
+      setIsAccessSubmitting(false)
     }
   }
 
@@ -344,6 +397,10 @@ export default function UsuariosPage() {
                                 <Pencil className="mr-2 h-4 w-4" />
                                 Editar
                               </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleOpenAccessDialog(user)}>
+                                <Shield className="mr-2 h-4 w-4" />
+                                Definir acessos
+                              </DropdownMenuItem>
                               {user.role !== "admin" && user.id !== sessionUser?.id && (
                                 <DropdownMenuItem onClick={() => handleDelete(user.id)} className="text-destructive">
                                   <Trash2 className="mr-2 h-4 w-4" />
@@ -375,6 +432,18 @@ export default function UsuariosPage() {
           onOpenChange={setIsDialogOpen}
           onFormDataChange={setFormData}
           onSubmit={handleSubmit}
+        />
+      )}
+      {isAccessDialogOpen && (
+        <LazyUserAccessDialog
+          open={isAccessDialogOpen}
+          user={editingUser}
+          isEditingSelfAdmin={isEditingSelfAdmin}
+          isSubmitting={isAccessSubmitting}
+          accessData={accessData}
+          onOpenChange={setIsAccessDialogOpen}
+          onAccessDataChange={setAccessData}
+          onSubmit={handleAccessSubmit}
         />
       )}
     </>

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { prefetchProposta, useSession } from '@/lib/hooks/use-api'
@@ -116,7 +117,7 @@ export default function PropostasPage() {
     router.replace(`${pathname}?${nextParams.toString()}`, { scroll: false })
   }
   const hasPropostasAccess = hasModuleAccess(user, 'propostas')
-  const canCreateProposal = user?.role !== 'vendedor'
+  const canCreateProposal = hasRuleAccess(user, 'canCreateProposals')
 
   const propostasOrdenadas = useMemo(
     () =>
@@ -232,8 +233,12 @@ export default function PropostasPage() {
       user?.role === 'gerente' ||
       (
         user?.role === 'orcamentista' &&
-        (!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
-        ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
+        (
+          ((!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
+            ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)) ||
+          (hasRuleAccess(user, 'allowOrcamentistaEditAssignedProposalsOutsideScope') &&
+            proposta.orcamentistaId === user.id)
+        )
       )
 
     return (
@@ -356,8 +361,12 @@ export default function PropostasPage() {
       user?.role === 'gerente' ||
       (
         user?.role === 'orcamentista' &&
-        (!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
-        ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
+        (
+          ((!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
+            ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)) ||
+          (hasRuleAccess(user, 'allowOrcamentistaEditAssignedProposalsOutsideScope') &&
+            proposta.orcamentistaId === user.id)
+        )
       )
 
     return (

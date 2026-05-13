@@ -31,6 +31,7 @@ export async function GET() {
         role: user.role,
         ativo: user.ativo,
         modulePermissions: user.modulePermissions,
+        rulePermissions: user.rulePermissions,
       },
     })
   } catch (error) {
@@ -46,6 +47,7 @@ export async function GET() {
           role: session.role,
           ativo: true,
           modulePermissions: null,
+          rulePermissions: null,
         },
         degraded: true,
       })

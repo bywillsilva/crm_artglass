@@ -19,6 +19,7 @@ export type AuthenticatedServerUser = {
   role: string
   ativo: boolean
   modulePermissions?: unknown
+  rulePermissions?: unknown
 }
 
 const AUTH_USER_CACHE_MS = Math.max(Number(process.env.AUTH_USER_CACHE_MS || 30_000), 0)
@@ -67,7 +68,7 @@ function isUnknownColumnError(error: unknown) {
 export async function queryAuthenticatedUserById(userId: string) {
   try {
     const [user] = await query<any[]>(
-      `SELECT id, nome, email, avatar, role, ativo, module_permissions
+      `SELECT id, nome, email, avatar, role, ativo, module_permissions, rule_permissions
        FROM usuarios
        WHERE id = ?
        LIMIT 1`,
@@ -88,7 +89,7 @@ export async function queryAuthenticatedUserById(userId: string) {
       [userId]
     )
 
-    return user ? { ...user, module_permissions: null } : null
+    return user ? { ...user, module_permissions: null, rule_permissions: null } : null
   }
 }
 
@@ -192,6 +193,7 @@ export async function getAuthenticatedServerUser() {
       role: user.role,
       ativo: Boolean(user.ativo),
       modulePermissions: user.module_permissions ?? null,
+      rulePermissions: user.rule_permissions ?? null,
     } as AuthenticatedServerUser
 
     cacheAuthenticatedUser(session.userId, authenticatedUser)
@@ -214,6 +216,7 @@ export async function getAuthenticatedServerUser() {
         role: session.role,
         ativo: true,
         modulePermissions: null,
+        rulePermissions: null,
       } satisfies AuthenticatedServerUser
     }
 

@@ -4,7 +4,9 @@ import { v4 as uuidv4 } from 'uuid'
 import bcrypt from 'bcryptjs'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
+import { normalizeRulePermissions } from '@/lib/auth/rule-access'
 import { hasModuleAccess } from '@/lib/auth/module-access'
+import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { jsonNoStore } from '@/lib/server/http-cache'
@@ -48,6 +50,7 @@ export async function GET(request: NextRequest) {
   const ativo = searchParams.get('ativo')
 
   try {
+    await ensureSystemDatabaseSchema()
     const user = await getAuthenticatedServerUser()
     if (!user) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
@@ -64,7 +67,7 @@ export async function GET(request: NextRequest) {
     }
 
     let sql =
-      'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, created_at FROM usuarios WHERE 1=1'
+      'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, rule_permissions, created_at FROM usuarios WHERE 1=1'
     const params: unknown[] = []
 
     if (role && role !== 'todos') {
@@ -108,6 +111,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    await ensureSystemDatabaseSchema()
     const user = await getAuthenticatedServerUser()
     if (!user) {
       return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
@@ -128,6 +132,7 @@ export async function POST(request: NextRequest) {
 
     const senhaHash = await bcrypt.hash(data.senha, 10)
     const modulePermissions = normalizeModulePermissions(data.modulePermissions, data.role || 'vendedor')
+    const rulePermissions = normalizeRulePermissions(data.rulePermissions, data.role || 'vendedor')
 
     const iniciais = data.nome
       .split(' ')
@@ -137,8 +142,8 @@ export async function POST(request: NextRequest) {
       .slice(0, 2)
 
     await query(
-      `INSERT INTO usuarios (id, nome, email, senha, avatar, role, ativo, meta_vendas, module_permissions)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO usuarios (id, nome, email, senha, avatar, role, ativo, meta_vendas, module_permissions, rule_permissions)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         data.nome,
@@ -149,11 +154,12 @@ export async function POST(request: NextRequest) {
         data.ativo ?? true,
         parseNullableNumber(data.metaVendas ?? data.meta_vendas, 0),
         JSON.stringify(modulePermissions),
+        JSON.stringify(rulePermissions),
       ]
     )
 
     const [usuario] = await query<any[]>(
-      'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, created_at FROM usuarios WHERE id = ?',
+      'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, rule_permissions, created_at FROM usuarios WHERE id = ?',
       [id]
     )
 

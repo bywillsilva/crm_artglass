@@ -1,6 +1,7 @@
 'use client'
 
-import { startTransition, useState } from 'react'
+import { startTransition, useEffect, useState } from 'react'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useSession } from '@/lib/hooks/use-api'
@@ -59,12 +60,20 @@ export function TasksTab({ clienteId }: TasksTabProps) {
 
   const tarefas = getTarefasByCliente(clienteId)
   const canViewAllTasks = user?.role === 'admin' || user?.role === 'gerente'
+  const canChooseCreateResponsavel = hasRuleAccess(user, 'canAssignTaskResponsavel')
   const visibleTarefas = canViewAllTasks
     ? tarefas
     : tarefas.filter((tarefa) => tarefa.responsavelId === user?.id)
 
+  useEffect(() => {
+    if (!canChooseCreateResponsavel && user?.id) {
+      setResponsavelId(user.id)
+    }
+  }, [canChooseCreateResponsavel, user?.id])
+
   const handleAddTarefa = async () => {
-    if (isCreatingTask || !descricao.trim() || !dataHora || !responsavelId) return
+    const effectiveResponsavelId = canChooseCreateResponsavel ? responsavelId : (user?.id || '')
+    if (isCreatingTask || !descricao.trim() || !dataHora || !effectiveResponsavelId) return
 
     setIsCreatingTask(true)
 
@@ -74,13 +83,13 @@ export function TasksTab({ clienteId }: TasksTabProps) {
         descricao,
         dataHora: new Date(dataHora),
         status: 'pendente',
-        responsavelId,
+        responsavelId: effectiveResponsavelId,
       })
 
       setShowAddForm(false)
       setDescricao('')
       setDataHora('')
-      setResponsavelId('')
+      setResponsavelId(canChooseCreateResponsavel ? '' : (user?.id || ''))
       toast.success('Tarefa criada com sucesso.')
     } catch (error: any) {
       toast.error(error?.message || 'Nao foi possivel salvar a tarefa.')
@@ -279,23 +288,25 @@ export function TasksTab({ clienteId }: TasksTabProps) {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label>Responsavel</Label>
-              <Select value={responsavelId} onValueChange={setResponsavelId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o responsavel" />
-                </SelectTrigger>
-                <SelectContent>
-                  {state.usuarios
-                    .filter((usuario) => usuario.role !== 'admin')
-                    .map((usuario) => (
-                      <SelectItem key={usuario.id} value={usuario.id}>
-                        {usuario.nome}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {canChooseCreateResponsavel ? (
+              <div className="space-y-2">
+                <Label>Responsavel</Label>
+                <Select value={responsavelId} onValueChange={setResponsavelId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecione o responsavel" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {state.usuarios
+                      .filter((usuario) => usuario.role !== 'admin')
+                      .map((usuario) => (
+                        <SelectItem key={usuario.id} value={usuario.id}>
+                          {usuario.nome}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
 
             <div className="flex justify-end gap-3">
               <Button variant="outline" onClick={() => setShowAddForm(false)} disabled={isCreatingTask}>
@@ -305,7 +316,7 @@ export function TasksTab({ clienteId }: TasksTabProps) {
                 data-enter-confirm="true"
                 onClick={() => void handleAddTarefa()}
                 pending={isCreatingTask}
-                disabled={isCreatingTask || !descricao.trim() || !dataHora || !responsavelId}
+                disabled={isCreatingTask || !descricao.trim() || !dataHora || !(canChooseCreateResponsavel ? responsavelId : user?.id)}
               >
                 Criar Tarefa
               </Button>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
 import { isTransientDatabaseError, query } from '@/lib/db/mysql'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import { deleteStoredFiles, persistSavedProposalFiles, saveProposalFiles } from '@/lib/server/proposal-files'
@@ -611,10 +612,21 @@ async function getProposalDetailPayload(id: string, initialProposal?: any, user?
 function canViewProposal(user: any, proposta: any) {
   if (user.role === 'admin' || user.role === 'gerente') return true
   if (user.role === 'vendedor') {
-    return proposta.responsavel_id === user.id && isSellerVisibleStatus(normalizeProposalStatus(proposta.status))
+    return (
+      hasRuleAccess(user, 'allowSellerViewReleasedProposals') &&
+      proposta.responsavel_id === user.id &&
+      isSellerVisibleStatus(normalizeProposalStatus(proposta.status))
+    )
   }
   if (user.role === 'orcamentista') {
-    return canOrcamentistaViewProposal(proposta, user.id)
+    if (canOrcamentistaAccessProposal(proposta, user.id)) {
+      return true
+    }
+
+    return (
+      hasRuleAccess(user, 'allowOrcamentistaViewAssignedProposalsOutsideScope') &&
+      canOrcamentistaViewProposal(proposta, user.id)
+    )
   }
   return false
 }
@@ -622,10 +634,21 @@ function canViewProposal(user: any, proposta: any) {
 function canEditProposal(user: any, proposta: any) {
   if (user.role === 'admin' || user.role === 'gerente') return true
   if (user.role === 'vendedor') {
-    return proposta.responsavel_id === user.id && isSellerVisibleStatus(normalizeProposalStatus(proposta.status))
+    return (
+      hasRuleAccess(user, 'allowSellerViewReleasedProposals') &&
+      proposta.responsavel_id === user.id &&
+      isSellerVisibleStatus(normalizeProposalStatus(proposta.status))
+    )
   }
   if (user.role === 'orcamentista') {
-    return canOrcamentistaAccessProposal(proposta, user.id)
+    if (canOrcamentistaAccessProposal(proposta, user.id)) {
+      return true
+    }
+
+    return (
+      hasRuleAccess(user, 'allowOrcamentistaEditAssignedProposalsOutsideScope') &&
+      proposta.orcamentista_id === user.id
+    )
   }
   return false
 }
@@ -825,20 +848,22 @@ export async function PUT(
         ? getProposalAttachments(id)
         : Promise.resolve([] as ProposalAttachmentRecord[])
     const isStatusChange = nextStatus !== previousStatus
+    const requireRetificationJustification = hasRuleAccess(user, 'requireRetificationJustification')
+    const requireStandByJustification = hasRuleAccess(user, 'requireStandByJustification')
+    const requireLostJustification = hasRuleAccess(user, 'requireLostJustification')
+    const requireClosedClientData = hasRuleAccess(user, 'requireClosedClientData')
+    const requireApprovalPdf = hasRuleAccess(user, 'requireApprovalPdf')
+    const requireApprovalTechnicalData = hasRuleAccess(user, 'requireApprovalTechnicalData')
+    const requireApprovalOrcamentista = hasRuleAccess(user, 'requireApprovalOrcamentista')
     const justificationText = normalizeNullableText(data.justificativa)
     const rawCommentText = normalizeNullableText(data.comentario) ?? justificationText
     const commentText = formatWorkflowComment(workflowAction, nextStatus, rawCommentText)
-    const isAdminApprovalRefusalToRetification =
-      user.role === 'admin' &&
-      previousStatus === 'aguardando_aprovacao' &&
-      nextStatus === 'em_retificacao'
     const requiresReasonComment =
       isStatusChange &&
       (nextStatus === 'fechado' ||
-        nextStatus === 'perdido' ||
-        nextStatus === 'stand_by' ||
-        (nextStatus === 'em_retificacao' &&
-          (user.role === 'vendedor' || (user.role === 'gerente' && !isAdminApprovalRefusalToRetification))))
+        (nextStatus === 'perdido' && requireLostJustification) ||
+        (nextStatus === 'stand_by' && requireStandByJustification) ||
+        (nextStatus === 'em_retificacao' && requireRetificationJustification))
 
     if (!isTransitionAllowed(user, previousStatus, nextStatus)) {
       return NextResponse.json(
@@ -863,9 +888,9 @@ export async function PUT(
 
         const requiresJustification =
           workflowAction === 'fechado' ||
-          workflowAction === 'perdido' ||
-          workflowAction === 'stand_by' ||
-          workflowAction === 'em_retificacao'
+          (workflowAction === 'perdido' && requireLostJustification) ||
+          (workflowAction === 'stand_by' && requireStandByJustification) ||
+          (workflowAction === 'em_retificacao' && requireRetificationJustification)
 
         if (requiresJustification && !justificationText) {
           return NextResponse.json(
@@ -937,6 +962,7 @@ export async function PUT(
       hasExplicitAssigneeId(data.orcamentistaId) && data.orcamentistaId !== propostaAtual.orcamentista_id
 
     if (
+      requireApprovalOrcamentista &&
       requiresOrcamentistaAssignment(nextStatus) &&
       !orcamentistaId &&
       (isStatusChange || isOrcamentistaFieldChanging)
@@ -1041,14 +1067,14 @@ export async function PUT(
       }
     }
 
-    if (mustValidateApprovalRequirements && !hasExistingProposalPdf && !hasNewProposalPdf) {
+    if (mustValidateApprovalRequirements && requireApprovalPdf && !hasExistingProposalPdf && !hasNewProposalPdf) {
       return NextResponse.json(
         { error: 'Anexe obrigatoriamente a proposta em PDF antes de enviar para aprovacao.' },
         { status: 400 }
       )
     }
 
-    if (mustValidateApprovalRequirements) {
+    if (mustValidateApprovalRequirements && requireApprovalTechnicalData) {
       const technicalFields = [
         areaM2,
         perfisBruto,
@@ -1117,7 +1143,7 @@ export async function PUT(
         endereco: normalizeNullableText(data.clienteEndereco) ?? clienteAtual.endereco,
       }
 
-      const requiresMandatoryClosedClientData = user.role === 'vendedor'
+      const requiresMandatoryClosedClientData = requireClosedClientData
       const hasInvalidClosedClientDocument =
         Boolean(mergedClienteFechado.cpf) && !isValidClientDocument(mergedClienteFechado.cpf, clientType)
 

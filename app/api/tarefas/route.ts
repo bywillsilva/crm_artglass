@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { notifyTaskEmail } from '@/lib/server/email-notifications'
@@ -132,8 +133,9 @@ export async function POST(request: NextRequest) {
     const data = await request.json()
     const id = uuidv4()
     const now = new Date()
+    const canChooseTaskResponsavel = hasRuleAccess(user, 'canAssignTaskResponsavel')
     const responsavelId =
-      user.role === 'admin' || user.role === 'gerente'
+      canChooseTaskResponsavel
         ? data.responsavelId
         : user.id
 

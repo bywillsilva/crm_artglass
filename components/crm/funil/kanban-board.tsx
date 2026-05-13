@@ -13,6 +13,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { prefetchProposta, useProposta, useSession } from '@/lib/hooks/use-api'
@@ -865,26 +866,20 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       sellerWorkflowAction?: SellerMoveAction | ''
     ) => {
       if (sellerWorkflowAction === 'fechado') return true
-      if (sellerWorkflowAction === 'em_retificacao') return true
-      if (sellerWorkflowAction === 'perdido') return true
-      if (sellerWorkflowAction === 'stand_by') return true
+      if (sellerWorkflowAction === 'em_retificacao') return hasRuleAccess(user, 'requireRetificationJustification')
+      if (sellerWorkflowAction === 'perdido') return hasRuleAccess(user, 'requireLostJustification')
+      if (sellerWorkflowAction === 'stand_by') return hasRuleAccess(user, 'requireStandByJustification')
 
       if (!sellerWorkflowAction && ['fechado', 'em_retificacao', 'perdido', 'stand_by'].includes(targetStatus)) {
-        const isAdminApprovalRefusalToRetification =
-          user?.role === 'admin' &&
-          proposta.status === 'aguardando_aprovacao' &&
-          targetStatus === 'em_retificacao'
-
-        if (isAdminApprovalRefusalToRetification) {
-          return false
-        }
-
-        return true
+        if (targetStatus === 'fechado') return true
+        if (targetStatus === 'em_retificacao') return hasRuleAccess(user, 'requireRetificationJustification')
+        if (targetStatus === 'perdido') return hasRuleAccess(user, 'requireLostJustification')
+        if (targetStatus === 'stand_by') return hasRuleAccess(user, 'requireStandByJustification')
       }
 
       return false
     },
-    [user?.role]
+    [user]
   )
 
   const requestMove = async (propostaId: string, targetStatus: StatusProposta, targetIndex?: number | null) => {
@@ -936,7 +931,20 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         targetStatus === proposta.status)
 
     if (requiresDirectApprovalValidation) {
-      const loadedProposalAlreadyReady = proposalHasApprovalRequirements(proposta)
+      const loadedProposalAlreadyReady =
+        Number(proposta.valor || 0) > 0 &&
+        (!requiresApprovalPdfRule ||
+          (Array.isArray(proposta.anexos) && proposta.anexos.some(isPdfAttachment))) &&
+        (!requiresApprovalTechnicalDataRule ||
+          [
+            proposta.areaM2,
+            proposta.perfisBruto,
+            proposta.perfisLiquidos,
+            proposta.valorVidro,
+            proposta.valorAcessorios,
+          ].some((value) => typeof value === 'number' && value > 0)) &&
+        (!requiresApprovalOrcamentistaRule ||
+          Boolean(proposta.orcamentistaId || (user?.role === 'orcamentista' ? user.id : null)))
 
       if (loadedProposalAlreadyReady) {
         void executeMove(proposta, { targetStatus })
@@ -947,7 +955,22 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         const response = await fetch(`/api/propostas/${proposta.id}`)
         if (response.ok) {
           const detailedProposal = (await response.json()) as Proposta
-          if (proposalHasApprovalRequirements(detailedProposal)) {
+          const hasRequiredApprovalSnapshot =
+            Number(detailedProposal.valor || 0) > 0 &&
+            (!requiresApprovalPdfRule ||
+              (Array.isArray(detailedProposal.anexos) && detailedProposal.anexos.some(isPdfAttachment))) &&
+            (!requiresApprovalTechnicalDataRule ||
+              [
+                detailedProposal.areaM2,
+                detailedProposal.perfisBruto,
+                detailedProposal.perfisLiquidos,
+                detailedProposal.valorVidro,
+                detailedProposal.valorAcessorios,
+              ].some((value) => typeof value === 'number' && value > 0)) &&
+            (!requiresApprovalOrcamentistaRule ||
+              Boolean(detailedProposal.orcamentistaId || (user?.role === 'orcamentista' ? user.id : null)))
+
+          if (hasRequiredApprovalSnapshot) {
             void executeMove(proposta, { targetStatus })
             return
           }
@@ -1418,6 +1441,10 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const approvalTargetProposal = approvalValidationCanInspectRequirements
     ? approvalValidationProposalData
     : pendingMoveProposal
+  const requiresApprovalPdfRule = hasRuleAccess(user, 'requireApprovalPdf')
+  const requiresApprovalTechnicalDataRule = hasRuleAccess(user, 'requireApprovalTechnicalData')
+  const requiresApprovalOrcamentistaRule = hasRuleAccess(user, 'requireApprovalOrcamentista')
+  const requiresClosedClientDataRule = hasRuleAccess(user, 'requireClosedClientData')
   const hasExistingProposalPdf = approvalTargetProposal
     ? Array.isArray(approvalTargetProposal.anexos)
       ? approvalTargetProposal.anexos.some(isPdfAttachment)
@@ -1456,16 +1483,25 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         existingApprovalValorAcessorios,
       ]
     : []
-  const proposalNeedsTechnicalData = approvalValidationCanInspectRequirements
+  const proposalNeedsTechnicalData = approvalValidationCanInspectRequirements && requiresApprovalTechnicalDataRule
     ? !technicalApprovalValues.some((value) => value > 0)
     : false
   const requiresBudgetValue = proposalNeedsApprovalValue
-  const requiresAttachment = approvalValidationCanInspectRequirements && !hasExistingProposalPdf
+  const requiresAttachment =
+    approvalValidationCanInspectRequirements && requiresApprovalPdfRule && !hasExistingProposalPdf
   const hasRequiredPdfAttachment = !requiresAttachment || moveFiles.some(isPdfFile)
   const approvalRequirementItems = approvalValidationActive
     ? [
         proposalNeedsApprovalValue ? 'informar o valor do orcamento' : null,
         requiresAttachment ? 'anexar a proposta em PDF' : null,
+        requiresApprovalOrcamentistaRule &&
+        !(
+          approvalTargetProposal?.orcamentistaId ||
+          pendingMoveProposal?.orcamentistaId ||
+          (user?.role === 'orcamentista' && resolvedTargetStatus === 'aguardando_aprovacao' ? user.id : null)
+        )
+          ? 'definir um orcamentista responsavel'
+          : null,
         proposalNeedsTechnicalData
           ? 'preencher ao menos um dado tecnico (area em m2, perfis bruto, perfis liquidos, valor de vidro ou valor de acessorios)'
           : null,
@@ -1485,14 +1521,14 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         : 'Esta proposta ja tem os dados obrigatorios para seguir para aprovacao.'
     : null
   const resolvedApprovalOrcamentistaId =
-    approvalTargetProposal?.orcamentistaId ||
+    (requiresApprovalOrcamentistaRule ? approvalTargetProposal?.orcamentistaId : null) ||
     pendingMoveProposal?.orcamentistaId ||
     (user?.role === 'orcamentista' && resolvedTargetStatus === 'aguardando_aprovacao' ? user.id : null)
   const closeClientDocumentLabel = getClientDocumentLabel(closeClientTipo)
   const closeClientDocumentPlaceholder = getClientDocumentPlaceholder(closeClientTipo)
   const requiresClosedClientData =
     effectiveSellerAction === 'fechado' || (!isSellerMove && resolvedTargetStatus === 'fechado')
-  const requiresMandatoryClosedClientData = requiresClosedClientData && user?.role === 'vendedor'
+  const requiresMandatoryClosedClientData = requiresClosedClientData && requiresClosedClientDataRule
   const hasInvalidClosedClientDocument =
     requiresClosedClientData &&
     closeClientCpf.trim() !== '' &&

@@ -2,6 +2,7 @@
 
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { hasModuleAccess } from '@/lib/auth/module-access'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { createTarefa, updateTarefa, updateTarefaStatus, deleteTarefa, useSession } from '@/lib/hooks/use-api'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useCRM } from '@/lib/context/crm-context'
@@ -40,7 +41,7 @@ export default function TarefasPage() {
   const { appearance, general, formatDateTime, formatDate } = useAppSettings()
   const { user } = useSession()
   const hasTarefasAccess = hasModuleAccess(user, 'tarefas')
-  const canChooseCreateResponsavel = user?.role === 'admin' || user?.role === 'gerente'
+  const canChooseCreateResponsavel = hasRuleAccess(user, 'canAssignTaskResponsavel')
   const tarefas = state.tarefas
   const clientes = state.clientes
   const usuarios = state.usuarios
