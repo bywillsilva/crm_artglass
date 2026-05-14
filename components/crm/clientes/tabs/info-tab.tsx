@@ -14,12 +14,16 @@ export function InfoTab({ cliente }: InfoTabProps) {
   const { formatDate } = useAppSettings()
   const origemLabel = cliente.origem?.trim() || 'Nao informado'
   const clientDocumentLabel = getClientDocumentLabel(cliente.tipo)
+  const ruaNumero = [cliente.endereco, cliente.numero].filter(Boolean).join(', ')
+  const enderecoCompleto = [ruaNumero, cliente.bairro, cliente.cidade, cliente.estado, cliente.cep]
+    .filter(Boolean)
+    .join(', ')
 
   const infoItems = [
     { icon: Phone, label: 'Telefone', value: cliente.telefone, href: `tel:${cliente.telefone}` },
     { icon: Mail, label: 'E-mail', value: cliente.email, href: `mailto:${cliente.email}` },
     ...(cliente.cpf ? [{ icon: IdCard, label: clientDocumentLabel, value: cliente.cpf }] : []),
-    { icon: MapPin, label: 'Endereco', value: cliente.endereco },
+    { icon: MapPin, label: 'Endereco', value: enderecoCompleto || cliente.endereco },
     { icon: Building2, label: 'Tipo', value: cliente.tipo === 'comercial' ? 'Comercial' : 'Residencial' },
     ...(cliente.empresa ? [{ icon: Building2, label: 'Empresa', value: cliente.empresa }] : []),
     ...(cliente.cargo ? [{ icon: Briefcase, label: 'Cargo', value: cliente.cargo }] : []),

@@ -3,6 +3,7 @@ import { migration202605130001 } from '@/lib/server/migrations/202605130001-base
 import { migration202605130002 } from '@/lib/server/migrations/202605130002-follow-up-stage-offsets'
 import { migration202605130003 } from '@/lib/server/migrations/202605130003-user-rule-permissions'
 import { migration202605130004 } from '@/lib/server/migrations/202605130004-crm-integrity-normalization'
+import { migration202605140001 } from '@/lib/server/migrations/202605140001-client-address-fields'
 
 const MIGRATION_TABLE_NAME = 'schema_migrations'
 
@@ -24,6 +25,7 @@ const SYSTEM_SCHEMA_MIGRATIONS: SchemaMigration[] = [
   migration202605130002,
   migration202605130003,
   migration202605130004,
+  migration202605140001,
 ]
 
 async function ensureSchemaMigrationsTable() {

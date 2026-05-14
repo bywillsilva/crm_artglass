@@ -45,6 +45,8 @@ const BOOTSTRAP_CLIENT_SELECT_COLUMNS = `
   c.cargo,
   c.tipo,
   c.endereco,
+  c.numero,
+  c.bairro,
   c.cidade,
   c.estado,
   c.cep,

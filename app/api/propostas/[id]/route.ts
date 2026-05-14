@@ -138,6 +138,11 @@ type ProposalPayload = {
   clienteTelefone?: string | null
   clienteEmail?: string | null
   clienteEndereco?: string | null
+  clienteNumero?: string | null
+  clienteBairro?: string | null
+  clienteCidade?: string | null
+  clienteEstado?: string | null
+  clienteCep?: string | null
   clienteValorFechado?: number | null
   kanbanPosition?: number | null
   anexos: File[]
@@ -474,6 +479,11 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
       clienteTelefone: getOptionalString('clienteTelefone'),
       clienteEmail: getOptionalString('clienteEmail'),
       clienteEndereco: getOptionalString('clienteEndereco'),
+      clienteNumero: getOptionalString('clienteNumero'),
+      clienteBairro: getOptionalString('clienteBairro'),
+      clienteCidade: getOptionalString('clienteCidade'),
+      clienteEstado: getOptionalString('clienteEstado'),
+      clienteCep: getOptionalString('clienteCep'),
       clienteValorFechado: getOptionalNumber('clienteValorFechado'),
       anexos: formData
         .getAll('anexos')
@@ -524,6 +534,11 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
     clienteTelefone: hasOwnField('clienteTelefone') ? data.clienteTelefone || null : undefined,
     clienteEmail: hasOwnField('clienteEmail') ? data.clienteEmail || null : undefined,
     clienteEndereco: hasOwnField('clienteEndereco') ? data.clienteEndereco || null : undefined,
+    clienteNumero: hasOwnField('clienteNumero') ? data.clienteNumero || null : undefined,
+    clienteBairro: hasOwnField('clienteBairro') ? data.clienteBairro || null : undefined,
+    clienteCidade: hasOwnField('clienteCidade') ? data.clienteCidade || null : undefined,
+    clienteEstado: hasOwnField('clienteEstado') ? data.clienteEstado || null : undefined,
+    clienteCep: hasOwnField('clienteCep') ? data.clienteCep || null : undefined,
     clienteValorFechado: getOptionalJsonNumber('clienteValorFechado'),
     anexos: [],
   }
@@ -1059,7 +1074,12 @@ export async function PUT(
         data.clienteCpf !== undefined ||
         data.clienteEmail !== undefined ||
         data.clienteTelefone !== undefined ||
-        data.clienteEndereco !== undefined
+        data.clienteEndereco !== undefined ||
+        data.clienteNumero !== undefined ||
+        data.clienteBairro !== undefined ||
+        data.clienteCidade !== undefined ||
+        data.clienteEstado !== undefined ||
+        data.clienteCep !== undefined
       const sellerIsTryingToChangeClosedValue =
         data.clienteValorFechado !== undefined || data.valor !== undefined
       const sellerIsInClosingContext =
@@ -1152,7 +1172,7 @@ export async function PUT(
     }
 
       const [clienteAtual] = await query<any[]>(
-        `SELECT id, nome, cpf, email, telefone, endereco, status_funil, empresa, cargo, tipo
+        `SELECT id, nome, cpf, email, telefone, endereco, numero, bairro, cidade, estado, cep, status_funil, empresa, cargo, tipo
          FROM clientes
          WHERE id = ? LIMIT 1`,
         [resolvedClienteId]
@@ -1174,6 +1194,11 @@ export async function PUT(
         email: normalizeNullableText(data.clienteEmail) ?? clienteAtual.email,
         telefone: normalizeNullableText(data.clienteTelefone) ?? clienteAtual.telefone,
         endereco: normalizeNullableText(data.clienteEndereco) ?? clienteAtual.endereco,
+        numero: normalizeNullableText(data.clienteNumero) ?? clienteAtual.numero,
+        bairro: normalizeNullableText(data.clienteBairro) ?? clienteAtual.bairro,
+        cidade: normalizeNullableText(data.clienteCidade) ?? clienteAtual.cidade,
+        estado: normalizeNullableText(data.clienteEstado)?.toUpperCase() ?? clienteAtual.estado,
+        cep: normalizeNullableText(data.clienteCep) ?? clienteAtual.cep,
       }
 
       const requiresMandatoryClosedClientData = requireClosedClientData
@@ -1214,6 +1239,11 @@ export async function PUT(
             mergedClienteFechado.email ||
             mergedClienteFechado.telefone ||
             mergedClienteFechado.endereco ||
+            mergedClienteFechado.numero ||
+            mergedClienteFechado.bairro ||
+            mergedClienteFechado.cidade ||
+            mergedClienteFechado.estado ||
+            mergedClienteFechado.cep ||
             data.clienteTipo
         ) &&
         (requiresMandatoryClosedClientData ||
@@ -1223,12 +1253,17 @@ export async function PUT(
           normalizeNullableText(data.clienteCpf) !== null ||
           normalizeNullableText(data.clienteEmail) !== null ||
           normalizeNullableText(data.clienteTelefone) !== null ||
-          normalizeNullableText(data.clienteEndereco) !== null)
+          normalizeNullableText(data.clienteEndereco) !== null ||
+          normalizeNullableText(data.clienteNumero) !== null ||
+          normalizeNullableText(data.clienteBairro) !== null ||
+          normalizeNullableText(data.clienteCidade) !== null ||
+          normalizeNullableText(data.clienteEstado) !== null ||
+          normalizeNullableText(data.clienteCep) !== null)
 
       if (shouldUpdateClosedClientData) {
         await query(
           `UPDATE clientes
-           SET nome = ?, cpf = ?, email = ?, telefone = ?, endereco = ?, tipo = ?, status_funil = ?
+           SET nome = ?, cpf = ?, email = ?, telefone = ?, endereco = ?, numero = ?, bairro = ?, cidade = ?, estado = ?, cep = ?, tipo = ?, status_funil = ?
            WHERE id = ?`,
           [
             mergedClienteFechado.nome,
@@ -1236,6 +1271,11 @@ export async function PUT(
             mergedClienteFechado.email,
             mergedClienteFechado.telefone,
             mergedClienteFechado.endereco,
+            mergedClienteFechado.numero,
+            mergedClienteFechado.bairro,
+            mergedClienteFechado.cidade,
+            mergedClienteFechado.estado,
+            mergedClienteFechado.cep,
             clientType,
             'fechado',
             resolvedClienteId,

@@ -25,6 +25,8 @@ const CLIENT_SELECT_COLUMNS = `
   c.cargo,
   c.tipo,
   c.endereco,
+  c.numero,
+  c.bairro,
   c.cidade,
   c.estado,
   c.cep,
@@ -159,7 +161,7 @@ export async function PUT(
 
       const [clienteAtual] = await query<any[]>(
         `SELECT
-        id, nome, cpf, email, telefone, empresa, cargo, tipo, endereco, cidade, estado, cep,
+        id, nome, cpf, email, telefone, empresa, cargo, tipo, endereco, numero, bairro, cidade, estado, cep,
         origem, status_funil, observacoes
        FROM clientes
        WHERE id = ?`,
@@ -191,6 +193,8 @@ export async function PUT(
           })
         : inferClientType(clienteAtual),
       endereco: hasOwn(data, 'endereco') ? normalizeNullableText(data.endereco) : clienteAtual.endereco,
+      numero: hasOwn(data, 'numero') ? normalizeNullableText(data.numero) : clienteAtual.numero,
+      bairro: hasOwn(data, 'bairro') ? normalizeNullableText(data.bairro) : clienteAtual.bairro,
       cidade: hasOwn(data, 'cidade') ? normalizeNullableText(data.cidade) : clienteAtual.cidade,
       estado: hasOwn(data, 'estado') ? normalizeNullableText(data.estado) : clienteAtual.estado,
       cep: hasOwn(data, 'cep') ? normalizeNullableText(data.cep) : clienteAtual.cep,
@@ -203,7 +207,7 @@ export async function PUT(
     await query(
       `UPDATE clientes SET
         nome = ?, cpf = ?, email = ?, telefone = ?, empresa = ?, cargo = ?, tipo = ?,
-        endereco = ?, cidade = ?, estado = ?, cep = ?, origem = ?,
+        endereco = ?, numero = ?, bairro = ?, cidade = ?, estado = ?, cep = ?, origem = ?,
         status_funil = ?, observacoes = ?
        WHERE id = ?`,
       [
@@ -215,6 +219,8 @@ export async function PUT(
         mergedCliente.cargo,
         mergedCliente.tipo,
         mergedCliente.endereco,
+        mergedCliente.numero,
+        mergedCliente.bairro,
         mergedCliente.cidade,
         mergedCliente.estado,
         mergedCliente.cep,

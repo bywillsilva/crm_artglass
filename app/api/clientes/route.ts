@@ -26,6 +26,8 @@ const CLIENT_SELECT_COLUMNS = `
   c.cargo,
   c.tipo,
   c.endereco,
+  c.numero,
+  c.bairro,
   c.cidade,
   c.estado,
   c.cep,
@@ -321,6 +323,8 @@ export async function POST(request: NextRequest) {
         cargo: normalizeNullableText(data.cargo),
       }),
       endereco: normalizeNullableText(data.endereco),
+      numero: normalizeNullableText(data.numero),
+      bairro: normalizeNullableText(data.bairro),
       cidade: normalizeNullableText(data.cidade),
       estado: normalizeNullableText(data.estado),
       cep: normalizeNullableText(data.cep),
@@ -338,6 +342,8 @@ export async function POST(request: NextRequest) {
       cargo: payload.cargo,
       tipo: payload.tipo,
       endereco: payload.endereco,
+      numero: payload.numero,
+      bairro: payload.bairro,
       cidade: payload.cidade,
       estado: payload.estado,
       cep: payload.cep,
@@ -354,9 +360,9 @@ export async function POST(request: NextRequest) {
 
       await connection.execute(
         `INSERT INTO clientes (
-        id, nome, cpf, email, telefone, empresa, cargo, tipo, endereco, cidade, estado, cep,
+        id, nome, cpf, email, telefone, empresa, cargo, tipo, endereco, numero, bairro, cidade, estado, cep,
         origem, status_funil, observacoes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
         [
           id,
           payload.nome,
@@ -367,6 +373,8 @@ export async function POST(request: NextRequest) {
           payload.cargo,
           payload.tipo,
           payload.endereco,
+          payload.numero,
+          payload.bairro,
           payload.cidade,
           payload.estado,
           payload.cep,

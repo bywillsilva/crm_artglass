@@ -107,6 +107,75 @@ function formatEditableProposalValue(value: number | null | undefined) {
   return String(value).replace('.', ',')
 }
 
+function readProposalString(
+  proposta: (Partial<Proposta> & Record<string, unknown>) | null | undefined,
+  camelKey: keyof Proposta,
+  snakeKey?: string
+) {
+  const value = proposta?.[camelKey] ?? (snakeKey ? proposta?.[snakeKey] : undefined)
+  return typeof value === 'string' ? value : value == null ? '' : String(value)
+}
+
+function readProposalStatus(
+  proposta: (Partial<Proposta> & Record<string, unknown>) | null | undefined,
+  fallback: StatusProposta = 'novo_cliente'
+): StatusProposta {
+  const value = readProposalString(proposta, 'status')
+  return visibleStatuses.includes(value as StatusProposta) ? (value as StatusProposta) : fallback
+}
+
+function readProposalNumber(
+  proposta: (Partial<Proposta> & Record<string, unknown>) | null | undefined,
+  key: keyof Proposta,
+  snakeKey?: string
+) {
+  const value = proposta?.[key] ?? (snakeKey ? proposta?.[snakeKey] : undefined)
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    return parseProposalNumericInput(value) ?? 0
+  }
+
+  return 0
+}
+
+function mergeProposalFormSnapshot(primary: Proposta, fallback: Proposta) {
+  return {
+    ...fallback,
+    ...primary,
+    clienteId:
+      readProposalString(primary as Partial<Proposta> & Record<string, unknown>, 'clienteId', 'cliente_id') ||
+      readProposalString(fallback as Partial<Proposta> & Record<string, unknown>, 'clienteId', 'cliente_id'),
+    clienteNome:
+      readProposalString(primary as Partial<Proposta> & Record<string, unknown>, 'clienteNome', 'cliente_nome') ||
+      readProposalString(fallback as Partial<Proposta> & Record<string, unknown>, 'clienteNome', 'cliente_nome'),
+    responsavelId:
+      readProposalString(primary as Partial<Proposta> & Record<string, unknown>, 'responsavelId', 'responsavel_id') ||
+      readProposalString(fallback as Partial<Proposta> & Record<string, unknown>, 'responsavelId', 'responsavel_id'),
+    orcamentistaId:
+      readProposalString(primary as Partial<Proposta> & Record<string, unknown>, 'orcamentistaId', 'orcamentista_id') ||
+      readProposalString(fallback as Partial<Proposta> & Record<string, unknown>, 'orcamentistaId', 'orcamentista_id'),
+    status: readProposalStatus(
+      primary as Partial<Proposta> & Record<string, unknown>,
+      readProposalStatus(fallback as Partial<Proposta> & Record<string, unknown>)
+    ),
+    materialTag:
+      readProposalString(primary as Partial<Proposta> & Record<string, unknown>, 'materialTag', 'material_tag') ||
+      readProposalString(fallback as Partial<Proposta> & Record<string, unknown>, 'materialTag', 'material_tag') ||
+      null,
+    descricao:
+      readProposalString(primary as Partial<Proposta> & Record<string, unknown>, 'descricao') ||
+      readProposalString(fallback as Partial<Proposta> & Record<string, unknown>, 'descricao'),
+    valor:
+      readProposalNumber(primary as Partial<Proposta> & Record<string, unknown>, 'valor', 'valor_final') ||
+      readProposalNumber(fallback as Partial<Proposta> & Record<string, unknown>, 'valor', 'valor_final'),
+    anexos: primary.anexos ?? fallback.anexos,
+    comentarios: primary.comentarios ?? fallback.comentarios,
+  } satisfies Proposta
+}
+
 interface ProposalFormDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -125,7 +194,9 @@ export function ProposalFormDialog({
   const { state, lookups, addProposta, updateProposta } = useCRM()
   const { user } = useSession()
   const { proposta, isLoading } = useProposta(open && propostaId ? propostaId : null)
-  const propostaSource = proposta || propostaInicial || null
+  const propostaSource = proposta && propostaInicial
+    ? mergeProposalFormSnapshot(proposta, propostaInicial)
+    : proposta || propostaInicial || null
   const isEditing = Boolean(propostaId)
   const isAdmin = user?.role === 'admin' || user?.role === 'gerente'
   const canSelectResponsavel = hasRuleAccess(user, 'canSelectProposalResponsavelOnForm')
@@ -150,13 +221,13 @@ export function ProposalFormDialog({
   const propostaHydrationKey = propostaSource
     ? [
         propostaSource.id,
-        propostaSource.clienteId,
-        propostaSource.responsavelId,
-        propostaSource.orcamentistaId,
-        propostaSource.valor,
-        propostaSource.status,
-        propostaSource.materialTag || '',
-        propostaSource.descricao || '',
+        readProposalString(propostaSource as Partial<Proposta> & Record<string, unknown>, 'clienteId', 'cliente_id'),
+        readProposalString(propostaSource as Partial<Proposta> & Record<string, unknown>, 'responsavelId', 'responsavel_id'),
+        readProposalString(propostaSource as Partial<Proposta> & Record<string, unknown>, 'orcamentistaId', 'orcamentista_id'),
+        readProposalNumber(propostaSource as Partial<Proposta> & Record<string, unknown>, 'valor', 'valor_final'),
+        readProposalStatus(propostaSource as Partial<Proposta> & Record<string, unknown>),
+        readProposalString(propostaSource as Partial<Proposta> & Record<string, unknown>, 'materialTag', 'material_tag'),
+        readProposalString(propostaSource as Partial<Proposta> & Record<string, unknown>, 'descricao'),
       ].join(':')
     : null
   useEffect(() => {
@@ -166,13 +237,13 @@ export function ProposalFormDialog({
 
     const initialHydrationKey = [
       propostaInicial.id,
-      propostaInicial.clienteId,
-      propostaInicial.responsavelId,
-      propostaInicial.orcamentistaId,
-      propostaInicial.valor,
-      propostaInicial.status,
-      propostaInicial.materialTag || '',
-      propostaInicial.descricao || '',
+      readProposalString(propostaInicial as Partial<Proposta> & Record<string, unknown>, 'clienteId', 'cliente_id'),
+      readProposalString(propostaInicial as Partial<Proposta> & Record<string, unknown>, 'responsavelId', 'responsavel_id'),
+      readProposalString(propostaInicial as Partial<Proposta> & Record<string, unknown>, 'orcamentistaId', 'orcamentista_id'),
+      readProposalNumber(propostaInicial as Partial<Proposta> & Record<string, unknown>, 'valor', 'valor_final'),
+      readProposalStatus(propostaInicial as Partial<Proposta> & Record<string, unknown>),
+      readProposalString(propostaInicial as Partial<Proposta> & Record<string, unknown>, 'materialTag', 'material_tag'),
+      readProposalString(propostaInicial as Partial<Proposta> & Record<string, unknown>, 'descricao'),
     ].join(':')
 
     if (hydratedKeyRef.current === initialHydrationKey) {
@@ -184,16 +255,18 @@ export function ProposalFormDialog({
     }
 
     hydratedKeyRef.current = initialHydrationKey
-    setClienteId(propostaInicial.clienteId)
+    setClienteId(readProposalString(propostaInicial as Partial<Proposta> & Record<string, unknown>, 'clienteId', 'cliente_id'))
     setClienteSearch('')
-    setResponsavelId(propostaInicial.responsavelId || '')
-    setOrcamentistaId(propostaInicial.orcamentistaId || '')
-    const hydratedValor = formatEditableProposalValue(propostaInicial.valor)
+    setResponsavelId(readProposalString(propostaInicial as Partial<Proposta> & Record<string, unknown>, 'responsavelId', 'responsavel_id'))
+    setOrcamentistaId(readProposalString(propostaInicial as Partial<Proposta> & Record<string, unknown>, 'orcamentistaId', 'orcamentista_id'))
+    const hydratedValor = formatEditableProposalValue(
+      readProposalNumber(propostaInicial as Partial<Proposta> & Record<string, unknown>, 'valor', 'valor_final')
+    )
     latestValorRef.current = hydratedValor
     setValor(hydratedValor)
-    setMaterialTag(propostaInicial.materialTag || '')
-    setDescricao(propostaInicial.descricao || '')
-    setStatus(propostaInicial.status)
+    setMaterialTag(readProposalString(propostaInicial as Partial<Proposta> & Record<string, unknown>, 'materialTag', 'material_tag'))
+    setDescricao(readProposalString(propostaInicial as Partial<Proposta> & Record<string, unknown>, 'descricao'))
+    setStatus(readProposalStatus(propostaInicial as Partial<Proposta> & Record<string, unknown>))
     setFiles([])
     isDirtyRef.current = false
   }, [isEditing, open, propostaInicial])
@@ -214,16 +287,17 @@ export function ProposalFormDialog({
       }
 
       hydratedKeyRef.current = propostaHydrationKey
-      setClienteId(propostaSource.clienteId)
+      const proposalRecord = propostaSource as Partial<Proposta> & Record<string, unknown>
+      setClienteId(readProposalString(proposalRecord, 'clienteId', 'cliente_id'))
       setClienteSearch('')
-      setResponsavelId(propostaSource.responsavelId || '')
-      setOrcamentistaId(propostaSource.orcamentistaId || '')
-      const hydratedValor = formatEditableProposalValue(propostaSource.valor)
+      setResponsavelId(readProposalString(proposalRecord, 'responsavelId', 'responsavel_id'))
+      setOrcamentistaId(readProposalString(proposalRecord, 'orcamentistaId', 'orcamentista_id'))
+      const hydratedValor = formatEditableProposalValue(readProposalNumber(proposalRecord, 'valor', 'valor_final'))
       latestValorRef.current = hydratedValor
       setValor(hydratedValor)
-      setMaterialTag(propostaSource.materialTag || '')
-      setDescricao(propostaSource.descricao || '')
-      setStatus(propostaSource.status)
+      setMaterialTag(readProposalString(proposalRecord, 'materialTag', 'material_tag'))
+      setDescricao(readProposalString(proposalRecord, 'descricao'))
+      setStatus(readProposalStatus(proposalRecord))
       setFiles([])
       isDirtyRef.current = false
       return
@@ -289,7 +363,12 @@ export function ProposalFormDialog({
       (clienteId
         ? {
             id: clienteId,
-            nome: propostaSource?.clienteNome || 'Cliente atual',
+            nome:
+              readProposalString(
+                propostaSource as (Partial<Proposta> & Record<string, unknown>) | null,
+                'clienteNome',
+                'cliente_nome'
+              ) || 'Cliente atual',
           }
         : null),
     [clienteId, propostaSource?.clienteNome, state.clientes]
@@ -309,7 +388,9 @@ export function ProposalFormDialog({
   const orcamentistas = state.usuarios.filter(
     (usuario) => usuario.ativo && usuario.role === 'orcamentista'
   )
-  const currentWorkflowStatus = (propostaSource?.status || status) as StatusProposta
+  const currentWorkflowStatus = propostaSource
+    ? readProposalStatus(propostaSource as Partial<Proposta> & Record<string, unknown>)
+    : status
 
   const editStatusOptions = useMemo(() => {
     if (isAdmin) {

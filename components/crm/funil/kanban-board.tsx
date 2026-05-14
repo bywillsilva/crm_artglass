@@ -11,12 +11,14 @@ import {
   MessageSquare,
   Paperclip,
   RefreshCw,
+  Search,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { prefetchProposta, useProposta, useSession } from '@/lib/hooks/use-api'
+import { formatCep, useCepLookup } from '@/lib/hooks/use-cep-lookup'
 import { formatBrazilPhone } from '@/lib/utils/phone'
 import {
   formatClientDocument,
@@ -92,6 +94,11 @@ type PendingMoveDialogSnapshot = {
     email: string
     telefone: string
     endereco: string
+    numero: string
+    bairro: string
+    cidade: string
+    estado: string
+    cep: string
   }
 }
 
@@ -383,6 +390,12 @@ function proposalHasApprovalRequirements(
   proposta:
     | Proposta
     | (Partial<Proposta> & {
+        area_m2?: number | string | null
+        perfis_bruto?: number | string | null
+        perfis_liquidos?: number | string | null
+        valor_vidro?: number | string | null
+        valor_acessorios?: number | string | null
+        orcamentista_id?: string | null
         anexos?: Array<{
           tipoMime?: string
           tipo_mime?: string
@@ -394,6 +407,54 @@ function proposalHasApprovalRequirements(
   const hasPositiveValue = Number(proposta.valor || 0) > 0
   const hasPdfAttachment = Array.isArray(proposta.anexos) && proposta.anexos.some(isPdfAttachment)
   return hasPositiveValue && hasPdfAttachment
+}
+
+function readPositiveNumber(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+      return value
+    }
+
+    if (typeof value === 'string') {
+      const parsed = parseProposalNumericInput(value)
+      if (parsed != null && parsed > 0) {
+        return parsed
+      }
+    }
+  }
+
+  return 0
+}
+
+function hasApprovalTechnicalData(proposta: Partial<Proposta> & Record<string, unknown>) {
+  return [
+    readPositiveNumber(proposta.areaM2, proposta.area_m2),
+    readPositiveNumber(proposta.perfisBruto, proposta.perfis_bruto),
+    readPositiveNumber(proposta.perfisLiquidos, proposta.perfis_liquidos),
+    readPositiveNumber(proposta.valorVidro, proposta.valor_vidro),
+    readPositiveNumber(proposta.valorAcessorios, proposta.valor_acessorios),
+  ].some((value) => value > 0)
+}
+
+function getProposalOrcamentistaId(proposta: Partial<Proposta> & Record<string, unknown>) {
+  return String(proposta.orcamentistaId || proposta.orcamentista_id || '').trim()
+}
+
+function isProposalReadyForApproval(
+  proposta: Partial<Proposta> & Record<string, unknown>,
+  params: {
+    requirePdf: boolean
+    requireTechnicalData: boolean
+    requireOrcamentista: boolean
+    fallbackOrcamentistaId?: string | null
+  }
+) {
+  return (
+    readPositiveNumber(proposta.valor, proposta.valor_final) > 0 &&
+    (!params.requirePdf || (Array.isArray(proposta.anexos) && proposta.anexos.some(isPdfAttachment))) &&
+    (!params.requireTechnicalData || hasApprovalTechnicalData(proposta)) &&
+    (!params.requireOrcamentista || Boolean(getProposalOrcamentistaId(proposta) || params.fallbackOrcamentistaId))
+  )
 }
 
 function parseProposalNumericInput(value: string) {
@@ -454,6 +515,12 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const [closeClientEmail, setCloseClientEmail] = useState('')
   const [closeClientPhone, setCloseClientPhone] = useState('')
   const [closeClientAddress, setCloseClientAddress] = useState('')
+  const [closeClientNumber, setCloseClientNumber] = useState('')
+  const [closeClientDistrict, setCloseClientDistrict] = useState('')
+  const [closeClientCity, setCloseClientCity] = useState('')
+  const [closeClientState, setCloseClientState] = useState('')
+  const [closeClientCep, setCloseClientCep] = useState('')
+  const { isLookingUpCep, cepLookupError, lookupCep, setCepLookupError } = useCepLookup()
   const [optimisticPropostas, setOptimisticPropostas] = useState<Record<string, Partial<Proposta>>>({})
   const [updatingProposalIds, setUpdatingProposalIds] = useState<Record<string, true>>({})
   const [detailsPropostaId, setDetailsPropostaId] = useState<string | null>(null)
@@ -485,6 +552,11 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     setCloseClientEmail('')
     setCloseClientPhone('')
     setCloseClientAddress('')
+    setCloseClientNumber('')
+    setCloseClientDistrict('')
+    setCloseClientCity('')
+    setCloseClientState('')
+    setCloseClientCep('')
   }, [])
 
   const restorePendingMoveDialog = useCallback((snapshot: PendingMoveDialogSnapshot) => {
@@ -501,6 +573,11 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     setCloseClientEmail(snapshot.closeClientData.email)
     setCloseClientPhone(snapshot.closeClientData.telefone)
     setCloseClientAddress(snapshot.closeClientData.endereco)
+    setCloseClientNumber(snapshot.closeClientData.numero)
+    setCloseClientDistrict(snapshot.closeClientData.bairro)
+    setCloseClientCity(snapshot.closeClientData.cidade)
+    setCloseClientState(snapshot.closeClientData.estado)
+    setCloseClientCep(snapshot.closeClientData.cep)
   }, [])
 
   const updateFloatingDragPosition = useCallback(() => {
@@ -931,47 +1008,33 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         targetStatus === proposta.status)
 
     if (requiresDirectApprovalValidation) {
-      const loadedProposalAlreadyReady =
-        Number(proposta.valor || 0) > 0 &&
-        (!requiresApprovalPdfRule ||
-          (Array.isArray(proposta.anexos) && proposta.anexos.some(isPdfAttachment))) &&
-        (!requiresApprovalTechnicalDataRule ||
-          [
-            proposta.areaM2,
-            proposta.perfisBruto,
-            proposta.perfisLiquidos,
-            proposta.valorVidro,
-            proposta.valorAcessorios,
-          ].some((value) => typeof value === 'number' && value > 0)) &&
-        (!requiresApprovalOrcamentistaRule ||
-          Boolean(proposta.orcamentistaId || (user?.role === 'orcamentista' ? user.id : null)))
+      const fallbackOrcamentistaId =
+        user?.role === 'orcamentista' ? user.id : null
+      const loadedProposalAlreadyReady = isProposalReadyForApproval(proposta as Proposta & Record<string, unknown>, {
+        requirePdf: requiresApprovalPdfRule,
+        requireTechnicalData: requiresApprovalTechnicalDataRule,
+        requireOrcamentista: requiresApprovalOrcamentistaRule,
+        fallbackOrcamentistaId,
+      })
 
       if (loadedProposalAlreadyReady) {
-        void executeMove(proposta, { targetStatus })
+        void executeMove(proposta, { targetStatus, kanbanPosition: targetIndex ?? 0 })
         return
       }
 
       try {
         const response = await fetch(`/api/propostas/${proposta.id}`)
         if (response.ok) {
-          const detailedProposal = (await response.json()) as Proposta
-          const hasRequiredApprovalSnapshot =
-            Number(detailedProposal.valor || 0) > 0 &&
-            (!requiresApprovalPdfRule ||
-              (Array.isArray(detailedProposal.anexos) && detailedProposal.anexos.some(isPdfAttachment))) &&
-            (!requiresApprovalTechnicalDataRule ||
-              [
-                detailedProposal.areaM2,
-                detailedProposal.perfisBruto,
-                detailedProposal.perfisLiquidos,
-                detailedProposal.valorVidro,
-                detailedProposal.valorAcessorios,
-              ].some((value) => typeof value === 'number' && value > 0)) &&
-            (!requiresApprovalOrcamentistaRule ||
-              Boolean(detailedProposal.orcamentistaId || (user?.role === 'orcamentista' ? user.id : null)))
+          const detailedProposal = (await response.json()) as Proposta & Record<string, unknown>
+          const hasRequiredApprovalSnapshot = isProposalReadyForApproval(detailedProposal, {
+            requirePdf: requiresApprovalPdfRule,
+            requireTechnicalData: requiresApprovalTechnicalDataRule,
+            requireOrcamentista: requiresApprovalOrcamentistaRule,
+            fallbackOrcamentistaId,
+          })
 
           if (hasRequiredApprovalSnapshot) {
-            void executeMove(proposta, { targetStatus })
+            void executeMove(proposta, { targetStatus, kanbanPosition: targetIndex ?? 0 })
             return
           }
         }
@@ -1028,6 +1091,8 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     setCloseClientEmail(cliente?.email || '')
     setCloseClientPhone(cliente?.telefone || '')
     setCloseClientAddress(cliente?.endereco || '')
+    setCloseClientNumber(cliente?.numero || '')
+    setCloseClientDistrict(cliente?.bairro || '')
   }
 
   const handleTouchPointerDown = (event: React.PointerEvent<HTMLDivElement>, proposta: Proposta) => {
@@ -1188,6 +1253,11 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
           email: string
           telefone: string
           endereco: string
+          numero?: string
+          bairro?: string
+          cidade?: string
+          estado?: string
+          cep?: string
         }
         dialogSnapshot?: PendingMoveDialogSnapshot
       }
@@ -1262,6 +1332,11 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                 clienteEmail: options.closeClientData?.email || null,
                 clienteTelefone: options.closeClientData?.telefone || null,
                 clienteEndereco: options.closeClientData?.endereco || null,
+                clienteNumero: options.closeClientData?.numero || null,
+                clienteBairro: options.closeClientData?.bairro || null,
+                clienteCidade: options.closeClientData?.cidade || null,
+                clienteEstado: options.closeClientData?.estado || null,
+                clienteCep: options.closeClientData?.cep || null,
                 clienteValorFechado: nextValue,
               }
             : {}),
@@ -1316,6 +1391,11 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         email: closeClientEmail,
         telefone: closeClientPhone,
         endereco: closeClientAddress,
+        numero: closeClientNumber,
+        bairro: closeClientDistrict,
+        cidade: closeClientCity,
+        estado: closeClientState,
+        cep: closeClientCep,
       },
     }
 
@@ -1340,6 +1420,11 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
             email: closeClientEmail,
             telefone: closeClientPhone,
             endereco: closeClientAddress,
+            numero: closeClientNumber,
+            bairro: closeClientDistrict,
+            cidade: closeClientCity,
+            estado: closeClientState,
+            cep: closeClientCep,
           }
         : undefined,
       dialogSnapshot,
@@ -1452,27 +1537,24 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     : false
   const parsedMoveValue = parseProposalNumericInput(moveValue)
   const existingApprovalValue =
-    approvalTargetProposal?.valor && approvalTargetProposal.valor > 0 ? approvalTargetProposal.valor : 0
+    approvalTargetProposal
+      ? readPositiveNumber(
+          approvalTargetProposal.valor,
+          (approvalTargetProposal as Partial<Proposta> & Record<string, unknown>).valor_final
+        )
+      : 0
+  const approvalTargetRecord =
+    (approvalTargetProposal || {}) as Partial<Proposta> & Record<string, unknown>
   const existingApprovalAreaM2 =
-    typeof approvalTargetProposal?.areaM2 === 'number' && approvalTargetProposal.areaM2 > 0
-      ? approvalTargetProposal.areaM2
-      : 0
+    readPositiveNumber(approvalTargetRecord.areaM2, approvalTargetRecord.area_m2)
   const existingApprovalPerfisBruto =
-    typeof approvalTargetProposal?.perfisBruto === 'number' && approvalTargetProposal.perfisBruto > 0
-      ? approvalTargetProposal.perfisBruto
-      : 0
+    readPositiveNumber(approvalTargetRecord.perfisBruto, approvalTargetRecord.perfis_bruto)
   const existingApprovalPerfisLiquidos =
-    typeof approvalTargetProposal?.perfisLiquidos === 'number' && approvalTargetProposal.perfisLiquidos > 0
-      ? approvalTargetProposal.perfisLiquidos
-      : 0
+    readPositiveNumber(approvalTargetRecord.perfisLiquidos, approvalTargetRecord.perfis_liquidos)
   const existingApprovalValorVidro =
-    typeof approvalTargetProposal?.valorVidro === 'number' && approvalTargetProposal.valorVidro > 0
-      ? approvalTargetProposal.valorVidro
-      : 0
+    readPositiveNumber(approvalTargetRecord.valorVidro, approvalTargetRecord.valor_vidro)
   const existingApprovalValorAcessorios =
-    typeof approvalTargetProposal?.valorAcessorios === 'number' && approvalTargetProposal.valorAcessorios > 0
-      ? approvalTargetProposal.valorAcessorios
-      : 0
+    readPositiveNumber(approvalTargetRecord.valorAcessorios, approvalTargetRecord.valor_acessorios)
   const proposalNeedsApprovalValue = approvalValidationCanInspectRequirements && existingApprovalValue <= 0
   const technicalApprovalValues = approvalValidationCanInspectRequirements
     ? [
@@ -1496,8 +1578,8 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         requiresAttachment ? 'anexar a proposta em PDF' : null,
         requiresApprovalOrcamentistaRule &&
         !(
-          approvalTargetProposal?.orcamentistaId ||
-          pendingMoveProposal?.orcamentistaId ||
+          getProposalOrcamentistaId(approvalTargetRecord) ||
+          getProposalOrcamentistaId((pendingMoveProposal || {}) as Partial<Proposta> & Record<string, unknown>) ||
           (user?.role === 'orcamentista' && resolvedTargetStatus === 'aguardando_aprovacao' ? user.id : null)
         )
           ? 'definir um orcamentista responsavel'
@@ -1521,11 +1603,26 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         : 'Esta proposta ja tem os dados obrigatorios para seguir para aprovacao.'
     : null
   const resolvedApprovalOrcamentistaId =
-    (requiresApprovalOrcamentistaRule ? approvalTargetProposal?.orcamentistaId : null) ||
-    pendingMoveProposal?.orcamentistaId ||
+    (requiresApprovalOrcamentistaRule ? getProposalOrcamentistaId(approvalTargetRecord) : null) ||
+    getProposalOrcamentistaId((pendingMoveProposal || {}) as Partial<Proposta> & Record<string, unknown>) ||
     (user?.role === 'orcamentista' && resolvedTargetStatus === 'aguardando_aprovacao' ? user.id : null)
   const closeClientDocumentLabel = getClientDocumentLabel(closeClientTipo)
   const closeClientDocumentPlaceholder = getClientDocumentPlaceholder(closeClientTipo)
+  const handleCloseClientCepLookup = async () => {
+    const result = await lookupCep(closeClientCep)
+    if (!result) {
+      toast.error('Nao foi possivel localizar esse CEP.')
+      return
+    }
+
+    setCloseClientCep(formatCep(result.cep))
+    if (result.logradouro || result.endereco) setCloseClientAddress(result.logradouro || result.endereco)
+    if (result.bairro) setCloseClientDistrict(result.bairro)
+    if (result.cidade) setCloseClientCity(result.cidade)
+    if (result.estado) setCloseClientState(result.estado)
+    setCepLookupError('')
+    toast.success('Endereco preenchido pelo CEP.')
+  }
   const requiresClosedClientData =
     effectiveSellerAction === 'fechado' || (!isSellerMove && resolvedTargetStatus === 'fechado')
   const requiresMandatoryClosedClientData = requiresClosedClientData && requiresClosedClientDataRule
@@ -1593,6 +1690,11 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
       email: pendingMoveClient?.email || '',
       telefone: pendingMoveClient?.telefone || '',
       endereco: pendingMoveClient?.endereco || '',
+      numero: pendingMoveClient?.numero || '',
+      bairro: pendingMoveClient?.bairro || '',
+      cidade: pendingMoveClient?.cidade || '',
+      estado: pendingMoveClient?.estado || '',
+      cep: formatCep(pendingMoveClient?.cep || ''),
     }
 
     setCloseClientTipo((current) => (current !== nextCloseClientData.tipo ? nextCloseClientData.tipo : current))
@@ -1615,13 +1717,33 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     setCloseClientAddress((current) =>
       !current.trim() && nextCloseClientData.endereco ? nextCloseClientData.endereco : current
     )
+    setCloseClientNumber((current) =>
+      !current.trim() && nextCloseClientData.numero ? nextCloseClientData.numero : current
+    )
+    setCloseClientDistrict((current) =>
+      !current.trim() && nextCloseClientData.bairro ? nextCloseClientData.bairro : current
+    )
+    setCloseClientCity((current) =>
+      !current.trim() && nextCloseClientData.cidade ? nextCloseClientData.cidade : current
+    )
+    setCloseClientState((current) =>
+      !current.trim() && nextCloseClientData.estado ? nextCloseClientData.estado : current
+    )
+    setCloseClientCep((current) =>
+      !current.trim() && nextCloseClientData.cep ? nextCloseClientData.cep : current
+    )
   }, [
     pendingMove?.targetStatus,
     pendingMoveClient?.cpf,
     pendingMoveClient?.email,
     pendingMoveClient?.endereco,
+    pendingMoveClient?.numero,
+    pendingMoveClient?.bairro,
+    pendingMoveClient?.cidade,
     pendingMoveClient?.nome,
+    pendingMoveClient?.estado,
     pendingMoveClient?.telefone,
+    pendingMoveClient?.cep,
     pendingMoveProposal,
     requiresClosedClientData,
   ])
@@ -2188,11 +2310,68 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                       onChange={(event) => setCloseClientEmail(event.target.value)}
                     />
                   </div>
-                  <div className="space-y-2 md:col-span-2">
-                    <label className="text-sm font-medium text-foreground">Endereco</label>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">CEP</label>
+                    <div className="flex gap-2">
+                      <Input
+                        value={closeClientCep}
+                        placeholder="00000-000"
+                        onChange={(event) => {
+                          setCepLookupError('')
+                          setCloseClientCep(formatCep(event.target.value))
+                        }}
+                        onBlur={(event) => setCloseClientCep(formatCep(event.target.value))}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => void handleCloseClientCepLookup()}
+                        pending={isLookingUpCep}
+                        disabled={isLookingUpCep || closeClientCep.replace(/\D/g, '').length !== 8}
+                        aria-label="Buscar endereco pelo CEP"
+                      >
+                        <Search className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    {cepLookupError ? <p className="text-sm text-destructive">{cepLookupError}</p> : null}
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Rua / logradouro</label>
                     <Input
                       value={closeClientAddress}
                       onChange={(event) => setCloseClientAddress(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Numero</label>
+                    <Input
+                      value={closeClientNumber}
+                      placeholder="Ex: 120, sala 4"
+                      onChange={(event) => setCloseClientNumber(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Bairro</label>
+                    <Input
+                      value={closeClientDistrict}
+                      onChange={(event) => setCloseClientDistrict(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Cidade</label>
+                    <Input
+                      value={closeClientCity}
+                      onChange={(event) => setCloseClientCity(event.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">Estado</label>
+                    <Input
+                      value={closeClientState}
+                      maxLength={2}
+                      placeholder="UF"
+                      onChange={(event) => setCloseClientState(event.target.value.toUpperCase())}
                     />
                   </div>
                   <div className="space-y-2">

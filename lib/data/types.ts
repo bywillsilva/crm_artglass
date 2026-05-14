@@ -110,6 +110,11 @@ export interface Cliente {
   empresa?: string
   cargo?: string
   endereco: string
+  numero?: string
+  bairro?: string
+  cidade?: string
+  estado?: string
+  cep?: string
   tipo: TipoCliente
   origem?: string
   observacoes: string

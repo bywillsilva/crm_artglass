@@ -123,7 +123,8 @@ function parseJsonObject(value: unknown) {
 }
 
 function joinAddress(row: JsonRecord) {
-  const parts = [row.endereco, row.cidade, row.estado, row.cep].filter(Boolean)
+  const streetAndNumber = [row.endereco, row.numero].filter(Boolean).join(', ')
+  const parts = [streetAndNumber, row.bairro, row.cidade, row.estado, row.cep].filter(Boolean)
   return parts.join(', ')
 }
 
@@ -225,7 +226,12 @@ function normalizeCliente(row: JsonRecord): Cliente {
     email: row.email ?? '',
     empresa: row.empresa ?? '',
     cargo: row.cargo ?? '',
-    endereco: joinAddress(row),
+    endereco: row.endereco ?? joinAddress(row),
+    numero: row.numero ?? '',
+    bairro: row.bairro ?? '',
+    cidade: row.cidade ?? '',
+    estado: row.estado ?? '',
+    cep: row.cep ?? '',
     tipo: inferTipoCliente(row),
     origem: row.origem ?? '',
     observacoes: row.observacoes ?? '',
@@ -1321,6 +1327,8 @@ export async function createCliente(data: Partial<Cliente> & JsonRecord) {
     email: data.email || null,
     telefone: formatBrazilPhone(data.telefone) || null,
     endereco: data.endereco || null,
+    numero: data.numero || null,
+    bairro: data.bairro || null,
     origem: data.origem || null,
     statusFunil: data.statusFunil || data.status || 'lead_novo',
     observacoes: data.observacoes || null,
@@ -1352,6 +1360,8 @@ export async function updateCliente(id: string, data: Partial<Cliente> & JsonRec
     email: data.email === undefined ? undefined : (data.email || null),
     telefone: data.telefone === undefined ? undefined : (formatBrazilPhone(data.telefone) || null),
     endereco: data.endereco === undefined ? undefined : (data.endereco || null),
+    numero: data.numero === undefined ? undefined : (data.numero || null),
+    bairro: data.bairro === undefined ? undefined : (data.bairro || null),
     origem: data.origem === undefined ? undefined : (data.origem || null),
     statusFunil: data.statusFunil ?? data.status,
     observacoes: data.observacoes === undefined ? undefined : (data.observacoes || null),
@@ -1368,6 +1378,8 @@ export async function updateCliente(id: string, data: Partial<Cliente> & JsonRec
     email: payload.email,
     telefone: payload.telefone,
     endereco: payload.endereco,
+    numero: payload.numero,
+    bairro: payload.bairro,
     origem: payload.origem,
     status: payload.statusFunil,
     status_funil: payload.statusFunil,
@@ -1615,6 +1627,11 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     clienteTelefone: hasOwnField('clienteTelefone') ? (formatBrazilPhone(data.clienteTelefone) || null) : undefined,
     clienteEmail: hasOwnField('clienteEmail') ? (data.clienteEmail || null) : undefined,
     clienteEndereco: hasOwnField('clienteEndereco') ? (data.clienteEndereco || null) : undefined,
+    clienteNumero: hasOwnField('clienteNumero') ? (data.clienteNumero || null) : undefined,
+    clienteBairro: hasOwnField('clienteBairro') ? (data.clienteBairro || null) : undefined,
+    clienteCidade: hasOwnField('clienteCidade') ? (data.clienteCidade || null) : undefined,
+    clienteEstado: hasOwnField('clienteEstado') ? (data.clienteEstado || null) : undefined,
+    clienteCep: hasOwnField('clienteCep') ? (data.clienteCep || null) : undefined,
     clienteValorFechado: hasOwnField('clienteValorFechado') ? (parsedClienteValorFechado ?? null) : undefined,
     kanbanPosition: hasOwnField('kanbanPosition') ? parsedKanbanPosition : undefined,
   })
