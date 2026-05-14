@@ -2,6 +2,9 @@ import { createHmac, timingSafeEqual } from 'crypto'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { query } from '@/lib/db/mysql'
+import { normalizeModulePermissions } from '@/lib/auth/module-access'
+import { normalizeRulePermissions } from '@/lib/auth/rule-access'
+import type { RoleUsuario } from '@/lib/data/types'
 
 export const SESSION_COOKIE = 'solarcrm_session'
 
@@ -22,9 +25,9 @@ export type AuthenticatedServerUser = {
   rulePermissions?: unknown
 }
 
-const AUTH_USER_CACHE_MS = Math.max(Number(process.env.AUTH_USER_CACHE_MS || 30_000), 0)
+const AUTH_USER_CACHE_MS = Math.max(Number(process.env.AUTH_USER_CACHE_MS || 5_000), 0)
 const AUTH_USER_STALE_GRACE_MS = Math.max(
-  Number(process.env.AUTH_USER_STALE_GRACE_MS || 120_000),
+  Number(process.env.AUTH_USER_STALE_GRACE_MS || 30_000),
   AUTH_USER_CACHE_MS
 )
 const TRANSIENT_DB_ERROR_CODES = new Set([
@@ -192,8 +195,8 @@ export async function getAuthenticatedServerUser() {
       avatar: user.avatar ?? undefined,
       role: user.role,
       ativo: Boolean(user.ativo),
-      modulePermissions: user.module_permissions ?? null,
-      rulePermissions: user.rule_permissions ?? null,
+      modulePermissions: normalizeModulePermissions(user.module_permissions ?? null, user.role as RoleUsuario),
+      rulePermissions: normalizeRulePermissions(user.rule_permissions ?? null, user.role as RoleUsuario),
     } as AuthenticatedServerUser
 
     cacheAuthenticatedUser(session.userId, authenticatedUser)

@@ -34,6 +34,19 @@ const ALL_ENABLED = MODULE_KEYS.reduce((acc, key) => {
   return acc
 }, {} as ModulePermissions)
 
+function parsePermissionSource(value: unknown) {
+  if (typeof value !== 'string') {
+    return value
+  }
+
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 export function getDefaultModulePermissions(role: RoleUsuario): ModulePermissions {
   if (role === 'admin') {
     return { ...ALL_ENABLED }
@@ -87,11 +100,12 @@ export function normalizeModulePermissions(
   }
 
   const defaults = getDefaultModulePermissions(safeRole)
-  if (!value || typeof value !== 'object') {
+  const parsedValue = parsePermissionSource(value)
+  if (!parsedValue || typeof parsedValue !== 'object') {
     return defaults
   }
 
-  const source = value as Record<string, unknown>
+  const source = parsedValue as Record<string, unknown>
   return MODULE_KEYS.reduce((acc, key) => {
     acc[key] = key in source ? Boolean(source[key]) : defaults[key]
     return acc
@@ -103,6 +117,7 @@ export function hasModuleAccess(
     | {
         role?: string | null
         modulePermissions?: Partial<Record<ModuleKey, boolean>> | null
+        module_permissions?: Partial<Record<ModuleKey, boolean>> | string | null
       }
     | null
     | undefined,
@@ -111,7 +126,7 @@ export function hasModuleAccess(
   if (!user?.role) return false
   if (user.role === 'admin') return true
   return normalizeModulePermissions(
-    user.modulePermissions,
+    user.modulePermissions ?? user.module_permissions,
     user.role as RoleUsuario
   )[module]
 }

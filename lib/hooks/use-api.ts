@@ -1168,7 +1168,10 @@ export function useSession() {
     fetcher,
     {
       ...READ_ONLY_SWR_OPTIONS,
-      dedupingInterval: 120000,
+      dedupingInterval: 5000,
+      refreshInterval: 15000,
+      revalidateOnFocus: true,
+      revalidateOnReconnect: true,
     }
   )
   const user = useMemo(() => {

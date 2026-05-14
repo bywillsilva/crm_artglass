@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createSessionToken, SESSION_COOKIE } from '@/lib/auth/session'
 import { query } from '@/lib/db/mysql'
 import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
+import { normalizeModulePermissions } from '@/lib/auth/module-access'
+import { normalizeRulePermissions } from '@/lib/auth/rule-access'
+import type { RoleUsuario } from '@/lib/data/types'
 
 async function ensureLoginVerificationTable() {
   await query(`
@@ -89,6 +92,7 @@ export async function POST(request: NextRequest) {
     await query('UPDATE login_verification_tokens SET used_at = NOW() WHERE id = ?', [challenge.id])
 
     const sessionToken = createSessionToken(challenge.user_id, challenge.role)
+    const role = challenge.role as RoleUsuario
     const response = NextResponse.json({
       user: {
         id: challenge.user_id,
@@ -96,8 +100,8 @@ export async function POST(request: NextRequest) {
         email: challenge.email,
         avatar: challenge.avatar,
         role: challenge.role,
-        modulePermissions: challenge.module_permissions,
-        rulePermissions: challenge.rule_permissions,
+        modulePermissions: normalizeModulePermissions(challenge.module_permissions ?? null, role),
+        rulePermissions: normalizeRulePermissions(challenge.rule_permissions ?? null, role),
       },
     })
 

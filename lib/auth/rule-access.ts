@@ -222,6 +222,19 @@ const ALL_ENABLED = RULE_KEYS.reduce((acc, key) => {
   return acc
 }, {} as RulePermissions)
 
+function parsePermissionSource(value: unknown) {
+  if (typeof value !== 'string') {
+    return value
+  }
+
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
 export function getDefaultRulePermissions(role: RoleUsuario): RulePermissions {
   if (role === 'admin') {
     return {
@@ -320,12 +333,13 @@ export function normalizeRulePermissions(
 ): RulePermissions {
   const safeRole = role || 'vendedor'
   const defaults = getDefaultRulePermissions(safeRole)
+  const parsedValue = parsePermissionSource(value)
 
-  if (!value || typeof value !== 'object') {
+  if (!parsedValue || typeof parsedValue !== 'object') {
     return defaults
   }
 
-  const source = value as Record<string, unknown>
+  const source = parsedValue as Record<string, unknown>
   return RULE_KEYS.reduce((acc, key) => {
     acc[key] = key in source ? Boolean(source[key]) : defaults[key]
     return acc

@@ -8,7 +8,7 @@ import { normalizeRulePermissions } from '@/lib/auth/rule-access'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
-import { getAuthenticatedServerUser } from '@/lib/auth/session'
+import { clearAuthenticatedUserCache, getAuthenticatedServerUser } from '@/lib/auth/session'
 import { jsonNoStore } from '@/lib/server/http-cache'
 import { syncNormalizedUserPermissions } from '@/lib/server/user-permissions-store'
 
@@ -205,6 +205,7 @@ export async function POST(request: NextRequest) {
     invalidateRuntimeCache('dashboard:')
     invalidateRuntimeCache('interacoes:')
     invalidateRuntimeCache('crm-bootstrap:')
+    clearAuthenticatedUserCache(id)
 
     return NextResponse.json(usuario, { status: 201 })
   } catch (error: any) {

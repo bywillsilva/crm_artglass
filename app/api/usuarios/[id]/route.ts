@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { getConnection, isTransientDatabaseError, query } from '@/lib/db/mysql'
-import { getServerSession } from '@/lib/auth/session'
-import { getAuthenticatedServerUser } from '@/lib/auth/session'
+import { clearAuthenticatedUserCache, getAuthenticatedServerUser, getServerSession } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
 import { normalizeRulePermissions } from '@/lib/auth/rule-access'
@@ -238,6 +237,7 @@ export async function PUT(
     invalidateRuntimeCache('dashboard:')
     invalidateRuntimeCache('interacoes:')
     invalidateRuntimeCache('crm-bootstrap:')
+    clearAuthenticatedUserCache(id)
 
     return NextResponse.json(usuario)
   } catch (error: any) {

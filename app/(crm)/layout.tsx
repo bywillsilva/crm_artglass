@@ -25,6 +25,7 @@ export default async function CRMLayout({
       role: session.role,
       ativo: true,
       modulePermissions: null,
+      rulePermissions: null,
     }
   })
   if (!authenticatedUser?.ativo) {
@@ -40,6 +41,7 @@ export default async function CRMLayout({
       role: authenticatedUser.role,
       ativo: authenticatedUser.ativo,
       modulePermissions: authenticatedUser.modulePermissions ?? null,
+      rulePermissions: authenticatedUser.rulePermissions ?? null,
     },
   }
 

@@ -6,6 +6,9 @@ import { createSessionToken, SESSION_COOKIE } from '@/lib/auth/session'
 import { buildEmailTemplate } from '@/lib/email'
 import { getEmailBranding } from '@/lib/server/email-branding'
 import { safeSendEmail, userHasTwoFactorEnabled } from '@/lib/server/user-settings'
+import { normalizeModulePermissions } from '@/lib/auth/module-access'
+import { normalizeRulePermissions } from '@/lib/auth/rule-access'
+import type { RoleUsuario } from '@/lib/data/types'
 
 function generateToken() {
   return String(randomInt(100000, 1000000))
@@ -49,7 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     const [user] = await query<any[]>(
-      `SELECT id, nome, email, senha, avatar, role, ativo
+      `SELECT id, nome, email, senha, avatar, role, ativo, module_permissions, rule_permissions
        FROM usuarios
        WHERE email = ?
        LIMIT 1`,
@@ -120,6 +123,7 @@ export async function POST(request: NextRequest) {
     }
 
     const token = createSessionToken(user.id, user.role)
+    const role = user.role as RoleUsuario
     const response = NextResponse.json({
       user: {
         id: user.id,
@@ -127,8 +131,8 @@ export async function POST(request: NextRequest) {
         email: user.email,
         avatar: user.avatar,
         role: user.role,
-        modulePermissions: null,
-        rulePermissions: null,
+        modulePermissions: normalizeModulePermissions(user.module_permissions ?? null, role),
+        rulePermissions: normalizeRulePermissions(user.rule_permissions ?? null, role),
       },
     })
 
