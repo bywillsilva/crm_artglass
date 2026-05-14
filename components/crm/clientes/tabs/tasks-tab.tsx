@@ -59,8 +59,9 @@ export function TasksTab({ clienteId }: TasksTabProps) {
   const [isSavingTask, setIsSavingTask] = useState(false)
 
   const tarefas = getTarefasByCliente(clienteId)
-  const canViewAllTasks = user?.role === 'admin' || user?.role === 'gerente'
+  const canViewAllTasks = hasRuleAccess(user, 'canViewAllTasks')
   const canChooseCreateResponsavel = hasRuleAccess(user, 'canAssignTaskResponsavel')
+  const canManageAllTasks = hasRuleAccess(user, 'canManageAllTasks')
   const visibleTarefas = canViewAllTasks
     ? tarefas
     : tarefas.filter((tarefa) => tarefa.responsavelId === user?.id)
@@ -168,9 +169,7 @@ export function TasksTab({ clienteId }: TasksTabProps) {
                   tarefa.status === 'pendente' &&
                   new Date(tarefa.dataHora) < new Date()
                 const canEdit =
-                  user?.role === 'admin' ||
-                  user?.role === 'gerente' ||
-                  tarefa.responsavelId === user?.id
+                  canManageAllTasks || tarefa.responsavelId === user?.id
 
                 return (
                   <div

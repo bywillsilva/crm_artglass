@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import {
   getSchemaMigrationStatus,
@@ -15,7 +16,7 @@ async function requireAdminUser() {
     }
   }
 
-  if (user.role !== 'admin') {
+  if (!hasRuleAccess(user, 'canRunSchemaSync')) {
     return {
       error: NextResponse.json({ error: 'Acesso negado' }, { status: 403 }),
       user: null,

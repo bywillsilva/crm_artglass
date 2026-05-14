@@ -229,6 +229,14 @@ export async function PUT(
     })
     invalidateRuntimeCache('usuarios:list:')
     invalidateRuntimeCache('usuario:detail:')
+    invalidateRuntimeCache('clientes:list:')
+    invalidateRuntimeCache('cliente:detail:')
+    invalidateRuntimeCache('propostas:list:')
+    invalidateRuntimeCache('proposta:detail:')
+    invalidateRuntimeCache('tarefas:list:')
+    invalidateRuntimeCache('tarefa:detail:')
+    invalidateRuntimeCache('dashboard:')
+    invalidateRuntimeCache('interacoes:')
     invalidateRuntimeCache('crm-bootstrap:')
 
     return NextResponse.json(usuario)
@@ -311,6 +319,14 @@ export async function DELETE(
 
     invalidateRuntimeCache('usuarios:list:')
     invalidateRuntimeCache('usuario:detail:')
+    invalidateRuntimeCache('clientes:list:')
+    invalidateRuntimeCache('cliente:detail:')
+    invalidateRuntimeCache('propostas:list:')
+    invalidateRuntimeCache('proposta:detail:')
+    invalidateRuntimeCache('tarefas:list:')
+    invalidateRuntimeCache('tarefa:detail:')
+    invalidateRuntimeCache('dashboard:')
+    invalidateRuntimeCache('interacoes:')
     invalidateRuntimeCache('crm-bootstrap:')
     await publishRealtimeEvent({
       actorUserId: session?.userId || null,

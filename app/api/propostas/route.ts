@@ -545,15 +545,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Cliente nao encontrado para a proposta' }, { status: 404 })
     }
 
-    const responsavelBase =
-      user.role === 'orcamentista'
+    const responsavelBase = hasRuleAccess(user, 'canSelectProposalResponsavelOnForm')
+      ? user.role === 'orcamentista'
         ? String(data.responsavelId || cliente.responsavel_id || '')
         : (data.responsavelId || null)
+      : user.role === 'orcamentista'
+        ? String(cliente.responsavel_id || '')
+        : (user.id || cliente.responsavel_id || null)
     const responsavelId = await validateResponsavel(responsavelBase, user)
     const orcamentistaId = await validateOrcamentista(
-      user.role === 'orcamentista'
-        ? (data.orcamentistaId || user.id)
-        : (data.orcamentistaId || null)
+      hasRuleAccess(user, 'canAssignProposalOrcamentistaOnForm')
+        ? user.role === 'orcamentista'
+          ? (data.orcamentistaId || user.id)
+          : (data.orcamentistaId || null)
+        : user.role === 'orcamentista'
+          ? user.id
+          : null
     )
 
     if (requiresOrcamentistaAssignment(status) && !orcamentistaId) {

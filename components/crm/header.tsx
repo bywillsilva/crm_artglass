@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   DropdownMenu,
@@ -174,14 +175,14 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
   }, [headerPropostas])
 
   const canReceiveClienteNotification = (cliente: Cliente) => {
-    if (user?.role === 'admin') return true
+    if (hasRuleAccess(user, 'canViewAllNotifications')) return true
     if (user?.role === 'vendedor' || user?.role === 'gerente') return cliente.responsavelId === user.id
     return false
   }
 
   const canReceiveProposalNotification = (proposta: Proposta | null | undefined) => {
     if (!proposta) return false
-    if (user?.role === 'admin') return true
+    if (hasRuleAccess(user, 'canViewAllNotifications')) return true
     if (user?.role === 'vendedor' || user?.role === 'gerente') return proposta.responsavelId === user.id
     if (user?.role === 'orcamentista') {
       return Boolean(proposta.orcamentistaId) && proposta.orcamentistaId === user.id
@@ -195,7 +196,12 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
     const now = currentTimestamp ?? 0
     const tasks = headerTarefas
       .filter((tarefa: Tarefa) => tarefa.status === 'pendente')
-      .filter((tarefa: Tarefa) => user?.role === 'admin' || tarefa.responsavelId === user?.id)
+      .filter(
+        (tarefa: Tarefa) =>
+          hasRuleAccess(user, 'canViewAllNotifications') ||
+          hasRuleAccess(user, 'canViewAllTasks') ||
+          tarefa.responsavelId === user?.id
+      )
       .sort((a: Tarefa, b: Tarefa) => new Date(a.dataHora).getTime() - new Date(b.dataHora).getTime())
 
     return tasks.slice(0, 12).map((tarefa: Tarefa) => {
@@ -210,7 +216,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
         persistent: true,
       }
     })
-  }, [currentTimestamp, headerTarefas, notifications.tarefas, user?.id, user?.role])
+  }, [currentTimestamp, headerTarefas, notifications.tarefas, user])
 
   const leadNotifications = useMemo<HeaderNotification[]>(() => {
     if (!notifications.novosLeads) return []
@@ -238,7 +244,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
         createdAt: cliente.ultimoContato.getTime(),
         persistent: true,
       }))
-  }, [headerClientes, headerTarefas, notifications.novosLeads, user?.id, user?.role])
+  }, [headerClientes, headerTarefas, notifications.novosLeads, user])
 
   const actionNotifications = useMemo<HeaderNotification[]>(() => {
     if (isLoadingReadNotifications) return []
@@ -278,8 +284,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
     notifications.propostas,
     readNotificationIdsSet,
     interacoes,
-    user?.id,
-    user?.role,
+    user,
   ])
 
   const groupedNotifications = useMemo(() => {

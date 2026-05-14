@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic'
 import { use, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { hasModuleAccess } from '@/lib/auth/module-access'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { useCRM } from '@/lib/context/crm-context'
 import { useSession } from '@/lib/hooks/use-api'
 import { CRMHeader } from '@/components/crm/header'
@@ -44,7 +45,7 @@ export default function ClienteDetailPage({ params }: PageProps) {
   const { getCliente } = useCRM()
   const { user } = useSession()
   const [showEditForm, setShowEditForm] = useState(false)
-  const canEditClient = user?.role !== 'vendedor'
+  const canEditClient = hasRuleAccess(user, 'canEditClientsDirectly')
 
   const cliente = getCliente(id)
 

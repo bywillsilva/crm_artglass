@@ -42,6 +42,8 @@ export default function TarefasPage() {
   const { user } = useSession()
   const hasTarefasAccess = hasModuleAccess(user, 'tarefas')
   const canChooseCreateResponsavel = hasRuleAccess(user, 'canAssignTaskResponsavel')
+  const canViewAllTasks = hasRuleAccess(user, 'canViewAllTasks')
+  const canManageAllTasks = hasRuleAccess(user, 'canManageAllTasks')
   const tarefas = state.tarefas
   const clientes = state.clientes
   const usuarios = state.usuarios
@@ -243,9 +245,7 @@ export default function TarefasPage() {
     const cliente = lookups.clientesById.get(tarefa.clienteId)
     const responsavel = lookups.usuariosById.get(tarefa.responsavelId)
     const canEdit =
-      user?.role === 'admin' ||
-      user?.role === 'gerente' ||
-      tarefa.responsavelId === user?.id
+      canManageAllTasks || tarefa.responsavelId === user?.id
 
     return (
       <div key={tarefa.id} className="flex items-start gap-3 p-4 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors">

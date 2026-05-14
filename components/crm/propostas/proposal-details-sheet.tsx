@@ -412,12 +412,17 @@ export function ProposalDetailsSheet({
   }, [propostaSource, user])
 
   const canViewTechnicalDetails = useMemo(
-    () => user?.role === 'admin' || user?.role === 'orcamentista',
-    [user?.role]
+    () => hasRuleAccess(user, 'canViewTechnicalProposalData'),
+    [user]
   )
   const canEditResponsavel = useMemo(
-    () => Boolean(user?.role === 'admin' && propostaSource),
-    [propostaSource, user?.role]
+    () =>
+      Boolean(
+        propostaSource &&
+          canManageProposalContent &&
+          hasRuleAccess(user, 'canEditProposalResponsavelDirectly')
+      ),
+    [canManageProposalContent, propostaSource, user]
   )
 
   const canEditTechnicalDetails = useMemo(

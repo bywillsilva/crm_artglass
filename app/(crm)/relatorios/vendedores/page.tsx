@@ -2,6 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import { useMemo, useState } from 'react'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { hasModuleAccess } from '@/lib/auth/module-access'
 import { CRMHeader } from '@/components/crm/header'
 import { DateRangeFilter } from '@/components/crm/date-range-filter'
@@ -70,7 +71,7 @@ export default function RelatorioVendedoresPage() {
   const [editingMetaUserId, setEditingMetaUserId] = useState<string | null>(null)
   const [metaInput, setMetaInput] = useState('')
   const hasPerformanceAccess = hasModuleAccess(user, 'performance')
-  const canManageSellerGoals = user?.role === 'admin' || user?.role === 'gerente'
+  const canManageSellerGoals = hasRuleAccess(user, 'canManageSellerGoals')
 
   const vendedores = useMemo(
     () => state.usuarios.filter((usuario) => usuario.role === 'vendedor' || usuario.role === 'gerente'),

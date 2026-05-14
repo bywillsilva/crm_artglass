@@ -241,7 +241,8 @@ export async function GET(request: Request) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
     isAuthenticated = true
-    const isAdmin = authenticatedUser.role === 'admin' || authenticatedUser.role === 'gerente'
+    const canViewAllClients = hasRuleAccess(authenticatedUser, 'canViewAllClients')
+    const canViewAllTasks = hasRuleAccess(authenticatedUser, 'canViewAllTasks')
     const sections = parseSectionsParam(request)
     const cacheKey = `crm-bootstrap:${authenticatedUser.role}:${authenticatedUser.id}:${sections.join(',')}`
     const cachedResponse = getRuntimeCache<Partial<Record<BootstrapSection, any[]>>>(cacheKey)
@@ -255,7 +256,7 @@ export async function GET(request: Request) {
         switch (section) {
           case 'clientes':
             const clientWhereClause =
-              authenticatedUser.role === 'vendedor'
+              !canViewAllClients
                 ? `WHERE (
                     c.responsavel_id = ?
                     OR EXISTS (
@@ -274,9 +275,9 @@ export async function GET(request: Request) {
                    FROM clientes c
                    ${clientWhereClause}
                  ORDER BY c.created_at DESC`,
-                authenticatedUser.role === 'vendedor'
-                  ? [authenticatedUser.id, authenticatedUser.id]
-                  : []
+                 !canViewAllClients
+                   ? [authenticatedUser.id, authenticatedUser.id]
+                   : []
               ),
             ] as const
           case 'usuarios':
@@ -292,10 +293,10 @@ export async function GET(request: Request) {
                    ${BOOTSTRAP_TASK_SELECT_COLUMNS}
                  FROM tarefas t
                  LEFT JOIN propostas p ON t.proposta_id = p.id
-                 WHERE ${isAdmin ? '1=1' : 't.responsavel_id = ?'}
-                 ORDER BY t.data_hora ASC`,
-                isAdmin ? [] : [authenticatedUser.id]
-              ),
+                  WHERE ${canViewAllTasks ? '1=1' : 't.responsavel_id = ?'}
+                  ORDER BY t.data_hora ASC`,
+                 canViewAllTasks ? [] : [authenticatedUser.id]
+               ),
             ] as const
           case 'propostas':
             const proposalWhereClause =

@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs'
 import path from 'path'
 import { NextResponse } from 'next/server'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { query } from '@/lib/db/mysql'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import {
@@ -43,7 +44,7 @@ async function ensureBaseSchema() {
 async function getAdminUser() {
   const user = await getAuthenticatedServerUser()
   if (!user) return null
-  if (user.role !== 'admin') return null
+  if (!hasRuleAccess(user, 'canAuditProposalAttachments')) return null
   return user
 }
 

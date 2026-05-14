@@ -14,6 +14,7 @@ import {
   Users,
 } from 'lucide-react'
 import { updateTarefaStatus, useDashboard, useSession } from '@/lib/hooks/use-api'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { CRMHeader } from '@/components/crm/header'
 import { DateRangeFilter } from '@/components/crm/date-range-filter'
@@ -105,7 +106,8 @@ export function DashboardContent() {
   )
   const visibleRanking = useMemo(() => (rankingVendedores || []).slice(0, 5), [rankingVendedores])
   const visibleTasks = useMemo(() => (tarefasPeriodo || []).slice(0, 5), [tarefasPeriodo])
-  const vendedorAtual = user?.role === 'admin' || user?.role === 'gerente' ? null : rankingVendedores?.[0]
+  const canViewAllDashboardData = hasRuleAccess(user, 'canViewAllDashboardData')
+  const vendedorAtual = canViewAllDashboardData ? null : rankingVendedores?.[0]
   const metaAtual = Number(vendedorAtual?.meta_vendas || 0)
   const valorAtual = Number(vendedorAtual?.valor_total || 0)
   const progressoMeta = metaAtual > 0 ? Math.min((valorAtual / metaAtual) * 100, 100) : 0
@@ -175,11 +177,11 @@ export function DashboardContent() {
           <Card className="bg-card border-border">
             <CardHeader>
               <CardTitle className="text-foreground text-lg">
-                {user?.role === 'admin' || user?.role === 'gerente' ? 'Ranking de Vendedores' : 'Minhas Vendas'}
+                {canViewAllDashboardData ? 'Ranking de Vendedores' : 'Minhas Vendas'}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {user?.role !== 'admin' && user?.role !== 'gerente' && vendedorAtual ? (
+              {!canViewAllDashboardData && vendedorAtual ? (
                 <div className="space-y-4">
                   <div className="flex items-center gap-4">
                     <Avatar className="h-10 w-10">

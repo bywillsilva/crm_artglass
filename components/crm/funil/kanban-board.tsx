@@ -1900,7 +1900,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                           )
                         })() : null}
 
-                        {status === 'aguardando_aprovacao' && user?.role === 'admin' ? (
+                        {status === 'aguardando_aprovacao' && hasRuleAccess(user, 'canApproveReadyProposals') ? (
                           <div className="mt-3 flex gap-2">
                             <Button size="sm" onClick={() => requestMove(proposta.id, 'enviar_ao_cliente')}>
                               Aprovar

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
@@ -99,7 +100,7 @@ export async function GET(
       return jsonNoStore({ error: 'Cliente nao encontrado' }, { status: 404 })
     }
 
-    if (user.role === 'vendedor') {
+    if (!hasRuleAccess(user, 'canViewAllClients')) {
       const [allowedProposal] = await query<any[]>(
         `SELECT 1
          FROM propostas
@@ -143,11 +144,11 @@ export async function PUT(
     }
     await ensureSchemaReadyForReads()
 
-    if (user.role === 'vendedor') {
+    if (!hasRuleAccess(user, 'canEditClientsDirectly')) {
       return NextResponse.json(
         {
           error:
-            'O vendedor nao pode editar os dados do cliente diretamente. Esse complemento so pode ser feito no momento do fechamento da proposta.',
+            'Este usuario nao pode editar os dados do cliente diretamente por esta tela.',
         },
         { status: 403 }
       )

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { query } from '@/lib/db/mysql'
 import { getAuthenticatedServerUser, getServerSession } from '@/lib/auth/session'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
@@ -79,7 +80,7 @@ export async function GET(request: NextRequest) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
 
-    const isAdmin = user.role === 'admin' || user.role === 'gerente'
+    const canViewAllDashboardData = hasRuleAccess(user, 'canViewAllDashboardData')
     const cacheKey = `dashboard:${user.role}:${user.id}:${dateRange?.startDate || 'all'}:${dateRange?.endDate || 'all'}`
     const cachedResponse = getRuntimeCache<any>(cacheKey)
     if (cachedResponse) {
@@ -88,31 +89,31 @@ export async function GET(request: NextRequest) {
 
     const startDateTime = dateRange ? `${dateRange.startDate} 00:00:00` : null
     const endDateTime = dateRange ? `${dateRange.endDate} 23:59:59` : null
-    const proposalFilter = `${isAdmin ? '' : ' AND responsavel_id = ?'}${
+    const proposalFilter = `${canViewAllDashboardData ? '' : ' AND responsavel_id = ?'}${
       dateRange ? ' AND created_at BETWEEN ? AND ?' : ''
     }`
-    const proposalAliasedFilter = `${isAdmin ? '' : ' AND p.responsavel_id = ?'}${
+    const proposalAliasedFilter = `${canViewAllDashboardData ? '' : ' AND p.responsavel_id = ?'}${
       dateRange ? ' AND p.created_at BETWEEN ? AND ?' : ''
     }`
-    const proposalParams = isAdmin
+    const proposalParams = canViewAllDashboardData
       ? dateRange
         ? [startDateTime, endDateTime]
         : []
       : dateRange
         ? [user.id, startDateTime, endDateTime]
         : [user.id]
-    const taskFilter = `${isAdmin ? '' : ' AND t.responsavel_id = ?'}${
+    const taskFilter = `${canViewAllDashboardData ? '' : ' AND t.responsavel_id = ?'}${
       dateRange ? ' AND t.data_hora BETWEEN ? AND ?' : ''
     }`
-    const taskParams = isAdmin
+    const taskParams = canViewAllDashboardData
       ? dateRange
         ? [startDateTime, endDateTime]
         : []
       : dateRange
         ? [user.id, startDateTime, endDateTime]
         : [user.id]
-    const rankingLimit = isAdmin ? 'LIMIT 5' : ''
-    const clientAlertQuery = isAdmin
+    const rankingLimit = canViewAllDashboardData ? 'LIMIT 5' : ''
+    const clientAlertQuery = canViewAllDashboardData
       ? `SELECT DISTINCT ${DASHBOARD_CLIENT_ALERT_SELECT_COLUMNS}
          FROM clientes c
          INNER JOIN propostas p
@@ -143,7 +144,7 @@ export async function GET(request: NextRequest) {
              ${dateRange ? 'AND t.data_hora BETWEEN ? AND ?' : ''}
          )
          LIMIT 10`
-    const clientAlertParams = isAdmin
+    const clientAlertParams = canViewAllDashboardData
       ? dateRange
         ? [startDateTime, endDateTime, startDateTime, endDateTime]
         : []
@@ -188,9 +189,9 @@ export async function GET(request: NextRequest) {
       query<any[]>(
         `SELECT COALESCE(SUM(valor_final), 0) as total
          FROM propostas
-         WHERE status = 'fechado'
-            ${dateRange ? 'AND updated_at BETWEEN ? AND ?' : ''}${isAdmin ? '' : ' AND responsavel_id = ?'}`,
-         isAdmin
+            WHERE status = 'fechado'
+             ${dateRange ? 'AND updated_at BETWEEN ? AND ?' : ''}${canViewAllDashboardData ? '' : ' AND responsavel_id = ?'}`,
+         canViewAllDashboardData
            ? dateRange
              ? [startDateTime, endDateTime]
              : []
@@ -207,16 +208,16 @@ export async function GET(request: NextRequest) {
         proposalParams
       ),
       query<any[]>(
-        `SELECT
-           DATE_FORMAT(updated_at, '%Y-%m') as mes,
-           COALESCE(SUM(valor_final), 0) as valor,
-           COUNT(*) as quantidade
-         FROM propostas
-         WHERE status = 'fechado'
-            ${dateRange ? 'AND updated_at BETWEEN ? AND ?' : ''}${isAdmin ? '' : ' AND responsavel_id = ?'}
-          GROUP BY DATE_FORMAT(updated_at, '%Y-%m')
-          ORDER BY mes ASC`,
-         isAdmin
+         `SELECT
+            DATE_FORMAT(updated_at, '%Y-%m') as mes,
+            COALESCE(SUM(valor_final), 0) as valor,
+            COUNT(*) as quantidade
+          FROM propostas
+          WHERE status = 'fechado'
+             ${dateRange ? 'AND updated_at BETWEEN ? AND ?' : ''}${canViewAllDashboardData ? '' : ' AND responsavel_id = ?'}
+           GROUP BY DATE_FORMAT(updated_at, '%Y-%m')
+           ORDER BY mes ASC`,
+         canViewAllDashboardData
            ? dateRange
              ? [startDateTime, endDateTime]
              : []
@@ -233,16 +234,16 @@ export async function GET(request: NextRequest) {
            COUNT(p.id) as total_vendas,
            COALESCE(SUM(p.valor_final), 0) as valor_total
          FROM usuarios u
-         LEFT JOIN propostas p
-           ON u.id = p.responsavel_id
-           AND p.status = 'fechado'
-           ${dateRange ? 'AND p.updated_at BETWEEN ? AND ?' : ''}
-         WHERE u.role IN ('vendedor', 'gerente')
-           ${isAdmin ? '' : 'AND u.id = ?'}
-         GROUP BY u.id, u.nome, u.avatar, u.meta_vendas
-         ORDER BY valor_total DESC
-         ${rankingLimit}`,
-         isAdmin
+          LEFT JOIN propostas p
+            ON u.id = p.responsavel_id
+            AND p.status = 'fechado'
+            ${dateRange ? 'AND p.updated_at BETWEEN ? AND ?' : ''}
+          WHERE u.role IN ('vendedor', 'gerente')
+            ${canViewAllDashboardData ? '' : 'AND u.id = ?'}
+          GROUP BY u.id, u.nome, u.avatar, u.meta_vendas
+          ORDER BY valor_total DESC
+          ${rankingLimit}`,
+          canViewAllDashboardData
            ? dateRange
              ? [startDateTime, endDateTime]
              : []

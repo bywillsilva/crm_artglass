@@ -3,6 +3,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import Link from 'next/link'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useSession } from '@/lib/hooks/use-api'
@@ -51,7 +52,7 @@ export function ClientsTable({ onNewClient }: ClientsTableProps) {
   const [editingClient, setEditingClient] = useState<Cliente | null>(null)
   const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(10)
   const [currentPage, setCurrentPage] = useState(1)
-  const canEditClient = user?.role !== 'vendedor'
+  const canEditClient = hasRuleAccess(user, 'canEditClientsDirectly')
 
   const filteredClientes = useMemo(
     () =>

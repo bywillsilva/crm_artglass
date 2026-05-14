@@ -286,7 +286,7 @@ function hasExplicitAssigneeId(value: string | null | undefined): value is strin
 }
 
 function canViewTechnicalProposalData(user: any) {
-  return user?.role === 'admin' || user?.role === 'orcamentista'
+  return hasRuleAccess(user, 'canViewTechnicalProposalData')
 }
 
 function sanitizeTechnicalProposalData<T extends Record<string, any>>(proposal: T, user: any): T {
@@ -912,7 +912,11 @@ export async function PUT(
       }
     }
 
-    if (previousStatus === 'aguardando_aprovacao' && nextStatus === 'enviar_ao_cliente' && user.role !== 'admin') {
+    if (
+      previousStatus === 'aguardando_aprovacao' &&
+      nextStatus === 'enviar_ao_cliente' &&
+      !hasRuleAccess(user, 'canApproveReadyProposals')
+    ) {
       return NextResponse.json(
         { error: 'Apenas administradores podem aprovar o orcamento pronto.' },
         { status: 403 }
@@ -947,6 +951,20 @@ export async function PUT(
       !hasExplicitAssigneeId(data.responsavelId) || (isWorkflowDrivenUpdate && !data.responsavelId)
         ? propostaAtual.responsavel_id
         : data.responsavelId
+    const isResponsavelFieldChanging =
+      hasExplicitAssigneeId(data.responsavelId) && data.responsavelId !== propostaAtual.responsavel_id
+
+    if (
+      isResponsavelFieldChanging &&
+      !hasRuleAccess(user, 'canEditProposalResponsavelDirectly') &&
+      !hasRuleAccess(user, 'canSelectProposalResponsavelOnForm')
+    ) {
+      return NextResponse.json(
+        { error: 'Este usuario nao pode alterar o vendedor responsavel diretamente por esta tela.' },
+        { status: 403 }
+      )
+    }
+
     const responsavelId =
       user.role === 'admin' || user.role === 'gerente' || user.role === 'orcamentista'
         ? await validateUserRole(requestedResponsavelId, ['vendedor', 'gerente'])
@@ -961,6 +979,20 @@ export async function PUT(
     }
     const isOrcamentistaFieldChanging =
       hasExplicitAssigneeId(data.orcamentistaId) && data.orcamentistaId !== propostaAtual.orcamentista_id
+
+    if (isOrcamentistaFieldChanging && !hasRuleAccess(user, 'canAssignProposalOrcamentistaOnForm')) {
+      return NextResponse.json(
+        { error: 'Este usuario nao pode alterar o orcamentista diretamente por esta tela.' },
+        { status: 403 }
+      )
+    }
+
+    if (isStatusChange && !workflowAction && !hasRuleAccess(user, 'canEditProposalStatusDirectly')) {
+      return NextResponse.json(
+        { error: 'Este usuario nao pode alterar o status diretamente por esta tela.' },
+        { status: 403 }
+      )
+    }
 
     if (
       requireApprovalOrcamentista &&
@@ -1008,7 +1040,7 @@ export async function PUT(
         ? normalizeNullableText(propostaAtual.observacoes_tecnicas)
         : normalizeNullableText(data.observacoesTecnicas)
 
-    if (user.role === 'vendedor') {
+    if (user.role === 'vendedor' && !hasRuleAccess(user, 'canEditProposalDirectlyOutsideFunnel')) {
       const currentAreaM2 = parseNullableNumber(propostaAtual.area_m2)
       const currentPerfisBruto = parseNullableNumber(propostaAtual.perfis_bruto)
       const currentPerfisLiquidos = parseNullableNumber(propostaAtual.perfis_liquidos)
@@ -1426,7 +1458,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Proposta nao encontrada' }, { status: 404 })
     }
 
-    if (!canEditProposal(user, proposta)) {
+    if (!hasRuleAccess(user, 'canDeleteProposalsDirectly') || !canEditProposal(user, proposta)) {
       return NextResponse.json({ error: 'Voce nao pode excluir esta proposta' }, { status: 403 })
     }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
 import { isTransientDatabaseError, query } from '@/lib/db/mysql'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
@@ -61,7 +62,7 @@ export async function GET(
       return jsonNoStore({ error: 'Tarefa nao encontrada' }, { status: 404 })
     }
 
-    if (!['admin', 'gerente'].includes(user.role) && tarefa.responsavel_id !== user.id) {
+    if (!hasRuleAccess(user, 'canViewAllTasks') && tarefa.responsavel_id !== user.id) {
       return jsonNoStore({ error: 'Acesso negado a esta tarefa' }, { status: 403 })
     }
 
@@ -119,7 +120,7 @@ export async function PUT(
       return NextResponse.json({ error: 'Tarefa nao encontrada' }, { status: 404 })
     }
 
-    if (!['admin', 'gerente'].includes(user.role) && tarefaAtual.responsavel_id !== user.id) {
+    if (!hasRuleAccess(user, 'canManageAllTasks') && tarefaAtual.responsavel_id !== user.id) {
       return NextResponse.json(
         { error: 'Apenas o responsavel pela tarefa ou o administrador podem edita-la' },
         { status: 403 }
@@ -221,7 +222,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Tarefa nao encontrada' }, { status: 404 })
     }
 
-    if (!['admin', 'gerente'].includes(user.role) && tarefaAtual.responsavel_id !== user.id) {
+    if (!hasRuleAccess(user, 'canManageAllTasks') && tarefaAtual.responsavel_id !== user.id) {
       return NextResponse.json(
         { error: 'Apenas o responsavel pela tarefa ou o administrador podem altera-la' },
         { status: 403 }
@@ -302,7 +303,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Tarefa nao encontrada' }, { status: 404 })
     }
 
-    if (!['admin', 'gerente'].includes(user.role) && tarefa.responsavel_id !== user.id) {
+    if (!hasRuleAccess(user, 'canManageAllTasks') && tarefa.responsavel_id !== user.id) {
       return NextResponse.json(
         { error: 'Apenas o responsavel pela tarefa ou o administrador podem exclui-la' },
         { status: 403 }

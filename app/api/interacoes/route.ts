@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isTransientDatabaseError, query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import { formatDateTime } from '@/lib/server/proposal-workflow'
@@ -64,7 +65,9 @@ export async function GET(request: NextRequest) {
     `
 
     if (notificationsOnly) {
-      if (user.role === 'vendedor' || user.role === 'gerente') {
+      if (hasRuleAccess(user, 'canViewAllNotifications')) {
+        // acesso total
+      } else if (user.role === 'vendedor' || user.role === 'gerente') {
         whereClauses.push('(p.responsavel_id = ? OR (p.id IS NULL AND c.responsavel_id = ?))')
         params.push(user.id, user.id)
       } else if (user.role === 'orcamentista') {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import {
@@ -202,7 +203,7 @@ export async function POST(request: NextRequest) {
     const data = await request.json()
     const isCompanyConfig = data.chave === 'empresa'
 
-    if (isCompanyConfig && user.role !== 'admin') {
+    if (isCompanyConfig && !hasRuleAccess(user, 'canEditCompanySettings')) {
       return NextResponse.json(
         { error: 'Apenas o administrador pode alterar os dados da empresa' },
         { status: 403 }

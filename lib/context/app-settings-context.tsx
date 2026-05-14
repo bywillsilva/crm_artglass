@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import useSWR, { mutate } from 'swr'
 import { useTheme } from 'next-themes'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { saveConfiguracao, useSession } from '@/lib/hooks/use-api'
 import { parseDateTimeValue } from '@/lib/utils/date-time'
 import { formatBrazilPhone } from '@/lib/utils/phone'
@@ -280,7 +281,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
       saveConfiguracao('aparencia', appearance),
     ]
 
-    if (user?.role === 'admin') {
+    if (hasRuleAccess(user, 'canEditCompanySettings')) {
       requests.push(saveConfiguracao('empresa', normalizeCompanySettings(company)))
     }
 
@@ -288,7 +289,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
 
     mutate('/api/configuracoes')
     mutate('/api/configuracoes?chave=empresa')
-  }, [appearance, company, general, notifications, user?.role])
+  }, [appearance, company, general, notifications, user])
 
   const formatCurrency = useMemo(
     () => (value: number) =>
@@ -365,7 +366,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
         setAppearance,
         setCompany,
         saveAll,
-        canEditCompany: user?.role === 'admin',
+        canEditCompany: hasRuleAccess(user, 'canEditCompanySettings'),
         formatCurrency,
         formatDate,
         formatDateTime,

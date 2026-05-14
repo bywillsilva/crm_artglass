@@ -221,12 +221,15 @@ export default function PropostasPage() {
     const descriptionPreview = getDescriptionPreview(proposta.descricao)
     const clientName = cliente?.nome || proposta.clienteNome || 'Cliente nao encontrado'
     const canDeleteProposal =
-      user?.role === 'admin' ||
-      user?.role === 'gerente' ||
+      hasRuleAccess(user, 'canDeleteProposalsDirectly') &&
       (
-        user?.role === 'orcamentista' &&
-        (!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
-        ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
+        user?.role === 'admin' ||
+        user?.role === 'gerente' ||
+        (
+          user?.role === 'orcamentista' &&
+          (!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
+          ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
+        )
       )
     const canEditProposal =
       user?.role === 'admin' ||
@@ -349,12 +352,15 @@ export default function PropostasPage() {
     const descriptionPreview = getDescriptionPreview(proposta.descricao, 96)
     const clientName = cliente?.nome || proposta.clienteNome || 'Cliente nao encontrado'
     const canDeleteProposal =
-      user?.role === 'admin' ||
-      user?.role === 'gerente' ||
+      hasRuleAccess(user, 'canDeleteProposalsDirectly') &&
       (
-        user?.role === 'orcamentista' &&
-        (!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
-        ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
+        user?.role === 'admin' ||
+        user?.role === 'gerente' ||
+        (
+          user?.role === 'orcamentista' &&
+          (!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
+          ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao'].includes(proposta.status)
+        )
       )
     const canEditProposal =
       user?.role === 'admin' ||

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getConnection, isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysql'
 import { v4 as uuidv4 } from 'uuid'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
@@ -222,7 +223,7 @@ export async function GET(request: NextRequest) {
     `
     const params: unknown[] = []
 
-    if (user.role === 'vendedor') {
+    if (!hasRuleAccess(user, 'canViewAllClients')) {
       sql += ` AND (
         c.responsavel_id = ?
         OR EXISTS (

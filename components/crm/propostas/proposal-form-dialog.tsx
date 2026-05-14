@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Paperclip, Upload } from 'lucide-react'
 import { toast } from 'sonner'
+import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { useCRM } from '@/lib/context/crm-context'
 import { prefetchProposta, useProposta, useSession } from '@/lib/hooks/use-api'
 import { statusPropostaLabels, type Proposta, type StatusProposta } from '@/lib/data/types'
@@ -127,9 +128,10 @@ export function ProposalFormDialog({
   const propostaSource = proposta || propostaInicial || null
   const isEditing = Boolean(propostaId)
   const isAdmin = user?.role === 'admin' || user?.role === 'gerente'
-  const canSelectResponsavel = isAdmin || user?.role === 'orcamentista'
-  const canEditProposalDirectly = user?.role !== 'vendedor'
-  const canEditStatusDirectly = user?.role !== 'vendedor'
+  const canSelectResponsavel = hasRuleAccess(user, 'canSelectProposalResponsavelOnForm')
+  const canAssignOrcamentista = hasRuleAccess(user, 'canAssignProposalOrcamentistaOnForm')
+  const canEditProposalDirectly = hasRuleAccess(user, 'canEditProposalDirectlyOutsideFunnel')
+  const canEditStatusDirectly = hasRuleAccess(user, 'canEditProposalStatusDirectly')
 
   const [clienteId, setClienteId] = useState(clienteIdInicial || '')
   const [clienteSearch, setClienteSearch] = useState('')
@@ -231,7 +233,7 @@ export function ProposalFormDialog({
       return
     }
 
-    const nextCreateKey = `create:${clienteIdInicial || ''}:${user?.id || ''}:${isAdmin ? 'admin' : 'user'}`
+    const nextCreateKey = `create:${clienteIdInicial || ''}:${user?.id || ''}:${isAdmin ? 'admin' : 'user'}:${canSelectResponsavel ? 'responsavel' : 'responsavel-fixo'}:${canAssignOrcamentista ? 'orcamentista' : 'orcamentista-fixo'}`
     if (hydratedKeyRef.current !== null) {
       return
     }
@@ -257,7 +259,7 @@ export function ProposalFormDialog({
     setStatus('novo_cliente')
     setFiles([])
     isDirtyRef.current = false
-  }, [clienteIdInicial, isAdmin, isEditing, open, propostaHydrationKey, propostaSource, state.clientes, user?.id, user?.role])
+  }, [canAssignOrcamentista, canSelectResponsavel, clienteIdInicial, isAdmin, isEditing, open, propostaHydrationKey, propostaSource, state.clientes, user?.id, user?.role])
 
   useEffect(() => {
     latestValorRef.current = valor
@@ -376,11 +378,11 @@ export function ProposalFormDialog({
       toast.error('Selecione um cliente para continuar.')
       return
     }
-    if (!responsavelId && isAdmin) {
+    if (canSelectResponsavel && !responsavelId && isAdmin) {
       toast.error('Selecione um vendedor responsavel para a proposta.')
       return
     }
-    if (orcamentistaObrigatorio && !orcamentistaId) {
+    if (canAssignOrcamentista && orcamentistaObrigatorio && !orcamentistaId) {
       toast.error('Selecione um orcamentista para seguir com esta proposta.')
       return
     }
@@ -408,7 +410,11 @@ export function ProposalFormDialog({
         : user?.role === 'orcamentista'
           ? responsavelId || clienteResponsavelSelecionado || propostaSource?.responsavelId || ''
           : user?.id,
-      ...(isEditing ? (orcamentistaId ? { orcamentistaId } : {}) : { orcamentistaId: orcamentistaId || null }),
+      ...(canAssignOrcamentista
+        ? isEditing
+          ? (orcamentistaId ? { orcamentistaId } : {})
+          : { orcamentistaId: orcamentistaId || null }
+        : {}),
       anexos: files,
       dataEnvio: new Date(),
       criadoEm: proposta?.criadoEm || new Date(),
@@ -513,22 +519,28 @@ export function ProposalFormDialog({
 
                     <div className="space-y-2">
                 <Label>{orcamentistaObrigatorio ? <RequiredLabel>Orcamentista</RequiredLabel> : 'Orcamentista'}</Label>
-                <Select value={orcamentistaId || 'nao_definido'} onValueChange={(value) => {
-                  isDirtyRef.current = true
-                  setOrcamentistaId(value === 'nao_definido' ? '' : value)
-                }}>
-                  <SelectTrigger className="w-full min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate [&_[data-slot=select-value]]:pr-6">
-                    <SelectValue placeholder="Selecione o orcamentista" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="nao_definido">Nao definido</SelectItem>
-                    {orcamentistas.map((usuario) => (
-                      <SelectItem key={usuario.id} value={usuario.id}>
-                        {usuario.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {canAssignOrcamentista ? (
+                  <Select value={orcamentistaId || 'nao_definido'} onValueChange={(value) => {
+                    isDirtyRef.current = true
+                    setOrcamentistaId(value === 'nao_definido' ? '' : value)
+                  }}>
+                    <SelectTrigger className="w-full min-w-0 [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:truncate [&_[data-slot=select-value]]:pr-6">
+                      <SelectValue placeholder="Selecione o orcamentista" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="nao_definido">Nao definido</SelectItem>
+                      {orcamentistas.map((usuario) => (
+                        <SelectItem key={usuario.id} value={usuario.id}>
+                          {usuario.nome}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <div className="rounded-md border border-border bg-secondary/20 px-3 py-2 text-sm text-foreground">
+                    {propostaSource?.orcamentistaNome || user?.nome || 'Nao definido'}
+                  </div>
+                )}
               </div>
 
                     <div className="space-y-2">

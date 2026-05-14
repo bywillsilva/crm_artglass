@@ -41,10 +41,8 @@ export async function GET(request: NextRequest) {
       return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
     }
 
-    const responsavel =
-      user.role === 'admin' || user.role === 'gerente'
-        ? searchParams.get('responsavel')
-        : user.id
+    const canViewAllTasks = hasRuleAccess(user, 'canViewAllTasks')
+    const responsavel = canViewAllTasks ? searchParams.get('responsavel') : user.id
     const cacheKey = `tarefas:list:${user.id}:${user.role}:${status || 'todos'}:${tipo || 'todos'}:${responsavel || 'todos'}:${clienteId || ''}:${updatedSince || ''}`
     const cachedTarefas = getRuntimeCache<any[]>(cacheKey)
     if (cachedTarefas !== undefined) {
@@ -99,10 +97,8 @@ export async function GET(request: NextRequest) {
         return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
       }
 
-      const responsavel =
-        user.role === 'admin' || user.role === 'gerente'
-          ? searchParams.get('responsavel')
-          : user.id
+      const canViewAllTasks = hasRuleAccess(user, 'canViewAllTasks')
+      const responsavel = canViewAllTasks ? searchParams.get('responsavel') : user.id
       const cacheKey = `tarefas:list:${user.id}:${user.role}:${status || 'todos'}:${tipo || 'todos'}:${responsavel || 'todos'}:${clienteId || ''}:${updatedSince || ''}`
       const cachedTarefas = getRuntimeCache<any[]>(cacheKey)
       if (cachedTarefas) {
