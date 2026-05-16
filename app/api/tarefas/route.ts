@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { isTransientDatabaseError, query } from '@/lib/db/mysql'
+import { isTransientDatabaseError } from '@/lib/db/errors'
+import { prisma } from '@/lib/db/prisma'
 import { v4 as uuidv4 } from 'uuid'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { hasRuleAccess } from '@/lib/auth/rule-access'
@@ -7,26 +8,43 @@ import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { notifyTaskEmail } from '@/lib/server/email-notifications'
 import { jsonNoStore } from '@/lib/server/http-cache'
-import { formatDateTime } from '@/lib/server/proposal-workflow'
 
 const TAREFAS_CACHE_TTL_MS = Math.max(Number(process.env.TAREFAS_CACHE_TTL_MS || 30_000), 1000)
 
-const TASK_SELECT_COLUMNS = `
-  t.id,
-  t.titulo,
-  t.descricao,
-  t.tipo,
-  t.data_hora,
-  t.status,
-  t.cliente_id,
-  t.responsavel_id,
-  t.proposta_id,
-  t.automacao_etapa,
-  t.origem,
-  t.created_at,
-  t.updated_at,
-  COALESCE(t.cliente_id, p.cliente_id) as cliente_id_resolvido
-`
+const TASK_SELECT = {
+  id: true,
+  titulo: true,
+  descricao: true,
+  tipo: true,
+  data_hora: true,
+  status: true,
+  cliente_id: true,
+  responsavel_id: true,
+  proposta_id: true,
+  automacao_etapa: true,
+  origem: true,
+  created_at: true,
+  updated_at: true,
+  propostas: {
+    select: {
+      cliente_id: true,
+    },
+  },
+} as const
+
+function isTransientTaskDatabaseError(error: unknown) {
+  const prismaCode = typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code) : ''
+  return isTransientDatabaseError(error) || ['P1001', 'P1002', 'P1008', 'P1017'].includes(prismaCode)
+}
+
+function mapTaskPayload(task: any) {
+  if (!task) return null
+  const { propostas, ...payload } = task
+  return {
+    ...payload,
+    cliente_id_resolvido: payload.cliente_id || propostas?.cliente_id || null,
+  }
+}
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
@@ -49,49 +67,47 @@ export async function GET(request: NextRequest) {
       return jsonNoStore(cachedTarefas)
     }
 
-    let sql = `
-      SELECT
-        ${TASK_SELECT_COLUMNS}
-      FROM tarefas t
-      LEFT JOIN propostas p ON t.proposta_id = p.id
-      WHERE 1=1
-    `
-    const params: unknown[] = []
+    const where: any = {}
 
     if (status && status !== 'todos') {
-      sql += ' AND t.status = ?'
-      params.push(status)
+      where.status = status
     }
 
     if (tipo && tipo !== 'todos') {
-      sql += ' AND t.tipo = ?'
-      params.push(tipo)
+      where.tipo = tipo
     }
 
     if (responsavel && responsavel !== 'todos') {
-      sql += ' AND t.responsavel_id = ?'
-      params.push(responsavel)
+      where.responsavel_id = responsavel
     }
 
     if (clienteId) {
-      sql += ' AND COALESCE(t.cliente_id, p.cliente_id) = ?'
-      params.push(clienteId)
+      where.OR = [
+        { cliente_id: clienteId },
+        { propostas: { cliente_id: clienteId } },
+      ]
     }
 
     if (updatedSince) {
-      sql += ' AND t.updated_at >= ?'
-      params.push(updatedSince)
+      where.updated_at = {
+        gte: new Date(updatedSince),
+      }
     }
 
-    sql += ' ORDER BY t.data_hora ASC'
-
-    const tarefas = await query(sql, params)
-    setRuntimeCache(cacheKey, tarefas, TAREFAS_CACHE_TTL_MS)
-    return jsonNoStore(tarefas)
+    const tarefas = await prisma.tarefas.findMany({
+      where,
+      select: TASK_SELECT,
+      orderBy: {
+        data_hora: 'asc',
+      },
+    })
+    const payload = tarefas.map(mapTaskPayload)
+    setRuntimeCache(cacheKey, payload, TAREFAS_CACHE_TTL_MS)
+    return jsonNoStore(payload)
   } catch (error) {
     console.error('Erro ao buscar tarefas:', error)
 
-    if (isTransientDatabaseError(error)) {
+    if (isTransientTaskDatabaseError(error)) {
       const user = await getAuthenticatedServerUser().catch(() => null)
       if (!user) {
         return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
@@ -139,36 +155,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Responsavel obrigatorio' }, { status: 400 })
     }
 
-    await query(
-      `INSERT INTO tarefas (id, titulo, descricao, tipo, data_hora, status, cliente_id, responsavel_id, proposta_id, automacao_etapa, origem)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        id,
-        data.titulo || data.descricao || 'Tarefa',
-        data.descricao || null,
-        data.tipo || 'ligacao',
-        data.dataHora,
-        data.status || 'pendente',
-        data.clienteId,
-        responsavelId,
-        data.propostaId || null,
-        data.automacaoEtapa || null,
-        data.origem || 'manual',
-      ]
-    )
-
-    await query(
-      `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
-       VALUES (?, ?, ?, 'tarefa', ?, ?, ?)`,
-      [
-        uuidv4(),
-        data.clienteId,
-        user.id,
-        `Tarefa criada: ${data.titulo || data.descricao || 'Tarefa'}`,
-        JSON.stringify({ tarefa_id: id, origem: data.origem || 'manual' }),
-        formatDateTime(now),
-      ]
-    )
+    await prisma.$transaction([
+      prisma.tarefas.create({
+        data: {
+          id,
+          titulo: data.titulo || data.descricao || 'Tarefa',
+          descricao: data.descricao || null,
+          tipo: data.tipo || 'ligacao',
+          data_hora: new Date(data.dataHora),
+          status: data.status || 'pendente',
+          cliente_id: data.clienteId,
+          responsavel_id: responsavelId,
+          proposta_id: data.propostaId || null,
+          automacao_etapa: data.automacaoEtapa || null,
+          origem: data.origem || 'manual',
+        } as any,
+      }),
+      prisma.interacoes.create({
+        data: {
+          id: uuidv4(),
+          cliente_id: data.clienteId,
+          usuario_id: user.id,
+          tipo: 'tarefa',
+          descricao: `Tarefa criada: ${data.titulo || data.descricao || 'Tarefa'}`,
+          dados: JSON.stringify({ tarefa_id: id, origem: data.origem || 'manual' }),
+          created_at: now,
+        } as any,
+      }),
+    ])
 
     await publishRealtimeEvent({
       actorUserId: user.id,
@@ -190,15 +204,11 @@ export async function POST(request: NextRequest) {
       action: 'created',
     })
 
-    const [tarefa] = await query<any[]>(
-      `SELECT
-         ${TASK_SELECT_COLUMNS}
-       FROM tarefas t
-       LEFT JOIN propostas p ON t.proposta_id = p.id
-       WHERE t.id = ?`,
-      [id]
-    )
-    return NextResponse.json(tarefa, { status: 201 })
+    const tarefa = await prisma.tarefas.findUnique({
+      where: { id },
+      select: TASK_SELECT,
+    })
+    return NextResponse.json(mapTaskPayload(tarefa), { status: 201 })
   } catch (error) {
     console.error('Erro ao criar tarefa:', error)
     return NextResponse.json({ error: 'Erro ao criar tarefa' }, { status: 500 })

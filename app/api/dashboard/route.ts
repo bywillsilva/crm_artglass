@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { hasRuleAccess } from '@/lib/auth/rule-access'
-import { query } from '@/lib/db/mysql'
+import { prisma } from '@/lib/db/prisma'
 import { getAuthenticatedServerUser, getServerSession } from '@/lib/auth/session'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
+import { normalizeJsonPayload } from '@/lib/server/json-normalize'
 
 const DASHBOARD_CACHE_TTL_MS = Math.max(Number(process.env.DASHBOARD_CACHE_TTL_MS || 20_000), 1000)
 
@@ -36,6 +37,28 @@ const DASHBOARD_PROPOSAL_ALERT_SELECT_COLUMNS = `
 
 async function getAuthenticatedUser() {
   return getAuthenticatedServerUser()
+}
+
+async function dashboardQuery<T>(sql: string, params: unknown[] = []) {
+  const result = await prisma.$queryRawUnsafe(sql, ...params)
+  return normalizeJsonPayload(result) as T
+}
+
+async function runDashboardQueries(tasks: Array<() => Promise<unknown>>, concurrency = 4): Promise<any[]> {
+  const results: any[] = new Array(tasks.length)
+  let nextIndex = 0
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, tasks.length) }, async () => {
+      while (nextIndex < tasks.length) {
+        const currentIndex = nextIndex
+        nextIndex += 1
+        results[currentIndex] = await tasks[currentIndex]()
+      }
+    })
+  )
+
+  return results
 }
 
 function getDateRange(request: NextRequest) {
@@ -165,28 +188,28 @@ export async function GET(request: NextRequest) {
       tarefasAtrasadas,
       clientesSemTarefa,
       propostasEmAberto,
-    ] = await Promise.all([
-      query<any[]>(
+    ] = await runDashboardQueries([
+      () => dashboardQuery<any[]>(
         `SELECT COUNT(*) as total
          FROM propostas
          WHERE status <> 'fechado' AND status <> 'perdido'${proposalFilter}`,
         proposalParams
       ),
-      query<any[]>(
+      () => dashboardQuery<any[]>(
         `SELECT COUNT(*) as total FROM propostas WHERE 1=1${proposalFilter}`,
         proposalParams
       ),
-      query<any[]>(
+      () => dashboardQuery<any[]>(
         `SELECT COUNT(*) as total FROM propostas WHERE status = 'fechado'${proposalFilter}`,
         proposalParams
       ),
-      query<any[]>(
+      () => dashboardQuery<any[]>(
         `SELECT COALESCE(SUM(valor_final), 0) as total
          FROM propostas
          WHERE status <> 'fechado' AND status <> 'perdido'${proposalFilter}`,
         proposalParams
       ),
-      query<any[]>(
+      () => dashboardQuery<any[]>(
         `SELECT COALESCE(SUM(valor_final), 0) as total
          FROM propostas
             WHERE status = 'fechado'
@@ -199,7 +222,7 @@ export async function GET(request: NextRequest) {
              ? [startDateTime, endDateTime, user.id]
              : [user.id]
       ),
-      query<any[]>(
+      () => dashboardQuery<any[]>(
         `SELECT status as status_lead, COUNT(*) as count, COALESCE(SUM(valor_final), 0) as valor
          FROM propostas
          WHERE 1=1${proposalFilter}
@@ -207,7 +230,7 @@ export async function GET(request: NextRequest) {
          ORDER BY FIELD(status, 'novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao', 'enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'aguardando_follow_up_3_dias', 'follow_up_3_dias', 'aguardando_follow_up_7_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'perdido')`,
         proposalParams
       ),
-      query<any[]>(
+      () => dashboardQuery<any[]>(
          `SELECT
             DATE_FORMAT(updated_at, '%Y-%m') as mes,
             COALESCE(SUM(valor_final), 0) as valor,
@@ -225,7 +248,7 @@ export async function GET(request: NextRequest) {
              ? [startDateTime, endDateTime, user.id]
              : [user.id]
       ),
-      query<any[]>(
+      () => dashboardQuery<any[]>(
         `SELECT
            u.id,
            u.nome,
@@ -251,7 +274,7 @@ export async function GET(request: NextRequest) {
              ? [startDateTime, endDateTime, user.id]
              : [user.id]
       ),
-      query<any[]>(
+      () => dashboardQuery<any[]>(
         `SELECT
            ${DASHBOARD_TASK_SELECT_COLUMNS}
          FROM tarefas t
@@ -262,7 +285,7 @@ export async function GET(request: NextRequest) {
          LIMIT 10`,
         taskParams
       ),
-      query<any[]>(
+      () => dashboardQuery<any[]>(
         `SELECT
            t.id
          FROM tarefas t
@@ -272,8 +295,8 @@ export async function GET(request: NextRequest) {
          ORDER BY t.data_hora ASC`,
         taskParams
       ),
-      query<any[]>(clientAlertQuery, clientAlertParams),
-      query<any[]>(
+      () => dashboardQuery<any[]>(clientAlertQuery, clientAlertParams),
+      () => dashboardQuery<any[]>(
         `SELECT ${DASHBOARD_PROPOSAL_ALERT_SELECT_COLUMNS}
          FROM propostas p
          LEFT JOIN clientes c ON p.cliente_id = c.id

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { getConnection, isTransientDatabaseError, query } from '@/lib/db/mysql'
+import { isTransientDatabaseError } from '@/lib/db/errors'
+import { prisma } from '@/lib/db/prisma'
 import { clearAuthenticatedUserCache, getAuthenticatedServerUser, getServerSession } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
@@ -9,12 +10,30 @@ import { hasModuleAccess } from '@/lib/auth/module-access'
 import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
-import { syncNormalizedUserPermissions } from '@/lib/server/user-permissions-store'
+import { syncNormalizedUserPermissionsWithPrisma } from '@/lib/server/user-permissions-store'
 
 const USUARIO_DETAIL_CACHE_TTL_MS = Math.max(
   Number(process.env.USUARIO_DETAIL_CACHE_TTL_MS || 30_000),
   1000
 )
+
+const USER_SELECT = {
+  id: true,
+  nome: true,
+  email: true,
+  avatar: true,
+  role: true,
+  ativo: true,
+  meta_vendas: true,
+  module_permissions: true,
+  rule_permissions: true,
+  created_at: true,
+} as const
+
+function isTransientUserDatabaseError(error: unknown) {
+  const prismaCode = typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code) : ''
+  return isTransientDatabaseError(error) || ['P1001', 'P1002', 'P1008', 'P1017'].includes(prismaCode)
+}
 
 function canAccessUsuariosModule(user: { role?: string | null; modulePermissions?: unknown }) {
   return hasModuleAccess(
@@ -77,10 +96,10 @@ export async function GET(
       return jsonNoStore(cachedUsuario)
     }
 
-    const [usuario] = await query<any[]>(
-      'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, rule_permissions, created_at FROM usuarios WHERE id = ?',
-      [id]
-    )
+    const usuario = await prisma.usuarios.findUnique({
+      where: { id },
+      select: USER_SELECT,
+    })
 
     if (!usuario) {
       return jsonNoStore({ error: 'Usuario nao encontrado' }, { status: 404 })
@@ -91,7 +110,7 @@ export async function GET(
   } catch (error) {
     console.error('Erro ao buscar usuario:', error)
 
-    if (isTransientDatabaseError(error)) {
+    if (isTransientUserDatabaseError(error)) {
       const user = await getAuthenticatedServerUser().catch(() => null)
       if (!user) {
         return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
@@ -125,10 +144,17 @@ export async function PUT(
     const data = await request.json()
     const session = await getServerSession()
 
-    const [usuarioAtual] = await query<any[]>(
-      'SELECT id, role, ativo, meta_vendas, module_permissions, rule_permissions FROM usuarios WHERE id = ? LIMIT 1',
-      [id]
-    )
+    const usuarioAtual = await prisma.usuarios.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        role: true,
+        ativo: true,
+        meta_vendas: true,
+        module_permissions: true,
+        rule_permissions: true,
+      },
+    })
 
     if (!usuarioAtual) {
       return NextResponse.json({ error: 'Usuario nao encontrado' }, { status: 404 })
@@ -164,62 +190,44 @@ export async function PUT(
       nextRole
     )
 
-    let sql = 'UPDATE usuarios SET nome = ?, email = ?, avatar = ?, role = ?, ativo = ?, meta_vendas = ?'
-    const queryParams: unknown[] = [
-      data.nome,
-      data.email,
-      iniciais,
-      nextRole,
-      canManageUsuarios ? data.ativo : Boolean(usuarioAtual.ativo),
-      canManageUsuarios
+    const updateData: Record<string, unknown> = {
+      nome: data.nome,
+      email: data.email,
+      avatar: iniciais,
+      role: nextRole,
+      ativo: canManageUsuarios ? data.ativo : Boolean(usuarioAtual.ativo),
+      meta_vendas: canManageUsuarios
         ? parseNullableNumber(data.metaVendas ?? data.meta_vendas, 0)
         : parseNullableNumber(usuarioAtual.meta_vendas ?? 0, 0),
-    ]
-
-    sql += ', module_permissions = ?'
-    queryParams.push(JSON.stringify(modulePermissions))
-    sql += ', rule_permissions = ?'
-    queryParams.push(JSON.stringify(rulePermissions))
-
-    if (data.senha) {
-      const senhaHash = await bcrypt.hash(data.senha, 10)
-      sql += ', senha = ?'
-      queryParams.push(senhaHash)
+      module_permissions: JSON.stringify(modulePermissions),
+      rule_permissions: JSON.stringify(rulePermissions),
     }
 
-    sql += ' WHERE id = ?'
-    queryParams.push(id)
+    if (data.senha) {
+      updateData.senha = await bcrypt.hash(data.senha, 10)
+    }
 
-    const connection = await getConnection()
-    let usuario: any
+    const usuario = await prisma.$transaction(async (tx) => {
+      await tx.usuarios.update({
+        where: { id },
+        data: updateData as any,
+      })
 
-    try {
-      await connection.beginTransaction()
-
-      await connection.execute(sql, queryParams as any[])
-      await syncNormalizedUserPermissions(
+      await syncNormalizedUserPermissionsWithPrisma(
         {
           userId: id,
           role: nextRole,
           modulePermissions,
           rulePermissions,
         },
-        connection
+        tx
       )
 
-      const [rows] = await connection.execute(
-        'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, rule_permissions, created_at FROM usuarios WHERE id = ?',
-        [id]
-      )
-      ;[usuario] = rows as any[]
-
-      await connection.commit()
-    } catch (error) {
-      await connection.rollback()
-      throw error
-    } finally {
-      connection.release()
-    }
+      return tx.usuarios.findUnique({
+        where: { id },
+        select: USER_SELECT,
+      })
+    })
 
     await publishRealtimeEvent({
       actorUserId: session?.userId || null,
@@ -243,7 +251,7 @@ export async function PUT(
   } catch (error: any) {
     console.error('Erro ao atualizar usuario:', error)
 
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (error.code === 'ER_DUP_ENTRY' || error.code === 'P2002') {
       return NextResponse.json({ error: 'Email ja cadastrado' }, { status: 400 })
     }
 
@@ -275,10 +283,13 @@ export async function DELETE(
       )
     }
 
-    const [usuario] = await query<any[]>(
-      'SELECT id, role FROM usuarios WHERE id = ? LIMIT 1',
-      [id]
-    )
+    const usuario = await prisma.usuarios.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        role: true,
+      },
+    })
 
     if (!usuario) {
       return NextResponse.json({ error: 'Usuario nao encontrado' }, { status: 404 })
@@ -291,31 +302,34 @@ export async function DELETE(
       )
     }
 
-    const [propostasCount] = await query<any[]>(
-      'SELECT COUNT(*) as total FROM propostas WHERE responsavel_id = ?',
-      [id]
-    )
+    const propostasCount = await prisma.propostas.count({
+      where: { responsavel_id: id },
+    })
 
-    if (propostasCount.total > 0) {
+    if (propostasCount > 0) {
       return NextResponse.json(
         { error: 'Nao e possivel excluir usuario com propostas associadas' },
         { status: 400 }
       )
     }
 
-    const [tarefasCount] = await query<any[]>(
-      'SELECT COUNT(*) as total FROM tarefas WHERE responsavel_id = ? AND status <> ?',
-      [id, 'concluida']
-    )
+    const tarefasCount = await prisma.tarefas.count({
+      where: {
+        responsavel_id: id,
+        status: { not: 'concluida' },
+      },
+    })
 
-    if (tarefasCount.total > 0) {
+    if (tarefasCount > 0) {
       return NextResponse.json(
         { error: 'Nao e possivel excluir usuario com tarefas pendentes associadas' },
         { status: 400 }
       )
     }
 
-    await query('DELETE FROM usuarios WHERE id = ?', [id])
+    await prisma.usuarios.delete({
+      where: { id },
+    })
 
     invalidateRuntimeCache('usuarios:list:')
     invalidateRuntimeCache('usuario:detail:')

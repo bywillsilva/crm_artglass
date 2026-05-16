@@ -1,4 +1,13 @@
-import { query } from '@/lib/db/mysql'
+import { prisma } from '@/lib/db/prisma'
+
+async function query<T = unknown>(sql: string, params: unknown[] = []): Promise<T> {
+  const isRead = /^\s*(SELECT|SHOW|DESCRIBE|WITH)\b/i.test(sql)
+  if (isRead) {
+    return prisma.$queryRawUnsafe<T>(sql, ...params)
+  }
+
+  return prisma.$executeRawUnsafe(sql, ...params) as T
+}
 
 async function hasColumn(tableName: string, columnName: string) {
   const rows = await query<Array<{ COLUMN_NAME: string }>>(

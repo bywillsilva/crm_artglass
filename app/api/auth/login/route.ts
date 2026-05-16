@@ -1,11 +1,13 @@
 import { createHash, randomInt, randomUUID } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { isTransientDatabaseError, query } from '@/lib/db/mysql'
+import { isTransientDatabaseError } from '@/lib/db/errors'
+import { prisma } from '@/lib/db/prisma'
 import { createSessionToken, SESSION_COOKIE } from '@/lib/auth/session'
 import { buildEmailTemplate } from '@/lib/email'
 import { getEmailBranding } from '@/lib/server/email-branding'
 import { safeSendEmail, userHasTwoFactorEnabled } from '@/lib/server/user-settings'
+import { checkRateLimit } from '@/lib/server/rate-limit'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
 import { normalizeRulePermissions } from '@/lib/auth/rule-access'
 import type { RoleUsuario } from '@/lib/data/types'
@@ -29,8 +31,13 @@ function maskEmail(email: string) {
   return `${localPart.slice(0, 2)}***@${domain}`
 }
 
+function isTransientLoginDatabaseError(error: unknown) {
+  const prismaCode = typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code) : ''
+  return isTransientDatabaseError(error) || ['P1001', 'P1002', 'P1008', 'P1017'].includes(prismaCode)
+}
+
 async function ensureLoginVerificationTable() {
-  await query(`
+  await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS login_verification_tokens (
       id VARCHAR(36) PRIMARY KEY,
       usuario_id VARCHAR(36) NOT NULL,
@@ -45,19 +52,51 @@ async function ensureLoginVerificationTable() {
 
 export async function POST(request: NextRequest) {
   try {
+    const clientIp =
+      request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+      request.headers.get('x-real-ip') ||
+      'local'
     const { email, senha } = await request.json()
 
     if (!email || !senha) {
       return NextResponse.json({ error: 'Email e senha sao obrigatorios' }, { status: 400 })
     }
 
-    const [user] = await query<any[]>(
-      `SELECT id, nome, email, senha, avatar, role, ativo, module_permissions, rule_permissions
-       FROM usuarios
-       WHERE email = ?
-       LIMIT 1`,
-      [email]
-    )
+    const normalizedEmail = String(email).trim().toLowerCase()
+    const rateLimit = await checkRateLimit({
+      key: `login:${clientIp}:${normalizedEmail}`,
+      limit: Number(process.env.LOGIN_RATE_LIMIT_MAX || 10),
+      windowMs: Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || 10 * 60 * 1000),
+    })
+
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: 'Muitas tentativas de login. Tente novamente em alguns instantes.' },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(Math.ceil((rateLimit.resetAt - Date.now()) / 1000)),
+          },
+        }
+      )
+    }
+
+    const user = await prisma.usuarios.findUnique({
+      where: {
+        email: normalizedEmail,
+      },
+      select: {
+        id: true,
+        nome: true,
+        email: true,
+        senha: true,
+        avatar: true,
+        role: true,
+        ativo: true,
+        module_permissions: true,
+        rule_permissions: true,
+      },
+    })
 
     if (!user) {
       return NextResponse.json({ error: 'Credenciais invalidas' }, { status: 401 })
@@ -76,19 +115,28 @@ export async function POST(request: NextRequest) {
 
     if (requiresTwoFactor) {
       await ensureLoginVerificationTable()
-      await query(
-        'UPDATE login_verification_tokens SET used_at = NOW() WHERE usuario_id = ? AND used_at IS NULL',
-        [user.id]
-      )
+      await prisma.login_verification_tokens.updateMany({
+        where: {
+          usuario_id: user.id,
+          used_at: null,
+        },
+        data: {
+          used_at: new Date(),
+        },
+      })
 
       const challengeId = randomUUID()
       const code = generateToken()
 
-      await query(
-        `INSERT INTO login_verification_tokens (id, usuario_id, email, token_hash, expires_at)
-         VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 10 MINUTE))`,
-        [challengeId, user.id, user.email, hashToken(code)]
-      )
+      await prisma.login_verification_tokens.create({
+        data: {
+          id: challengeId,
+          usuario_id: user.id,
+          email: user.email,
+          token_hash: hashToken(code),
+          expires_at: new Date(Date.now() + 10 * 60 * 1000),
+        },
+      })
 
       const branding = await getEmailBranding()
       const emailContent = buildEmailTemplate({
@@ -147,7 +195,7 @@ export async function POST(request: NextRequest) {
     return response
   } catch (error) {
     console.error('Erro ao autenticar usuario:', error)
-    if (isTransientDatabaseError(error)) {
+    if (isTransientLoginDatabaseError(error)) {
       return NextResponse.json(
         { error: 'Banco temporariamente indisponivel. Tente novamente em alguns instantes.' },
         { status: 503 }

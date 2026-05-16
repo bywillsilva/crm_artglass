@@ -1,10 +1,9 @@
 import { promises as fs } from 'fs'
 import path, { basename } from 'path'
 import { NextRequest, NextResponse } from 'next/server'
-import { query } from '@/lib/db/mysql'
+import { prisma } from '@/lib/db/prisma'
 import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
-import { getServerSession } from '@/lib/auth/session'
 import {
   deleteStoredFiles,
   resolveStoredProposalFilePath,
@@ -31,28 +30,19 @@ const SELLER_VISIBLE_STATUSES = new Set([
 ])
 
 async function getAuthenticatedUser() {
-  const session = await getServerSession()
-  if (!session) return null
-
-  const [user] = await query<any[]>(
-    'SELECT id, role, ativo, rule_permissions FROM usuarios WHERE id = ? LIMIT 1',
-    [session.userId]
-  )
-
-  if (!user || !user.ativo) return null
-  return user
+  return getAuthenticatedServerUser()
 }
 
 async function getProposal(id: string) {
-  const [proposta] = await query<any[]>(
-    `SELECT id, status, responsavel_id, orcamentista_id
-     FROM propostas
-     WHERE id = ?
-     LIMIT 1`,
-    [id]
-  )
-
-  return proposta
+  return prisma.propostas.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      status: true,
+      responsavel_id: true,
+      orcamentista_id: true,
+    },
+  })
 }
 
 function canViewProposal(user: any, proposta: any) {
@@ -118,7 +108,10 @@ function buildAttachmentFileName(attachment: any) {
 }
 
 async function touchProposalUpdatedAt(propostaId: string) {
-  await query('UPDATE propostas SET updated_at = NOW() WHERE id = ?', [propostaId])
+  await prisma.propostas.update({
+    where: { id: propostaId },
+    data: { updated_at: new Date() },
+  })
 }
 
 async function backfillAttachmentStorage(
@@ -131,12 +124,13 @@ async function backfillAttachmentStorage(
     ? toStoredRelativeProposalPath(propostaId, String(nomeArquivo))
     : null
 
-  await query(
-    `UPDATE proposta_anexos
-     SET conteudo = ?, caminho = COALESCE(?, caminho)
-     WHERE id = ?`,
-    [fileBuffer, nextPath, attachmentId]
-  )
+  await prisma.proposta_anexos.update({
+    where: { id: attachmentId },
+    data: {
+      conteudo: Uint8Array.from(fileBuffer),
+      ...(nextPath ? { caminho: nextPath } : {}),
+    },
+  })
 }
 
 async function resolveStoredAttachmentPath(propostaId: string, attachment: any) {
@@ -187,13 +181,18 @@ export async function GET(
       return NextResponse.json({ error: 'Acesso negado a esta proposta' }, { status: 403 })
     }
 
-    const [attachment] = await query<any[]>(
-      `SELECT id, proposta_id, caminho, nome_arquivo, nome_original, tipo_mime, conteudo
-       FROM proposta_anexos
-       WHERE id = ?
-       LIMIT 1`,
-      [attachmentId]
-    )
+    const attachment = await prisma.proposta_anexos.findUnique({
+      where: { id: attachmentId },
+      select: {
+        id: true,
+        proposta_id: true,
+        caminho: true,
+        nome_arquivo: true,
+        nome_original: true,
+        tipo_mime: true,
+        conteudo: true,
+      },
+    })
 
     if (!attachment || attachment.proposta_id !== id) {
       return NextResponse.json({ error: 'Anexo nao encontrado' }, { status: 404 })
@@ -263,13 +262,15 @@ export async function DELETE(
       return NextResponse.json({ error: 'Voce nao pode excluir anexos desta proposta' }, { status: 403 })
     }
 
-    const [attachment] = await query<any[]>(
-      `SELECT id, proposta_id, usuario_id, caminho
-       FROM proposta_anexos
-       WHERE id = ?
-       LIMIT 1`,
-      [attachmentId]
-    )
+    const attachment = await prisma.proposta_anexos.findUnique({
+      where: { id: attachmentId },
+      select: {
+        id: true,
+        proposta_id: true,
+        usuario_id: true,
+        caminho: true,
+      },
+    })
 
     if (!attachment || attachment.proposta_id !== id) {
       return NextResponse.json({ error: 'Anexo nao encontrado' }, { status: 404 })
@@ -283,8 +284,13 @@ export async function DELETE(
       return NextResponse.json({ error: 'Voce nao pode excluir este anexo' }, { status: 403 })
     }
 
-    await query('DELETE FROM proposta_anexos WHERE id = ?', [attachmentId])
-    await touchProposalUpdatedAt(id)
+    await prisma.$transaction([
+      prisma.proposta_anexos.delete({ where: { id: attachmentId } }),
+      prisma.propostas.update({
+        where: { id },
+        data: { updated_at: new Date() },
+      }),
+    ])
     await deleteStoredFiles([attachment.caminho])
     invalidateRuntimeCache('propostas:list:')
     invalidateRuntimeCache('dashboard:')

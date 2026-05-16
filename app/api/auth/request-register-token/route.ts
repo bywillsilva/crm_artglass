@@ -1,12 +1,12 @@
 import { createHash, randomInt, randomUUID } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { query } from '@/lib/db/mysql'
+import { prisma } from '@/lib/db/prisma'
 import { buildEmailTemplate, sendEmail } from '@/lib/email'
 import { getEmailBranding } from '@/lib/server/email-branding'
 
 async function ensureEmailVerificationTable() {
-  await query(`
+  await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS email_verification_tokens (
       id VARCHAR(36) PRIMARY KEY,
       nome VARCHAR(255) NOT NULL,
@@ -48,29 +48,43 @@ export async function POST(request: NextRequest) {
     }
 
     const normalizedEmail = email.trim().toLowerCase()
-    const [existingUser] = await query<any[]>(
-      'SELECT id FROM usuarios WHERE email = ? LIMIT 1',
-      [normalizedEmail]
-    )
+    const existingUser = await prisma.usuarios.findUnique({
+      where: {
+        email: normalizedEmail,
+      },
+      select: {
+        id: true,
+      },
+    })
 
     if (existingUser) {
       return NextResponse.json({ error: 'Ja existe uma conta vinculada a este email' }, { status: 400 })
     }
 
-    await query(
-      'UPDATE email_verification_tokens SET used_at = NOW() WHERE email = ? AND used_at IS NULL',
-      [normalizedEmail]
-    )
+    await prisma.email_verification_tokens.updateMany({
+      where: {
+        email: normalizedEmail,
+        used_at: null,
+      },
+      data: {
+        used_at: new Date(),
+      },
+    })
 
     const token = generateToken()
     const tokenHash = hashToken(token)
     const senhaHash = await bcrypt.hash(senha, 10)
 
-    await query(
-      `INSERT INTO email_verification_tokens (id, nome, email, senha_hash, token_hash, expires_at)
-       VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 15 MINUTE))`,
-      [randomUUID(), nome.trim(), normalizedEmail, senhaHash, tokenHash]
-    )
+    await prisma.email_verification_tokens.create({
+      data: {
+        id: randomUUID(),
+        nome: nome.trim(),
+        email: normalizedEmail,
+        senha_hash: senhaHash,
+        token_hash: tokenHash,
+        expires_at: new Date(Date.now() + 15 * 60 * 1000),
+      },
+    })
 
     const branding = await getEmailBranding()
     const emailContent = buildEmailTemplate({

@@ -124,6 +124,29 @@ function normalizeCompanySettings(value: CompanySettings) {
   }
 }
 
+function toCurrencyNumber(value: unknown) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : 0
+  }
+
+  if (typeof value === 'bigint') {
+    return Number(value)
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value
+      .trim()
+      .replace(/\s+/g, '')
+      .replace(/\.(?=\d{3}(?:\D|$))/g, '')
+      .replace(',', '.')
+    const parsed = Number(normalized)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
 const toDateValue = parseDateTimeValue
 const SESSION_ACTIVITY_EVENTS = ['pointerdown', 'keydown', 'mousemove', 'scroll', 'touchstart'] as const
 
@@ -298,7 +321,7 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
         currency: appearance.formatoMoeda,
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
-      }).format(value),
+      }).format(toCurrencyNumber(value)),
     [appearance.formatoMoeda, appearance.idioma]
   )
 

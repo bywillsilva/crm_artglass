@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid'
-import { getConnection, query } from '@/lib/db/mysql'
+import { prisma } from '@/lib/db/prisma'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { invalidateRuntimeCache } from '@/lib/server/runtime-cache'
 
@@ -29,6 +29,15 @@ const LEGACY_STATUSES = [
   'em_cotacao',
   'em_negociacao',
 ]
+
+async function query<T = unknown>(sql: string, params: unknown[] = []): Promise<T> {
+  const isRead = /^\s*(SELECT|SHOW|DESCRIBE|WITH)\b/i.test(sql)
+  if (isRead) {
+    return prisma.$queryRawUnsafe<T>(sql, ...params)
+  }
+
+  return prisma.$executeRawUnsafe(sql, ...params) as T
+}
 
 const FINAL_STATUSES: ProposalWorkflowStatus[] = [
   'novo_cliente',
@@ -496,37 +505,38 @@ export async function getNextProposalNumber(
   year = toDatabaseTimeZoneDate(new Date()).getUTCFullYear()
 ) {
   await ensureProposalSequenceSchema()
-  const connection = await getConnection()
 
-  try {
-    const [maxRows] = await connection.execute(
+  return prisma.$transaction(async (tx) => {
+    const [maxRow] = await tx.$queryRawUnsafe<Array<{ maxNumero: unknown }>>(
       `SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(numero, '-', -1) AS UNSIGNED)), 0) as maxNumero
        FROM propostas
        WHERE numero LIKE ?`,
-      [`PROP-${year}-%`]
+      `PROP-${year}-%`
     )
-    const currentMax = Number((maxRows as any[])[0]?.maxNumero || 0)
+    const currentMax = Number(maxRow?.maxNumero || 0)
 
-    await connection.execute(
+    await tx.$executeRawUnsafe(
       `INSERT INTO proposal_sequences (ano, ultimo_numero)
        VALUES (?, ?)
        ON DUPLICATE KEY UPDATE ultimo_numero = GREATEST(ultimo_numero, VALUES(ultimo_numero))`,
-      [year, currentMax]
+      year,
+      currentMax
     )
 
-    const [updateResult] = await connection.execute(
+    await tx.$executeRawUnsafe(
       `UPDATE proposal_sequences
        SET ultimo_numero = LAST_INSERT_ID(ultimo_numero + 1),
            updated_at = CURRENT_TIMESTAMP
        WHERE ano = ?`,
-      [year]
+      year
     )
 
-    const nextNumber = Number((updateResult as { insertId?: number }).insertId || 1)
+    const [sequenceRow] = await tx.$queryRawUnsafe<Array<{ nextNumber: unknown }>>(
+      'SELECT LAST_INSERT_ID() as nextNumber'
+    )
+    const nextNumber = Number(sequenceRow?.nextNumber || 1)
     return `PROP-${year}-${String(nextNumber).padStart(3, '0')}`
-  } finally {
-    connection.release()
-  }
+  })
 }
 
 export async function ensureProposalStatusSchema() {
@@ -592,12 +602,12 @@ export async function setProposalKanbanPosition(
   targetStatus: ProposalWorkflowStatus,
   targetIndex = 0
 ) {
-  const rows = await query<Array<{ id: string }>>(
+  const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
     `SELECT p.id
      FROM propostas p
      WHERE p.status = ?
      ORDER BY ${getProposalKanbanOrderSortClause('p')}`,
-    [targetStatus]
+    targetStatus
   )
 
   const orderedIds = rows
@@ -614,14 +624,14 @@ export async function setProposalKanbanPosition(
   const caseParts = orderedIds.map((id, index) => `WHEN '${id}' THEN ${index + 1}`)
   const placeholders = orderedIds.map(() => '?').join(', ')
 
-  await query(
+  await prisma.$executeRawUnsafe(
     `UPDATE propostas
      SET kanban_order = CASE id
        ${caseParts.join('\n       ')}
        ELSE kanban_order
      END
      WHERE id IN (${placeholders})`,
-    orderedIds
+    ...orderedIds
   )
 }
 

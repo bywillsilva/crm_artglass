@@ -1,10 +1,10 @@
 import { createHash } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { query } from '@/lib/db/mysql'
+import { prisma } from '@/lib/db/prisma'
 
 async function ensurePasswordResetTable() {
-  await query(`
+  await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS password_reset_tokens (
       id VARCHAR(36) PRIMARY KEY,
       usuario_id VARCHAR(36) NOT NULL,
@@ -40,17 +40,23 @@ export async function POST(request: NextRequest) {
     const normalizedEmail = email.trim().toLowerCase()
     const tokenHash = hashToken(token.trim())
 
-    const [resetToken] = await query<any[]>(
-      `SELECT id, usuario_id
-       FROM password_reset_tokens
-       WHERE email = ?
-         AND token_hash = ?
-         AND used_at IS NULL
-         AND expires_at > NOW()
-       ORDER BY created_at DESC
-       LIMIT 1`,
-      [normalizedEmail, tokenHash]
-    )
+    const resetToken = await prisma.password_reset_tokens.findFirst({
+      where: {
+        email: normalizedEmail,
+        token_hash: tokenHash,
+        used_at: null,
+        expires_at: {
+          gt: new Date(),
+        },
+      },
+      select: {
+        id: true,
+        usuario_id: true,
+      },
+      orderBy: {
+        created_at: 'desc',
+      },
+    })
 
     if (!resetToken) {
       return NextResponse.json({ error: 'Token invalido ou expirado' }, { status: 400 })
@@ -58,8 +64,24 @@ export async function POST(request: NextRequest) {
 
     const senhaHash = await bcrypt.hash(novaSenha, 10)
 
-    await query('UPDATE usuarios SET senha = ? WHERE id = ?', [senhaHash, resetToken.usuario_id])
-    await query('UPDATE password_reset_tokens SET used_at = NOW() WHERE id = ?', [resetToken.id])
+    await prisma.$transaction([
+      prisma.usuarios.update({
+        where: {
+          id: resetToken.usuario_id,
+        },
+        data: {
+          senha: senhaHash,
+        },
+      }),
+      prisma.password_reset_tokens.update({
+        where: {
+          id: resetToken.id,
+        },
+        data: {
+          used_at: new Date(),
+        },
+      }),
+    ])
 
     return NextResponse.json({ success: true })
   } catch (error) {

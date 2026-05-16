@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs'
 import path from 'path'
 import { v4 as uuidv4 } from 'uuid'
-import { query } from '@/lib/db/mysql'
+import { prisma } from '@/lib/db/prisma'
 
 export type SavedProposalFile = {
   id: string
@@ -81,26 +81,19 @@ export async function persistSavedProposalFiles(
     return
   }
 
-  await Promise.all(
-    files.map((file) =>
-      query(
-        `INSERT INTO proposta_anexos (
-          id, proposta_id, nome_original, nome_arquivo, caminho, tipo_mime, tamanho, conteudo, usuario_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          file.id,
-          propostaId,
-          file.nomeOriginal,
-          file.nomeArquivo,
-          file.caminho,
-          file.tipoMime,
-          file.tamanho,
-          file.conteudo,
-          usuarioId,
-        ]
-      )
-    )
-  )
+  await prisma.proposta_anexos.createMany({
+    data: files.map((file) => ({
+      id: file.id,
+      proposta_id: propostaId,
+      nome_original: file.nomeOriginal,
+      nome_arquivo: file.nomeArquivo,
+      caminho: file.caminho,
+      tipo_mime: file.tipoMime,
+      tamanho: BigInt(file.tamanho),
+      conteudo: Uint8Array.from(file.conteudo),
+      usuario_id: usuarioId,
+    })),
+  })
 }
 
 export async function deleteStoredFiles(paths: string[]) {

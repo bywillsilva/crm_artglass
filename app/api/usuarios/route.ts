@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getConnection, isTransientDatabaseError, query } from '@/lib/db/mysql'
+import { isTransientDatabaseError } from '@/lib/db/errors'
+import { prisma } from '@/lib/db/prisma'
 import { v4 as uuidv4 } from 'uuid'
 import bcrypt from 'bcryptjs'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
@@ -10,9 +11,27 @@ import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { clearAuthenticatedUserCache, getAuthenticatedServerUser } from '@/lib/auth/session'
 import { jsonNoStore } from '@/lib/server/http-cache'
-import { syncNormalizedUserPermissions } from '@/lib/server/user-permissions-store'
+import { syncNormalizedUserPermissionsWithPrisma } from '@/lib/server/user-permissions-store'
 
 const USUARIOS_CACHE_TTL_MS = Math.max(Number(process.env.USUARIOS_CACHE_TTL_MS || 30_000), 1000)
+
+const USER_SELECT = {
+  id: true,
+  nome: true,
+  email: true,
+  avatar: true,
+  role: true,
+  ativo: true,
+  meta_vendas: true,
+  module_permissions: true,
+  rule_permissions: true,
+  created_at: true,
+} as const
+
+function isTransientUserDatabaseError(error: unknown) {
+  const prismaCode = typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code) : ''
+  return isTransientDatabaseError(error) || ['P1001', 'P1002', 'P1008', 'P1017'].includes(prismaCode)
+}
 
 function canAccessUsuariosModule(user: { role?: string | null; modulePermissions?: unknown }) {
   return hasModuleAccess(
@@ -67,29 +86,27 @@ export async function GET(request: NextRequest) {
       return jsonNoStore(cachedUsuarios)
     }
 
-    let sql =
-      'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, rule_permissions, created_at FROM usuarios WHERE 1=1'
-    const params: unknown[] = []
+    const where: any = {}
 
     if (role && role !== 'todos') {
-      sql += ' AND role = ?'
-      params.push(role)
+      where.role = role
     }
 
     if (ativo !== null && ativo !== 'todos') {
-      sql += ' AND ativo = ?'
-      params.push(ativo === 'true')
+      where.ativo = ativo === 'true'
     }
 
-    sql += ' ORDER BY nome ASC'
-
-    const usuarios = await query(sql, params)
+    const usuarios = await prisma.usuarios.findMany({
+      where,
+      select: USER_SELECT,
+      orderBy: { nome: 'asc' },
+    })
     setRuntimeCache(cacheKey, usuarios, USUARIOS_CACHE_TTL_MS)
     return jsonNoStore(usuarios)
   } catch (error: any) {
     console.error('Erro ao buscar usuarios:', error)
 
-    if (isTransientDatabaseError(error)) {
+    if (isTransientUserDatabaseError(error)) {
       const user = await getAuthenticatedServerUser().catch(() => null)
       if (!user) {
         return jsonNoStore({ error: 'Nao autenticado' }, { status: 401 })
@@ -142,52 +159,38 @@ export async function POST(request: NextRequest) {
       .toUpperCase()
       .slice(0, 2)
 
-    const connection = await getConnection()
-    let usuario: any
-
-    try {
-      await connection.beginTransaction()
-
-      await connection.execute(
-        `INSERT INTO usuarios (id, nome, email, senha, avatar, role, ativo, meta_vendas, module_permissions, rule_permissions)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
+    const role = data.role || 'vendedor'
+    const usuario = await prisma.$transaction(async (tx) => {
+      await tx.usuarios.create({
+        data: {
           id,
-          data.nome,
-          data.email,
-          senhaHash,
-          iniciais,
-          data.role || 'vendedor',
-          data.ativo ?? true,
-          parseNullableNumber(data.metaVendas ?? data.meta_vendas, 0),
-          JSON.stringify(modulePermissions),
-          JSON.stringify(rulePermissions),
-        ]
-      )
+          nome: data.nome,
+          email: data.email,
+          senha: senhaHash,
+          avatar: iniciais,
+          role,
+          ativo: data.ativo ?? true,
+          meta_vendas: parseNullableNumber(data.metaVendas ?? data.meta_vendas, 0),
+          module_permissions: JSON.stringify(modulePermissions),
+          rule_permissions: JSON.stringify(rulePermissions),
+        } as any,
+      })
 
-      await syncNormalizedUserPermissions(
+      await syncNormalizedUserPermissionsWithPrisma(
         {
           userId: id,
-          role: (data.role || 'vendedor'),
+          role,
           modulePermissions,
           rulePermissions,
         },
-        connection
+        tx
       )
 
-      const [rows] = await connection.execute(
-        'SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, rule_permissions, created_at FROM usuarios WHERE id = ?',
-        [id]
-      )
-      ;[usuario] = rows as any[]
-
-      await connection.commit()
-    } catch (error) {
-      await connection.rollback()
-      throw error
-    } finally {
-      connection.release()
-    }
+      return tx.usuarios.findUnique({
+        where: { id },
+        select: USER_SELECT,
+      })
+    })
 
     await publishRealtimeEvent({
       actorUserId: user.id,
@@ -210,7 +213,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(usuario, { status: 201 })
   } catch (error: any) {
     console.error('Erro ao criar usuario:', error)
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (error.code === 'ER_DUP_ENTRY' || error.code === 'P2002') {
       return NextResponse.json({ error: 'Email ja cadastrado' }, { status: 400 })
     }
     return NextResponse.json({ error: 'Erro ao criar usuario' }, { status: 500 })

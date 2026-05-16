@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getConnection, isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysql'
+import { isTransientDatabaseError, logDatabaseError } from '@/lib/db/errors'
+import { prisma } from '@/lib/db/prisma'
 import { v4 as uuidv4 } from 'uuid'
 import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
@@ -39,6 +40,34 @@ const CLIENT_SELECT_COLUMNS = `
   c.updated_at
 `
 
+const CLIENT_SELECT = {
+  id: true,
+  nome: true,
+  cpf: true,
+  telefone: true,
+  email: true,
+  empresa: true,
+  cargo: true,
+  tipo: true,
+  endereco: true,
+  numero: true,
+  bairro: true,
+  cidade: true,
+  estado: true,
+  cep: true,
+  origem: true,
+  observacoes: true,
+  status_funil: true,
+  responsavel_id: true,
+  created_at: true,
+  updated_at: true,
+} as const
+
+function isTransientClientDatabaseError(error: unknown) {
+  const prismaCode = typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code) : ''
+  return isTransientDatabaseError(error) || ['P1001', 'P1002', 'P1008', 'P1017'].includes(prismaCode)
+}
+
 function normalizeNullableText(value: unknown) {
   if (typeof value !== 'string') {
     return value == null ? null : String(value)
@@ -70,51 +99,51 @@ function parseNullableNumber(value: unknown, fallback = 0) {
 }
 
 async function getDefaultProposalResponsavel(userId: string) {
-  const [currentUser] = await query<any[]>(
-    'SELECT id, role, ativo FROM usuarios WHERE id = ? LIMIT 1',
-    [userId]
-  )
+  const currentUser = await prisma.usuarios.findUnique({
+    where: { id: userId },
+    select: { id: true, role: true, ativo: true },
+  })
 
   if (currentUser?.ativo && ['vendedor', 'gerente'].includes(currentUser.role)) {
     return currentUser.id as string
   }
 
-  const [fallbackSeller] = await query<any[]>(
-    `SELECT id
-     FROM usuarios
-     WHERE ativo = TRUE
-       AND role IN ('vendedor', 'gerente')
-     ORDER BY created_at ASC
-     LIMIT 1`
-  )
+  const fallbackSeller = await prisma.usuarios.findFirst({
+    where: {
+      ativo: true,
+      role: { in: ['vendedor', 'gerente'] },
+    },
+    select: { id: true },
+    orderBy: { created_at: 'asc' },
+  })
 
   return (fallbackSeller?.id || userId) as string
 }
 
 async function getDefaultProposalOrcamentista(userId: string) {
-  const [currentUser] = await query<any[]>(
-    'SELECT id, role, ativo FROM usuarios WHERE id = ? LIMIT 1',
-    [userId]
-  )
+  const currentUser = await prisma.usuarios.findUnique({
+    where: { id: userId },
+    select: { id: true, role: true, ativo: true },
+  })
 
   if (currentUser?.ativo && currentUser.role === 'orcamentista') {
     return currentUser.id as string
   }
 
-  const [fallbackOrcamentista] = await query<any[]>(
-    `SELECT id
-     FROM usuarios
-     WHERE ativo = TRUE
-       AND role = 'orcamentista'
-     ORDER BY created_at ASC
-     LIMIT 1`
-  )
+  const fallbackOrcamentista = await prisma.usuarios.findFirst({
+    where: {
+      ativo: true,
+      role: 'orcamentista',
+    },
+    select: { id: true },
+    orderBy: { created_at: 'asc' },
+  })
 
   return (fallbackOrcamentista?.id || null) as string | null
 }
 
 async function createInitialProposalForClient(
-  connection: Awaited<ReturnType<typeof getConnection>>,
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
   params: {
     clienteId: string
     usuarioId: string
@@ -130,38 +159,35 @@ async function createInitialProposalForClient(
     const nextNumero = await getNextProposalNumber()
 
     try {
-      await connection.execute(
-        `INSERT INTO propostas (
-          id, numero, cliente_id, responsavel_id, orcamentista_id, retificacoes_count, titulo, descricao,
-          valor, desconto, valor_final, status, validade, servicos, condicoes, follow_up_base_at, follow_up_time
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          propostaId,
-          nextNumero,
-          params.clienteId,
-          responsavelId,
-          orcamentistaId,
-          0,
-          'Novo cliente',
-          null,
-          0,
-          0,
-          0,
-          'novo_cliente',
-          null,
-          JSON.stringify([]),
-          null,
-          null,
-          null,
-        ]
-      )
+      await tx.propostas.create({
+        data: {
+          id: propostaId,
+          numero: nextNumero,
+          cliente_id: params.clienteId,
+          responsavel_id: responsavelId,
+          orcamentista_id: orcamentistaId,
+          retificacoes_count: 0,
+          titulo: 'Novo cliente',
+          descricao: null,
+          valor: 0,
+          desconto: 0,
+          valor_final: 0,
+          status: 'novo_cliente',
+          validade: null,
+          servicos: JSON.stringify([]),
+          condicoes: null,
+          follow_up_base_at: null,
+          follow_up_time: null,
+        },
+      })
       numero = nextNumero
       break
     } catch (error: any) {
       const isNumeroDuplicate =
-        error?.code === 'ER_DUP_ENTRY' &&
-        String(error?.sqlMessage || '').toLowerCase().includes('for key') &&
-        String(error?.sqlMessage || '').toLowerCase().includes('numero')
+        error?.code === 'P2002' ||
+        (error?.code === 'ER_DUP_ENTRY' &&
+          String(error?.sqlMessage || '').toLowerCase().includes('for key') &&
+          String(error?.sqlMessage || '').toLowerCase().includes('numero'))
 
       if (!isNumeroDuplicate || attempt === maxAttempts - 1) {
         throw error
@@ -173,23 +199,22 @@ async function createInitialProposalForClient(
     throw new Error('Nao foi possivel gerar um numero unico para a proposta inicial do cliente.')
   }
 
-  await connection.execute(
-    `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
-     VALUES (?, ?, ?, 'proposta', ?, ?, ?)`,
-    [
-      uuidv4(),
-      params.clienteId,
-      params.usuarioId,
-      'Card inicial da proposta criado automaticamente para o novo cliente',
-      JSON.stringify({
+  await tx.interacoes.create({
+    data: {
+      id: uuidv4(),
+      cliente_id: params.clienteId,
+      usuario_id: params.usuarioId,
+      tipo: 'proposta',
+      descricao: 'Card inicial da proposta criado automaticamente para o novo cliente',
+      dados: JSON.stringify({
         proposta_id: propostaId,
         status: 'novo_cliente',
         origem: 'cliente_novo',
         silent_notification: true,
       }),
-      formatDateTime(new Date()),
-    ]
-  )
+      created_at: new Date(),
+    },
+  })
 
   return {
     propostaId,
@@ -218,51 +243,82 @@ export async function GET(request: NextRequest) {
       return jsonNoStore(cachedClientes)
     }
 
-    let sql = `
-      SELECT ${CLIENT_SELECT_COLUMNS}
-      FROM clientes c
-      WHERE 1=1
-    `
-    const params: unknown[] = []
+    const where: any = {}
+    let rawSearchClientes: any[] | null = null
 
     if (!hasRuleAccess(user, 'canViewAllClients')) {
-      sql += ` AND (
-        c.responsavel_id = ?
-        OR EXISTS (
-          SELECT 1
-          FROM propostas p
-          WHERE p.cliente_id = c.id
-            AND p.responsavel_id = ?
-        )
-      )`
-      params.push(user.id, user.id)
+      where.OR = [
+        { responsavel_id: user.id },
+        { propostas: { some: { responsavel_id: user.id } } },
+      ]
     }
 
     if (status && status !== 'todos') {
-      sql += ' AND c.status_funil = ?'
-      params.push(status)
+      where.status_funil = status
     }
 
     if (search) {
-      sql += ' AND (c.nome LIKE ? OR c.email LIKE ? OR c.empresa LIKE ?)'
-      const searchTerm = `%${search}%`
-      params.push(searchTerm, searchTerm, searchTerm)
+      const rawWhere: string[] = []
+      const rawParams: unknown[] = []
+
+      if (!hasRuleAccess(user, 'canViewAllClients')) {
+        rawWhere.push(`(
+          c.responsavel_id = ?
+          OR EXISTS (
+            SELECT 1
+            FROM propostas p
+            WHERE p.cliente_id = c.id
+              AND p.responsavel_id = ?
+          )
+        )`)
+        rawParams.push(user.id, user.id)
+      }
+
+      if (status && status !== 'todos') {
+        rawWhere.push('c.status_funil = ?')
+        rawParams.push(status)
+      }
+
+      rawWhere.push(`(
+        c.nome COLLATE utf8mb4_unicode_ci LIKE CONCAT('%', CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci, '%')
+        OR c.email COLLATE utf8mb4_unicode_ci LIKE CONCAT('%', CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci, '%')
+        OR c.empresa COLLATE utf8mb4_unicode_ci LIKE CONCAT('%', CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci, '%')
+      )`)
+      rawParams.push(search, search, search)
+
+      if (updatedSince) {
+        rawWhere.push('c.updated_at >= ?')
+        rawParams.push(updatedSince)
+      }
+
+      rawSearchClientes = await prisma.$queryRawUnsafe<any[]>(
+        `SELECT ${CLIENT_SELECT_COLUMNS}
+         FROM clientes c
+         WHERE ${rawWhere.join(' AND ')}
+         ORDER BY c.created_at DESC`,
+        ...rawParams
+      )
     }
 
     if (updatedSince) {
-      sql += ' AND c.updated_at >= ?'
-      params.push(updatedSince)
+      where.updated_at = {
+        gte: new Date(updatedSince),
+      }
     }
 
-    sql += ' ORDER BY c.created_at DESC'
-
-    const clientes = await query(sql, params)
+    const clientes = rawSearchClientes ?? await prisma.clientes.findMany({
+        where,
+        select: CLIENT_SELECT,
+        orderBy: {
+          created_at: 'desc',
+        },
+      })
     setRuntimeCache(cacheKey, clientes, CLIENTES_CACHE_TTL_MS)
     return jsonNoStore(clientes)
   } catch (error) {
     console.error('Erro ao buscar clientes:', error)
 
-    if (isTransientDatabaseError(error)) {
+    if (isTransientClientDatabaseError(error)) {
       const user = await getAuthenticatedServerUser().catch(() => null)
       const cacheKey = user
         ? `clientes:list:${user.role}:${user.id}:${status || 'todos'}:${search || ''}:${updatedSince || ''}`
@@ -287,8 +343,6 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  let connection: Awaited<ReturnType<typeof getConnection>> | null = null
-  let destroyConnectionOnFinally = false
   let transactionCommitted = false
   let responseSnapshot: Record<string, unknown> | null = null
 
@@ -355,47 +409,45 @@ export async function POST(request: NextRequest) {
       updated_at: formatDateTime(new Date()),
     }
 
-    connection = await getConnection()
-    await connection.beginTransaction()
-
-      await connection.execute(
-        `INSERT INTO clientes (
-        id, nome, cpf, email, telefone, empresa, cargo, tipo, endereco, numero, bairro, cidade, estado, cep,
-        origem, status_funil, observacoes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
-        [
+    const createdProposal = await prisma.$transaction(async (tx) => {
+      await tx.clientes.create({
+        data: {
           id,
-          payload.nome,
-          payload.cpf,
-          payload.email,
-          payload.telefone,
-          payload.empresa,
-          payload.cargo,
-          payload.tipo,
-          payload.endereco,
-          payload.numero,
-          payload.bairro,
-          payload.cidade,
-          payload.estado,
-          payload.cep,
-          payload.origem,
-          payload.statusFunil,
-          payload.observacoes,
-        ]
-    )
+          nome: payload.nome,
+          cpf: payload.cpf,
+          email: payload.email,
+          telefone: payload.telefone,
+          empresa: payload.empresa,
+          cargo: payload.cargo,
+          tipo: payload.tipo,
+          endereco: payload.endereco,
+          numero: payload.numero,
+          bairro: payload.bairro,
+          cidade: payload.cidade,
+          estado: payload.estado,
+          cep: payload.cep,
+          origem: payload.origem as any,
+          status_funil: payload.statusFunil as any,
+          observacoes: payload.observacoes,
+        },
+      })
 
-    await connection.execute(
-      `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, created_at)
-       VALUES (?, ?, ?, 'nota', 'Cliente cadastrado no sistema', ?)`,
-      [uuidv4(), id, user.id, formatDateTime(new Date())]
-    )
+      await tx.interacoes.create({
+        data: {
+          id: uuidv4(),
+          cliente_id: id,
+          usuario_id: user.id,
+          tipo: 'nota',
+          descricao: 'Cliente cadastrado no sistema',
+          created_at: new Date(),
+        },
+      })
 
-    const createdProposal = await createInitialProposalForClient(connection, {
-      clienteId: id,
-      usuarioId: user.id,
+      return createInitialProposalForClient(tx, {
+        clienteId: id,
+        usuarioId: user.id,
+      })
     })
-
-    await connection.commit()
     transactionCommitted = true
 
     try {
@@ -427,11 +479,11 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const [cliente] = await query<any[]>(
+      const [cliente] = await prisma.$queryRawUnsafe<any[]>(
         `SELECT ${CLIENT_SELECT_COLUMNS}
          FROM clientes c
          WHERE c.id = ?`,
-        [id]
+        id
       )
       return NextResponse.json(cliente, { status: 201 })
     } catch (error) {
@@ -439,18 +491,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(responseSnapshot, { status: 201 })
     }
   } catch (error) {
-    if (connection && !transactionCommitted) {
-      if (isTransientDatabaseError(error)) {
-        destroyConnectionOnFinally = true
-      } else {
-        try {
-          await connection.rollback()
-        } catch {
-          // Ignora falhas ao reverter a transacao.
-        }
-      }
-    }
-
     console.error('Erro ao criar cliente:', error)
 
     if (transactionCommitted) {
@@ -463,7 +503,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (isTransientDatabaseError(error)) {
+    if (isTransientClientDatabaseError(error)) {
       return NextResponse.json(
         { error: 'Criacao de cliente temporariamente indisponivel. Tente novamente em instantes.' },
         { status: 503 }
@@ -474,19 +514,5 @@ export async function POST(request: NextRequest) {
       { error: error instanceof Error ? error.message : 'Erro ao criar cliente' },
       { status: 500 }
     )
-  } finally {
-    if (destroyConnectionOnFinally) {
-      try {
-        connection?.destroy()
-      } catch {
-        // Ignora falhas ao destruir conexoes ja encerradas.
-      }
-    } else {
-      try {
-        connection?.release()
-      } catch {
-        // Ignora falhas ao devolver conexoes ja encerradas.
-      }
-    }
   }
 }

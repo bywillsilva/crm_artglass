@@ -1,12 +1,12 @@
 import { createHash } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
-import { query } from '@/lib/db/mysql'
+import { prisma } from '@/lib/db/prisma'
 import { createSessionToken, SESSION_COOKIE } from '@/lib/auth/session'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 
 async function ensureEmailVerificationTable() {
-  await query(`
+  await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS email_verification_tokens (
       id VARCHAR(36) PRIMARY KEY,
       nome VARCHAR(255) NOT NULL,
@@ -41,33 +41,45 @@ export async function POST(request: NextRequest) {
     const normalizedEmail = email.trim().toLowerCase()
     const tokenHash = hashToken(token.trim())
 
-    const [existingUser] = await query<any[]>(
-      'SELECT id FROM usuarios WHERE email = ? LIMIT 1',
-      [normalizedEmail]
-    )
+    const existingUser = await prisma.usuarios.findUnique({
+      where: {
+        email: normalizedEmail,
+      },
+      select: {
+        id: true,
+      },
+    })
 
     if (existingUser) {
       return NextResponse.json({ error: 'Ja existe uma conta vinculada a este email' }, { status: 400 })
     }
 
-    const [pendingRegistration] = await query<any[]>(
-      `SELECT id, nome, email, senha_hash
-        FROM email_verification_tokens
-        WHERE email = ?
-          AND token_hash = ?
-         AND used_at IS NULL
-         AND expires_at > NOW()
-       ORDER BY created_at DESC
-       LIMIT 1`,
-      [normalizedEmail, tokenHash]
-    )
+    const pendingRegistration = await prisma.email_verification_tokens.findFirst({
+      where: {
+        email: normalizedEmail,
+        token_hash: tokenHash,
+        used_at: null,
+        expires_at: {
+          gt: new Date(),
+        },
+      },
+      select: {
+        id: true,
+        nome: true,
+        email: true,
+        senha_hash: true,
+      },
+      orderBy: {
+        created_at: 'desc',
+      },
+    })
 
     if (!pendingRegistration) {
       return NextResponse.json({ error: 'Token invalido ou expirado' }, { status: 400 })
     }
 
-    const [usersCount] = await query<any[]>('SELECT COUNT(*) as total FROM usuarios')
-    const role = usersCount.total === 0 ? 'admin' : 'vendedor'
+    const usersCount = await prisma.usuarios.count()
+    const role = usersCount === 0 ? 'admin' : 'vendedor'
     const id = uuidv4()
     const avatar = pendingRegistration.nome
       .trim()
@@ -78,14 +90,26 @@ export async function POST(request: NextRequest) {
       .toUpperCase()
       .slice(0, 2)
 
-    await query(
-      `INSERT INTO usuarios (id, nome, email, senha, avatar, role, ativo)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, pendingRegistration.nome, normalizedEmail, pendingRegistration.senha_hash, avatar, role, true]
-    )
-
-    await query('UPDATE email_verification_tokens SET used_at = NOW() WHERE id = ?', [
-      pendingRegistration.id,
+    await prisma.$transaction([
+      prisma.usuarios.create({
+        data: {
+          id,
+          nome: pendingRegistration.nome,
+          email: normalizedEmail,
+          senha: pendingRegistration.senha_hash,
+          avatar,
+          role,
+          ativo: true,
+        },
+      }),
+      prisma.email_verification_tokens.update({
+        where: {
+          id: pendingRegistration.id,
+        },
+        data: {
+          used_at: new Date(),
+        },
+      }),
     ])
 
     await publishRealtimeEvent({
@@ -116,7 +140,7 @@ export async function POST(request: NextRequest) {
     return response
   } catch (error: any) {
     console.error('Erro ao confirmar cadastro:', error)
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (error.code === 'ER_DUP_ENTRY' || error.code === 'P2002') {
       return NextResponse.json({ error: 'Ja existe uma conta vinculada a este email' }, { status: 400 })
     }
     return NextResponse.json({ error: 'Erro ao confirmar cadastro' }, { status: 500 })

@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'crypto'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
-import { query } from '@/lib/db/mysql'
+import { prisma } from '@/lib/db/prisma'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
 import { normalizeRulePermissions } from '@/lib/auth/rule-access'
 import type { RoleUsuario } from '@/lib/data/types'
@@ -55,45 +55,24 @@ function sign(value: string) {
   return createHmac('sha256', getSecret()).update(value).digest('hex')
 }
 
-function isUnknownColumnError(error: unknown) {
-  const code =
-    typeof error === 'object' && error && 'code' in error ? String((error as any).code) : ''
-  const message =
-    typeof error === 'object' && error && 'sqlMessage' in error
-      ? String((error as any).sqlMessage || '')
-      : typeof error === 'object' && error && 'message' in error
-        ? String((error as any).message || '')
-        : ''
-
-  return code === 'ER_BAD_FIELD_ERROR' || /unknown column/i.test(message)
-}
-
 export async function queryAuthenticatedUserById(userId: string) {
-  try {
-    const [user] = await query<any[]>(
-      `SELECT id, nome, email, avatar, role, ativo, module_permissions, rule_permissions
-       FROM usuarios
-       WHERE id = ?
-       LIMIT 1`,
-      [userId]
-    )
+  const user = await prisma.usuarios.findUnique({
+    where: {
+      id: userId,
+    },
+    select: {
+      id: true,
+      nome: true,
+      email: true,
+      avatar: true,
+      role: true,
+      ativo: true,
+      module_permissions: true,
+      rule_permissions: true,
+    },
+  })
 
-    return user ?? null
-  } catch (error) {
-    if (!isUnknownColumnError(error)) {
-      throw error
-    }
-
-    const [user] = await query<any[]>(
-      `SELECT id, nome, email, avatar, role, ativo
-       FROM usuarios
-       WHERE id = ?
-       LIMIT 1`,
-      [userId]
-    )
-
-    return user ? { ...user, module_permissions: null, rule_permissions: null } : null
-  }
+  return user ?? null
 }
 
 export function createSessionToken(userId: string, role: string, maxAgeSeconds = 60 * 60 * 12) {
@@ -210,7 +189,7 @@ export async function getAuthenticatedServerUser() {
     const errorCode =
       typeof error === 'object' && error && 'code' in error ? String((error as any).code) : ''
 
-    if (TRANSIENT_DB_ERROR_CODES.has(errorCode)) {
+    if (TRANSIENT_DB_ERROR_CODES.has(errorCode) || ['P1001', 'P1002', 'P1008', 'P1017'].includes(errorCode)) {
       return {
         id: session.userId,
         nome: undefined,

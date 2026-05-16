@@ -2,7 +2,7 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import { NextResponse } from 'next/server'
 import { hasRuleAccess } from '@/lib/auth/rule-access'
-import { query } from '@/lib/db/mysql'
+import { prisma } from '@/lib/db/prisma'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import {
   ensureProposalMaterialTagColumn,
@@ -82,11 +82,20 @@ async function resolveDiskPath(propostaId: string, row: AttachmentAuditRow) {
 }
 
 async function buildAttachmentAudit() {
-  const rows = await query<AttachmentAuditRow[]>(
-    `SELECT id, proposta_id, nome_arquivo, nome_original, caminho, conteudo, created_at
-     FROM proposta_anexos
-     ORDER BY created_at DESC`
-  )
+  const rows = await prisma.proposta_anexos.findMany({
+    select: {
+      id: true,
+      proposta_id: true,
+      nome_arquivo: true,
+      nome_original: true,
+      caminho: true,
+      conteudo: true,
+      created_at: true,
+    },
+    orderBy: {
+      created_at: 'desc',
+    },
+  }) as AttachmentAuditRow[]
 
   const items: AttachmentAuditItem[] = []
 
@@ -130,11 +139,20 @@ async function buildAttachmentAudit() {
 }
 
 async function migrateLegacyAttachments() {
-  const rows = await query<AttachmentAuditRow[]>(
-    `SELECT id, proposta_id, nome_arquivo, nome_original, caminho, conteudo, created_at
-     FROM proposta_anexos
-     ORDER BY created_at DESC`
-  )
+  const rows = await prisma.proposta_anexos.findMany({
+    select: {
+      id: true,
+      proposta_id: true,
+      nome_arquivo: true,
+      nome_original: true,
+      caminho: true,
+      conteudo: true,
+      created_at: true,
+    },
+    orderBy: {
+      created_at: 'desc',
+    },
+  }) as AttachmentAuditRow[]
 
   let migrated = 0
   let alreadySafe = 0
@@ -159,12 +177,12 @@ async function migrateLegacyAttachments() {
           ? toStoredRelativeProposalPath(row.proposta_id, String(row.nome_arquivo))
           : row.caminho
 
-        await query(
-          `UPDATE proposta_anexos
-           SET caminho = COALESCE(?, caminho)
-           WHERE id = ?`,
-          [normalizedPath, row.id]
-        )
+        if (normalizedPath) {
+          await prisma.proposta_anexos.update({
+            where: { id: row.id },
+            data: { caminho: normalizedPath },
+          })
+        }
         migrated += 1
       }
       continue
@@ -175,12 +193,13 @@ async function migrateLegacyAttachments() {
       ? toStoredRelativeProposalPath(row.proposta_id, String(row.nome_arquivo))
       : row.caminho
 
-    await query(
-      `UPDATE proposta_anexos
-       SET conteudo = ?, caminho = COALESCE(?, caminho)
-       WHERE id = ?`,
-      [buffer, normalizedPath, row.id]
-    )
+    await prisma.proposta_anexos.update({
+      where: { id: row.id },
+      data: {
+        conteudo: Uint8Array.from(buffer),
+        ...(normalizedPath ? { caminho: normalizedPath } : {}),
+      },
+    })
     migrated += 1
   }
 

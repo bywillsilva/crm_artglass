@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server'
-import { isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysql'
+import { isTransientDatabaseError, logDatabaseError } from '@/lib/db/errors'
+import { prisma } from '@/lib/db/prisma'
 import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
+import { normalizeJsonPayload } from '@/lib/server/json-normalize'
 import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import { ensureProposalReadSideReady, ensureSchemaReadyForReads } from '@/lib/server/read-side-maintenance'
 
@@ -174,19 +176,39 @@ function isUnknownColumnError(error: unknown) {
   return code === 'ER_BAD_FIELD_ERROR' || /unknown column/i.test(message)
 }
 
+function isTransientBootstrapDatabaseError(error: unknown) {
+  const prismaCode = typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code) : ''
+  return isTransientDatabaseError(error) || ['P1001', 'P1002', 'P1008', 'P1017'].includes(prismaCode)
+}
+
+async function bootstrapQuery<T>(sql: string, params: unknown[] = []) {
+  const result = await prisma.$queryRawUnsafe(sql, ...params)
+  return normalizeJsonPayload(result) as T
+}
+
 async function queryBootstrapUsers() {
   try {
-    return await query<any[]>(
-      `SELECT id, nome, email, avatar, role, ativo, meta_vendas, module_permissions, rule_permissions, created_at
-       FROM usuarios
-       ORDER BY nome ASC`
-    )
+    return await prisma.usuarios.findMany({
+      select: {
+        id: true,
+        nome: true,
+        email: true,
+        avatar: true,
+        role: true,
+        ativo: true,
+        meta_vendas: true,
+        module_permissions: true,
+        rule_permissions: true,
+        created_at: true,
+      },
+      orderBy: { nome: 'asc' },
+    })
   } catch (error) {
     if (!isUnknownColumnError(error)) {
       throw error
     }
 
-    return query<any[]>(
+    return bootstrapQuery<any[]>(
       `SELECT id, nome, email, avatar, role, ativo, meta_vendas, created_at
        FROM usuarios
        ORDER BY nome ASC`
@@ -217,13 +239,13 @@ function buildBootstrapProposalQuery(selectColumns: string, whereClause: string)
 
 async function queryBootstrapProposals(whereClause: string, params: unknown[]) {
   try {
-    return await query<any[]>(buildBootstrapProposalQuery(BOOTSTRAP_PROPOSAL_SELECT_COLUMNS, whereClause), params)
+    return await bootstrapQuery<any[]>(buildBootstrapProposalQuery(BOOTSTRAP_PROPOSAL_SELECT_COLUMNS, whereClause), params)
   } catch (error) {
     if (!isUnknownColumnError(error)) {
       throw error
     }
 
-    return query<any[]>(
+    return bootstrapQuery<any[]>(
       buildBootstrapProposalQuery(BOOTSTRAP_PROPOSAL_SELECT_COLUMNS_LEGACY, whereClause),
       params
     )
@@ -271,7 +293,7 @@ export async function GET(request: Request) {
                 : ''
             return [
               section,
-              await query<any[]>(
+              await bootstrapQuery<any[]>(
                  `SELECT
                     ${BOOTSTRAP_CLIENT_SELECT_COLUMNS}
                    FROM clientes c
@@ -290,7 +312,7 @@ export async function GET(request: Request) {
           case 'tarefas':
             return [
               section,
-              await query<any[]>(
+              await bootstrapQuery<any[]>(
                  `SELECT
                    ${BOOTSTRAP_TASK_SELECT_COLUMNS}
                  FROM tarefas t
@@ -339,7 +361,7 @@ export async function GET(request: Request) {
     setRuntimeCache(cacheKey, payload, CRM_BOOTSTRAP_CACHE_TTL_MS)
     return jsonNoStore(payload)
   } catch (error) {
-    if (!isTransientDatabaseError(error)) {
+    if (!isTransientBootstrapDatabaseError(error)) {
       logDatabaseError('Erro ao carregar bootstrap do CRM', error)
     }
 

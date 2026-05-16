@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
-import { isTransientDatabaseError, query } from '@/lib/db/mysql'
+import { isTransientDatabaseError } from '@/lib/db/errors'
+import { prisma } from '@/lib/db/prisma'
 import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
@@ -11,6 +12,7 @@ import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/
 import { statusPropostaLabels } from '@/lib/data/types'
 import { notifyProposalEmail } from '@/lib/server/email-notifications'
 import { jsonNoStore } from '@/lib/server/http-cache'
+import { normalizeJsonPayload } from '@/lib/server/json-normalize'
 import { ensureProposalReadSideReady } from '@/lib/server/read-side-maintenance'
 import {
   canOrcamentistaAccessProposal,
@@ -549,14 +551,14 @@ async function getAuthenticatedUser() {
 }
 
 async function queryProposalByColumns(id: string, columns: string) {
-  const [proposta] = await query<any[]>(
+  const [proposta] = await prisma.$queryRawUnsafe<any[]>(
     `SELECT ${columns}
      FROM propostas p
      LEFT JOIN clientes c ON p.cliente_id = c.id
      LEFT JOIN usuarios u ON p.responsavel_id = u.id
      LEFT JOIN usuarios o ON p.orcamentista_id = o.id
      WHERE p.id = ?`,
-    [id]
+    id
   )
 
   return proposta
@@ -584,13 +586,17 @@ async function getProposal(id: string) {
 }
 
 async function getProposalAttachments(id: string) {
-  return query<ProposalAttachmentRecord[]>(
-    `SELECT id, nome_original, tipo_mime
-     FROM proposta_anexos
-     WHERE proposta_id = ?
-     ORDER BY created_at DESC`,
-     [id]
-   )
+  return prisma.proposta_anexos.findMany({
+    where: { proposta_id: id },
+    select: {
+      id: true,
+      nome_original: true,
+      tipo_mime: true,
+    },
+    orderBy: {
+      created_at: 'desc',
+    },
+  })
 }
 
 async function getProposalDetailPayload(id: string, initialProposal?: any, user?: any) {
@@ -600,21 +606,21 @@ async function getProposalDetailPayload(id: string, initialProposal?: any, user?
   }
 
   const [anexos, comentarios] = await Promise.all([
-    query<ProposalDetailAttachment[]>(
+    prisma.$queryRawUnsafe<ProposalDetailAttachment[]>(
       `SELECT id, usuario_id, nome_original, tipo_mime, tamanho, created_at,
               CONCAT('/api/propostas/', proposta_id, '/anexos/', id) as url
        FROM proposta_anexos
        WHERE proposta_id = ?
        ORDER BY created_at DESC`,
-      [id]
+      id
     ),
-    query<any[]>(
+    prisma.$queryRawUnsafe<any[]>(
       `SELECT pc.id, pc.proposta_id, pc.usuario_id, pc.comentario, pc.created_at, u.nome as usuario_nome
        FROM proposta_comentarios pc
        LEFT JOIN usuarios u ON u.id = pc.usuario_id
        WHERE pc.proposta_id = ?
        ORDER BY pc.created_at DESC`,
-      [id]
+      id
     ),
   ])
 
@@ -706,10 +712,14 @@ async function validateUserRole(id: string | null, allowedRoles: string[]) {
     return null
   }
 
-  const [user] = await query<any[]>(
-    'SELECT id, role, ativo FROM usuarios WHERE id = ? LIMIT 1',
-    [id]
-  )
+  const user = await prisma.usuarios.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      role: true,
+      ativo: true,
+    },
+  })
 
   if (!user || !user.ativo || !allowedRoles.includes(user.role)) {
     throw new Error('Usuario informado para a proposta e invalido.')
@@ -722,15 +732,23 @@ async function persistProposalComment(propostaId: string, usuarioId: string, com
   const cleaned = comentario.trim()
   if (!cleaned) return
 
-  await query(
-    `INSERT INTO proposta_comentarios (id, proposta_id, usuario_id, comentario)
-     VALUES (?, ?, ?, ?)`,
-    [uuidv4(), propostaId, usuarioId, cleaned]
-  )
+  await prisma.proposta_comentarios.create({
+    data: {
+      id: uuidv4(),
+      proposta_id: propostaId,
+      usuario_id: usuarioId,
+      comentario: cleaned,
+    },
+  })
 }
 
 async function touchProposalUpdatedAt(propostaId: string) {
-  await query('UPDATE propostas SET updated_at = NOW() WHERE id = ?', [propostaId])
+  await prisma.propostas.update({
+    where: { id: propostaId },
+    data: {
+      updated_at: new Date(),
+    },
+  })
 }
 
 function formatWorkflowComment(
@@ -798,8 +816,9 @@ export async function GET(
       return jsonNoStore({ error: 'Proposta nao encontrada' }, { status: 404 })
     }
 
-    setRuntimeCache(cacheKey, payload, PROPOSTA_DETAIL_CACHE_TTL_MS)
-    return jsonNoStore(payload)
+    const normalizedPayload = normalizeJsonPayload(payload)
+    setRuntimeCache(cacheKey, normalizedPayload, PROPOSTA_DETAIL_CACHE_TTL_MS)
+    return jsonNoStore(normalizedPayload)
   } catch (error) {
     console.error('Erro ao buscar proposta:', error)
 
@@ -1171,11 +1190,11 @@ export async function PUT(
       )
     }
 
-      const [clienteAtual] = await query<any[]>(
+      const [clienteAtual] = await prisma.$queryRawUnsafe<any[]>(
         `SELECT id, nome, cpf, email, telefone, endereco, numero, bairro, cidade, estado, cep, status_funil, empresa, cargo, tipo
          FROM clientes
          WHERE id = ? LIMIT 1`,
-        [resolvedClienteId]
+        resolvedClienteId
       )
 
     if (!clienteAtual) {
@@ -1261,28 +1280,32 @@ export async function PUT(
           normalizeNullableText(data.clienteCep) !== null)
 
       if (shouldUpdateClosedClientData) {
-        await query(
+        await prisma.$executeRawUnsafe(
           `UPDATE clientes
            SET nome = ?, cpf = ?, email = ?, telefone = ?, endereco = ?, numero = ?, bairro = ?, cidade = ?, estado = ?, cep = ?, tipo = ?, status_funil = ?
            WHERE id = ?`,
-          [
-            mergedClienteFechado.nome,
-            mergedClienteFechado.cpf,
-            mergedClienteFechado.email,
-            mergedClienteFechado.telefone,
-            mergedClienteFechado.endereco,
-            mergedClienteFechado.numero,
-            mergedClienteFechado.bairro,
-            mergedClienteFechado.cidade,
-            mergedClienteFechado.estado,
-            mergedClienteFechado.cep,
-            clientType,
-            'fechado',
-            resolvedClienteId,
-          ]
+          mergedClienteFechado.nome,
+          mergedClienteFechado.cpf,
+          mergedClienteFechado.email,
+          mergedClienteFechado.telefone,
+          mergedClienteFechado.endereco,
+          mergedClienteFechado.numero,
+          mergedClienteFechado.bairro,
+          mergedClienteFechado.cidade,
+          mergedClienteFechado.estado,
+          mergedClienteFechado.cep,
+          clientType,
+          'fechado',
+          resolvedClienteId
         )
       } else {
-        await query(`UPDATE clientes SET tipo = ?, status_funil = ? WHERE id = ?`, [clientType, 'fechado', resolvedClienteId])
+        await prisma.clientes.update({
+          where: { id: resolvedClienteId },
+          data: {
+            tipo: clientType,
+            status_funil: 'fechado',
+          },
+        })
       }
     }
 
@@ -1314,37 +1337,35 @@ export async function PUT(
         ? formatFollowUpTimeFromDate(changedAt)
         : propostaAtual.follow_up_time ?? null)
 
-    await query(
+    await prisma.$executeRawUnsafe(
         `UPDATE propostas SET
         cliente_id = ?, titulo = ?, material_tag = ?, area_m2 = ?, perfis_bruto = ?, perfis_liquidos = ?, valor_perfil = ?, valor_vidro = ?, valor_acessorios = ?, observacoes_tecnicas = ?, descricao = ?, valor = ?, desconto = ?,
         valor_final = ?, status = ?, validade = ?, servicos = ?, condicoes = ?,
         responsavel_id = ?, orcamentista_id = ?, follow_up_base_at = ?, follow_up_time = ?, updated_at = NOW()
        WHERE id = ?`,
-      [
-        resolvedClienteId,
-        data.titulo || propostaAtual.titulo || 'Proposta Comercial',
-        materialTag,
-        areaM2,
-        perfisBruto,
-        perfisLiquidos,
-        valorPerfil,
-        valorVidro,
-        valorAcessorios,
-        observacoesTecnicas,
-        data.descricao ?? propostaAtual.descricao ?? null,
-        valor,
-        desconto,
-        valorFinal,
-        storedStatus,
-        data.validade || propostaAtual.validade || null,
-        JSON.stringify(servicos),
-        data.condicoes ?? propostaAtual.condicoes ?? null,
-        responsavelId,
-        orcamentistaId,
-        followUpBaseAt ? formatDateTime(followUpBaseAt) : null,
-        followUpTime,
-        id,
-      ]
+      resolvedClienteId,
+      data.titulo || propostaAtual.titulo || 'Proposta Comercial',
+      materialTag,
+      areaM2,
+      perfisBruto,
+      perfisLiquidos,
+      valorPerfil,
+      valorVidro,
+      valorAcessorios,
+      observacoesTecnicas,
+      data.descricao ?? propostaAtual.descricao ?? null,
+      valor,
+      desconto,
+      valorFinal,
+      storedStatus,
+      data.validade || propostaAtual.validade || null,
+      JSON.stringify(servicos),
+      data.condicoes ?? propostaAtual.condicoes ?? null,
+      responsavelId,
+      orcamentistaId,
+      followUpBaseAt ? formatDateTime(followUpBaseAt) : null,
+      followUpTime,
+      id
     )
 
     await syncProposalServices(id, servicos)
@@ -1355,7 +1376,11 @@ export async function PUT(
       : Promise.resolve()
     const clientePromise =
       previousStatus !== storedStatus && resolvedClienteId !== propostaAtual.cliente_id
-        ? query<any[]>('SELECT nome FROM clientes WHERE id = ? LIMIT 1', [resolvedClienteId])
+        ? prisma.clientes.findMany({
+            where: { id: resolvedClienteId },
+            select: { nome: true },
+            take: 1,
+          })
         : Promise.resolve([{ nome: propostaAtual.cliente_nome || 'cliente' }])
 
     const [savedFiles, clienteRows] = await Promise.all([
@@ -1378,22 +1403,21 @@ export async function PUT(
 
     if (previousStatus !== storedStatus) {
       await Promise.all([
-        query(
-          `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
-           VALUES (?, ?, ?, 'proposta', ?, ?, ?)`,
-          [
-            uuidv4(),
-            resolvedClienteId,
-            user.id,
-            `Proposta ${propostaAtual.numero} alterada para ${storedStatus}`,
-            JSON.stringify({
+        prisma.interacoes.create({
+          data: {
+            id: uuidv4(),
+            cliente_id: resolvedClienteId,
+            usuario_id: user.id,
+            tipo: 'proposta',
+            descricao: `Proposta ${propostaAtual.numero} alterada para ${storedStatus}`,
+            dados: JSON.stringify({
               proposta_id: id,
               novo_status: storedStatus,
               notification_kind: 'proposal_status',
             }),
-            formatDateTime(changedAt),
-          ]
-        ),
+            created_at: changedAt,
+          },
+        }),
         syncProposalAutomation({
           propostaId: id,
           clienteId: resolvedClienteId,
@@ -1408,22 +1432,21 @@ export async function PUT(
         }),
       ])
     } else {
-      await query(
-        `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
-         VALUES (?, ?, ?, 'proposta', ?, ?, ?)`,
-        [
-          uuidv4(),
-          resolvedClienteId,
-          user.id,
-          `Proposta ${propostaAtual.numero} atualizada`,
-          JSON.stringify({
+      await prisma.interacoes.create({
+        data: {
+          id: uuidv4(),
+          cliente_id: resolvedClienteId,
+          usuario_id: user.id,
+          tipo: 'proposta',
+          descricao: `Proposta ${propostaAtual.numero} atualizada`,
+          dados: JSON.stringify({
             proposta_id: id,
             origem: 'edicao_proposta',
             silent_notification: true,
           }),
-          formatDateTime(changedAt),
-        ]
-      )
+          created_at: changedAt,
+        },
+      })
     }
 
     invalidateRuntimeCache('propostas:list:')
@@ -1469,7 +1492,7 @@ export async function PUT(
     }
 
     const proposta = await getProposalDetailPayload(id, undefined, user)
-    return NextResponse.json(proposta)
+    return NextResponse.json(normalizeJsonPayload(proposta))
   } catch (error) {
     console.error('Erro ao atualizar proposta:', error)
     return NextResponse.json(
@@ -1502,20 +1525,25 @@ export async function DELETE(
       return NextResponse.json({ error: 'Voce nao pode excluir esta proposta' }, { status: 403 })
     }
 
-    const anexos = await query<any[]>(
-      'SELECT caminho FROM proposta_anexos WHERE proposta_id = ?',
-      [id]
-    )
+    const anexos = await prisma.proposta_anexos.findMany({
+      where: { proposta_id: id },
+      select: { caminho: true },
+    })
 
-    await query('DELETE FROM proposta_anexos WHERE proposta_id = ?', [id])
-    await query('DELETE FROM proposta_comentarios WHERE proposta_id = ?', [id])
-    await query(
-      `DELETE FROM tarefas
-       WHERE proposta_id = ?
-         AND (origem = 'automacao_proposta' OR automacao_etapa IS NOT NULL)`,
-      [id]
-    )
-    await query('DELETE FROM propostas WHERE id = ?', [id])
+    await prisma.$transaction([
+      prisma.proposta_anexos.deleteMany({ where: { proposta_id: id } }),
+      prisma.proposta_comentarios.deleteMany({ where: { proposta_id: id } }),
+      prisma.tarefas.deleteMany({
+        where: {
+          proposta_id: id,
+          OR: [
+            { origem: 'automacao_proposta' },
+            { automacao_etapa: { not: null } },
+          ],
+        },
+      }),
+      prisma.propostas.delete({ where: { id } }),
+    ])
 
     await deleteStoredFiles(anexos.map((item) => item.caminho))
 

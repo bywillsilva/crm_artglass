@@ -1,29 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { isTransientDatabaseError, query } from '@/lib/db/mysql'
+import { isTransientDatabaseError } from '@/lib/db/errors'
+import { prisma } from '@/lib/db/prisma'
 import { v4 as uuidv4 } from 'uuid'
 import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
-import { formatDateTime } from '@/lib/server/proposal-workflow'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 
 const INTERACOES_CACHE_TTL_MS = Math.max(Number(process.env.INTERACOES_CACHE_TTL_MS || 10_000), 1000)
 
-const INTERACTION_SELECT_COLUMNS = `
-  i.id,
-  i.cliente_id,
-  i.usuario_id,
-  i.tipo,
-  i.descricao,
-  i.dados,
-  i.proposta_id,
-  i.novo_status,
-  i.notification_kind,
-  i.origem,
-  i.silent_notification,
-  i.created_at
-`
+const INTERACTION_SELECT = {
+  id: true,
+  cliente_id: true,
+  usuario_id: true,
+  tipo: true,
+  descricao: true,
+  dados: true,
+  proposta_id: true,
+  novo_status: true,
+  notification_kind: true,
+  origem: true,
+  silent_notification: true,
+  created_at: true,
+  usuarios: {
+    select: {
+      nome: true,
+    },
+  },
+} as const
+
+function isTransientInteractionDatabaseError(error: unknown) {
+  const prismaCode = typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code) : ''
+  return isTransientDatabaseError(error) || ['P1001', 'P1002', 'P1008', 'P1017'].includes(prismaCode)
+}
+
+function mapInteractionPayload(interaction: any) {
+  if (!interaction) return null
+  const { usuarios, ...payload } = interaction
+  return {
+    ...payload,
+    usuario_nome: usuarios?.nome || null,
+  }
+}
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
@@ -41,54 +60,27 @@ export async function GET(request: NextRequest) {
     }
 
     const cacheKey = `interacoes:${user.role}:${user.id}:${clienteId || 'all'}:${tipo || 'all'}:${limit || 'all'}:${notificationsOnly ? 'notifications' : 'default'}`
-    const whereClauses: string[] = []
-    const params: unknown[] = []
+    const where: any = {}
 
     if (clienteId) {
-      whereClauses.push('i.cliente_id = ?')
-      params.push(clienteId)
+      where.cliente_id = clienteId
     }
 
     if (tipo) {
-      whereClauses.push('i.tipo = ?')
-      params.push(tipo)
+      where.tipo = tipo
     }
-
-    let sql = `
-      SELECT ${INTERACTION_SELECT_COLUMNS}, u.nome as usuario_nome
-      FROM interacoes i
-      LEFT JOIN usuarios u ON i.usuario_id = u.id
-      LEFT JOIN propostas p ON p.id = i.proposta_id
-      LEFT JOIN clientes c ON c.id = i.cliente_id
-      ${whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : ''}
-      ORDER BY i.created_at DESC
-    `
 
     if (notificationsOnly) {
       if (hasRuleAccess(user, 'canViewAllNotifications')) {
         // acesso total
       } else if (user.role === 'vendedor' || user.role === 'gerente') {
-        whereClauses.push('(p.responsavel_id = ? OR (p.id IS NULL AND c.responsavel_id = ?))')
-        params.push(user.id, user.id)
+        where.OR = [
+          { propostas: { responsavel_id: user.id } },
+          { proposta_id: null, clientes: { responsavel_id: user.id } },
+        ]
       } else if (user.role === 'orcamentista') {
-        whereClauses.push('p.orcamentista_id = ?')
-        params.push(user.id)
+        where.propostas = { orcamentista_id: user.id }
       }
-    }
-
-    sql = `
-      SELECT ${INTERACTION_SELECT_COLUMNS}, u.nome as usuario_nome
-      FROM interacoes i
-      LEFT JOIN usuarios u ON i.usuario_id = u.id
-      LEFT JOIN propostas p ON p.id = i.proposta_id
-      LEFT JOIN clientes c ON c.id = i.cliente_id
-      ${whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : ''}
-      ORDER BY i.created_at DESC
-    `
-
-    if (limit) {
-      sql += ' LIMIT ?'
-      params.push(limit)
     }
 
     const cachedInteracoes = getRuntimeCache<any[]>(cacheKey)
@@ -96,13 +88,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(cachedInteracoes)
     }
 
-    const interacoes = await query(sql, params)
-    setRuntimeCache(cacheKey, interacoes, INTERACOES_CACHE_TTL_MS)
-    return NextResponse.json(interacoes)
+    const interacoes = await prisma.interacoes.findMany({
+      where,
+      select: INTERACTION_SELECT,
+      orderBy: {
+        created_at: 'desc',
+      },
+      ...(limit ? { take: limit } : {}),
+    })
+    const payload = interacoes.map(mapInteractionPayload)
+    setRuntimeCache(cacheKey, payload, INTERACOES_CACHE_TTL_MS)
+    return NextResponse.json(payload)
   } catch (error) {
     console.error('Erro ao buscar interacoes:', error)
 
-    if (isTransientDatabaseError(error)) {
+    if (isTransientInteractionDatabaseError(error)) {
       const fallbackUser = await getAuthenticatedServerUser().catch(() => null)
       const fallbackCacheKey = fallbackUser
         ? `interacoes:${fallbackUser.role}:${fallbackUser.id}:${clienteId || 'all'}:${tipo || 'all'}:${limit || 'all'}:${notificationsOnly ? 'notifications' : 'default'}`
@@ -128,19 +128,17 @@ export async function POST(request: NextRequest) {
     const data = await request.json()
     const id = uuidv4()
 
-    await query(
-      `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [
+    await prisma.interacoes.create({
+      data: {
         id,
-        data.clienteId,
-        user.id,
-        data.tipo,
-        data.descricao,
-        data.dados ? JSON.stringify(data.dados) : null,
-        formatDateTime(new Date()),
-      ]
-    )
+        cliente_id: data.clienteId,
+        usuario_id: user.id,
+        tipo: data.tipo,
+        descricao: data.descricao,
+        dados: data.dados ? JSON.stringify(data.dados) : null,
+        created_at: new Date(),
+      } as any,
+    })
 
     await publishRealtimeEvent({
       actorUserId: user.id,
@@ -151,13 +149,11 @@ export async function POST(request: NextRequest) {
     invalidateRuntimeCache(`interacoes:${data.clienteId || 'all'}:`)
     invalidateRuntimeCache('interacoes:all:')
 
-    const [interacao] = await query<any[]>(
-      `SELECT ${INTERACTION_SELECT_COLUMNS}
-       FROM interacoes i
-       WHERE i.id = ?`,
-      [id]
-    )
-    return NextResponse.json(interacao, { status: 201 })
+    const interacao = await prisma.interacoes.findUnique({
+      where: { id },
+      select: INTERACTION_SELECT,
+    })
+    return NextResponse.json(mapInteractionPayload(interacao), { status: 201 })
   } catch (error) {
     console.error('Erro ao criar interacao:', error)
     return NextResponse.json({ error: 'Erro ao criar interacao' }, { status: 500 })

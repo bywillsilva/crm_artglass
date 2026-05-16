@@ -1,4 +1,5 @@
-import { isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysql'
+import { isTransientDatabaseError, logDatabaseError } from '@/lib/db/errors'
+import { prisma } from '@/lib/db/prisma'
 import { invalidateRuntimeCache } from '@/lib/server/runtime-cache'
 
 const REALTIME_SCHEMA_CACHE_MS = 60 * 60 * 1000
@@ -29,6 +30,20 @@ type PublishRealtimeEventParams = {
   actorUserId?: string | null
   resource: string
   resourceId?: string | null
+}
+
+async function query<T = unknown>(sql: string, params: unknown[] = []): Promise<T> {
+  const isRead = /^\s*(SELECT|SHOW|DESCRIBE|WITH)\b/i.test(sql)
+  if (isRead) {
+    return prisma.$queryRawUnsafe<T>(sql, ...params)
+  }
+
+  return prisma.$executeRawUnsafe(sql, ...params) as T
+}
+
+function isTransientRealtimeDatabaseError(error: unknown) {
+  const prismaCode = typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code) : ''
+  return isTransientDatabaseError(error) || ['P1001', 'P1002', 'P1008', 'P1017'].includes(prismaCode)
 }
 
 function mapResourceToModule(resource: string) {
@@ -109,13 +124,18 @@ export async function publishRealtimeEvent({
   try {
     await ensureRealtimeEventsSchema()
 
-    const result = await query<any>(
-      `INSERT INTO realtime_updates (actor_user_id, resource, resource_id)
-       VALUES (?, ?, ?)`,
-      [actorUserId || null, resource, resourceId || null]
-    )
+    const result = await prisma.realtime_updates.create({
+      data: {
+        actor_user_id: actorUserId || null,
+        resource,
+        resource_id: resourceId || null,
+      },
+      select: {
+        id: true,
+      },
+    })
 
-    const insertedId = Number(result?.insertId || 0)
+    const insertedId = Number(result?.id || 0)
     if (insertedId > 0) {
       realtimeVersion = insertedId
       realtimeVersionCachedAt = Date.now()
@@ -140,7 +160,7 @@ export async function getLatestRealtimeVersion() {
   try {
     await ensureRealtimeEventsSchema()
   } catch (error) {
-    if (!isTransientDatabaseError(error)) {
+    if (!isTransientRealtimeDatabaseError(error)) {
       logDatabaseError('Erro ao garantir schema de sincronizacao', error)
     }
     return realtimeVersion
@@ -157,16 +177,17 @@ export async function getLatestRealtimeVersion() {
 
   realtimeVersionPromise = (async () => {
     try {
-      const [row] = await query<any[]>(
-        `SELECT COALESCE(MAX(id), 0) as version
-         FROM realtime_updates`
-      )
+      const row = await prisma.realtime_updates.aggregate({
+        _max: {
+          id: true,
+        },
+      })
 
-      realtimeVersion = Number(row?.version || 0)
+      realtimeVersion = Number(row._max.id || 0)
       realtimeVersionCachedAt = Date.now()
       return realtimeVersion
     } catch (error) {
-      if (!isTransientDatabaseError(error)) {
+      if (!isTransientRealtimeDatabaseError(error)) {
         logDatabaseError('Erro ao consultar versao de sincronizacao', error)
       }
       return realtimeVersion
@@ -184,7 +205,7 @@ export async function getLatestRealtimeVersionsByModule() {
   try {
     await ensureRealtimeEventsSchema()
   } catch (error) {
-    if (!isTransientDatabaseError(error)) {
+    if (!isTransientRealtimeDatabaseError(error)) {
       logDatabaseError('Erro ao garantir schema de sincronizacao por modulo', error)
     }
     return {
@@ -207,26 +228,28 @@ export async function getLatestRealtimeVersionsByModule() {
 
   realtimeModuleVersionsPromise = (async () => {
     try {
-      const rows = await query<any[]>(
-        `SELECT resource, COALESCE(MAX(id), 0) as version, MAX(created_at) as changed_at
-         FROM realtime_updates
-         GROUP BY resource`
-      )
+      const rows = await prisma.realtime_updates.groupBy({
+        by: ['resource'],
+        _max: {
+          id: true,
+          created_at: true,
+        },
+      })
 
       const nextVersions: Record<string, number> = {}
       const nextChangedAt: Record<string, string> = {}
 
       for (const row of rows) {
-        const version = Number(row?.version || 0)
+        const version = Number(row._max.id || 0)
         if (!Number.isFinite(version) || version <= 0) {
           continue
         }
 
-        const moduleKey = mapResourceToModule(String(row?.resource || ''))
+        const moduleKey = mapResourceToModule(String(row.resource || ''))
         const currentVersion = nextVersions[moduleKey] || 0
         if (version > currentVersion) {
           nextVersions[moduleKey] = version
-          nextChangedAt[moduleKey] = String(row?.changed_at || '')
+          nextChangedAt[moduleKey] = row._max.created_at?.toISOString() || ''
         }
       }
 
@@ -238,7 +261,7 @@ export async function getLatestRealtimeVersionsByModule() {
         changedAt: realtimeModuleChangedAt,
       }
     } catch (error) {
-      if (!isTransientDatabaseError(error)) {
+      if (!isTransientRealtimeDatabaseError(error)) {
         logDatabaseError('Erro ao consultar versoes de sincronizacao por modulo', error)
       }
       return {

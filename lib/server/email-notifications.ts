@@ -1,4 +1,4 @@
-import { query } from '@/lib/db/mysql'
+import { prisma } from '@/lib/db/prisma'
 import { buildEmailTemplate } from '@/lib/email'
 import { getEmailBranding } from '@/lib/server/email-branding'
 import { safeSendEmail, shouldSendEmailNotification } from '@/lib/server/user-settings'
@@ -6,10 +6,17 @@ import { safeSendEmail, shouldSendEmailNotification } from '@/lib/server/user-se
 async function getUserEmailTarget(userId: string | null | undefined) {
   if (!userId) return null
 
-  const [user] = await query<any[]>(
-    'SELECT id, nome, email, ativo FROM usuarios WHERE id = ? LIMIT 1',
-    [userId]
-  )
+  const user = await prisma.usuarios.findUnique({
+    where: {
+      id: userId,
+    },
+    select: {
+      id: true,
+      nome: true,
+      email: true,
+      ativo: true,
+    },
+  })
 
   if (!user || !user.ativo || !user.email) {
     return null
@@ -25,34 +32,37 @@ async function getProposalEmailTargets(params: {
   allowedRoles?: string[]
 }) {
   const explicitIds = Array.from(new Set(params.targetUserIds.filter(Boolean)))
-
-  const placeholders = explicitIds.map(() => '?').join(', ')
-  const values: string[] = [...explicitIds]
   const allowedRoles = params.allowedRoles ?? []
-  const roleConditions: string[] = []
+  const roleConditions: any[] = []
 
   if (allowedRoles.length > 0) {
-    roleConditions.push(`role IN (${allowedRoles.map(() => '?').join(', ')})`)
-    values.push(...allowedRoles)
+    roleConditions.push({ role: { in: allowedRoles } })
   }
 
   if (explicitIds.length > 0) {
-    roleConditions.push(`id IN (${placeholders})`)
+    roleConditions.push({ id: { in: explicitIds } })
   }
 
   if (roleConditions.length === 0) {
     return []
   }
 
-  const users = await query<any[]>(
-    `SELECT id, nome, email, ativo, role
-     FROM usuarios
-     WHERE ativo = 1
-        AND email IS NOT NULL
-        AND email <> ''
-        AND (${roleConditions.join(' OR ')})`,
-    values
-  )
+  const users = await prisma.usuarios.findMany({
+    where: {
+      ativo: true,
+      email: {
+        not: '',
+      },
+      OR: roleConditions,
+    },
+    select: {
+      id: true,
+      nome: true,
+      email: true,
+      ativo: true,
+      role: true,
+    },
+  })
 
   return users.filter((user) => user?.id && user.id !== params.actorUserId)
 }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
-import { query } from '@/lib/db/mysql'
+import { prisma } from '@/lib/db/prisma'
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,10 +24,15 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const [user] = await query<any[]>(
-      'SELECT id, senha FROM usuarios WHERE id = ? LIMIT 1',
-      [sessionUser.id]
-    )
+    const user = await prisma.usuarios.findUnique({
+      where: {
+        id: sessionUser.id,
+      },
+      select: {
+        id: true,
+        senha: true,
+      },
+    })
 
     if (!user) {
       return NextResponse.json({ error: 'Usuario nao encontrado' }, { status: 404 })
@@ -39,7 +44,14 @@ export async function POST(request: NextRequest) {
     }
 
     const senhaHash = await bcrypt.hash(newPassword, 10)
-    await query('UPDATE usuarios SET senha = ? WHERE id = ?', [senhaHash, sessionUser.id])
+    await prisma.usuarios.update({
+      where: {
+        id: sessionUser.id,
+      },
+      data: {
+        senha: senhaHash,
+      },
+    })
 
     return NextResponse.json({ success: true })
   } catch (error) {

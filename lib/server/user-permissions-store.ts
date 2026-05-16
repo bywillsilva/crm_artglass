@@ -41,3 +41,40 @@ export async function syncNormalizedUserPermissions(
     rulePermissions,
   }
 }
+
+export async function syncNormalizedUserPermissionsWithPrisma(
+  params: {
+    userId: string
+    role: RoleUsuario
+    modulePermissions: unknown
+    rulePermissions: unknown
+  },
+  tx: any
+) {
+  const modulePermissions = normalizeModulePermissions(params.modulePermissions, params.role)
+  const rulePermissions = normalizeRulePermissions(params.rulePermissions, params.role)
+
+  await tx.usuario_modulo_permissoes.deleteMany({ where: { user_id: params.userId } })
+  await tx.usuario_regra_permissoes.deleteMany({ where: { user_id: params.userId } })
+
+  await tx.usuario_modulo_permissoes.createMany({
+    data: MODULE_KEYS.map((moduleKey) => ({
+      user_id: params.userId,
+      module_key: moduleKey,
+      allowed: modulePermissions[moduleKey],
+    })),
+  })
+
+  await tx.usuario_regra_permissoes.createMany({
+    data: RULE_KEYS.map((ruleKey) => ({
+      user_id: params.userId,
+      rule_key: ruleKey,
+      allowed: rulePermissions[ruleKey],
+    })),
+  })
+
+  return {
+    modulePermissions,
+    rulePermissions,
+  }
+}

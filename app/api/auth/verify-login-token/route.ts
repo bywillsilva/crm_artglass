@@ -1,14 +1,14 @@
 import { createHash } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createSessionToken, SESSION_COOKIE } from '@/lib/auth/session'
-import { query } from '@/lib/db/mysql'
+import { prisma } from '@/lib/db/prisma'
 import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
 import { normalizeRulePermissions } from '@/lib/auth/rule-access'
 import type { RoleUsuario } from '@/lib/data/types'
 
 async function ensureLoginVerificationTable() {
-  await query(`
+  await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS login_verification_tokens (
       id VARCHAR(36) PRIMARY KEY,
       usuario_id VARCHAR(36) NOT NULL,
@@ -56,23 +56,58 @@ export async function POST(request: NextRequest) {
     let challenge: any
 
     try {
-      ;[challenge] = await query<any[]>(
-        `SELECT lvt.id, lvt.usuario_id, u.id as user_id, u.nome, u.email, u.avatar, u.role, u.ativo, u.module_permissions, u.rule_permissions
-         FROM login_verification_tokens lvt
-         INNER JOIN usuarios u ON u.id = lvt.usuario_id
-         WHERE lvt.id = ?
-           AND lvt.token_hash = ?
-           AND lvt.used_at IS NULL
-           AND lvt.expires_at > NOW()
-         LIMIT 1`,
-        [challengeId.trim(), hashToken(token.trim())]
-      )
+      const verification = await prisma.login_verification_tokens.findFirst({
+        where: {
+          id: challengeId.trim(),
+          token_hash: hashToken(token.trim()),
+          used_at: null,
+          expires_at: {
+            gt: new Date(),
+          },
+        },
+        select: {
+          id: true,
+          usuario_id: true,
+        },
+      })
+      const user = verification
+        ? await prisma.usuarios.findUnique({
+            where: {
+              id: verification.usuario_id,
+            },
+            select: {
+              id: true,
+              nome: true,
+              email: true,
+              avatar: true,
+              role: true,
+              ativo: true,
+              module_permissions: true,
+              rule_permissions: true,
+            },
+          })
+        : null
+
+      challenge = verification && user
+        ? {
+            id: verification.id,
+            usuario_id: verification.usuario_id,
+            user_id: user.id,
+            nome: user.nome,
+            email: user.email,
+            avatar: user.avatar,
+            role: user.role,
+            ativo: user.ativo,
+            module_permissions: user.module_permissions,
+            rule_permissions: user.rule_permissions,
+          }
+        : null
     } catch (error) {
       if (!isUnknownColumnError(error)) {
         throw error
       }
 
-      ;[challenge] = await query<any[]>(
+      ;[challenge] = await prisma.$queryRawUnsafe<any[]>(
         `SELECT lvt.id, lvt.usuario_id, u.id as user_id, u.nome, u.email, u.avatar, u.role, u.ativo
          FROM login_verification_tokens lvt
          INNER JOIN usuarios u ON u.id = lvt.usuario_id
@@ -81,7 +116,8 @@ export async function POST(request: NextRequest) {
            AND lvt.used_at IS NULL
            AND lvt.expires_at > NOW()
          LIMIT 1`,
-        [challengeId.trim(), hashToken(token.trim())]
+        challengeId.trim(),
+        hashToken(token.trim())
       )
     }
 
@@ -89,7 +125,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Codigo invalido ou expirado' }, { status: 400 })
     }
 
-    await query('UPDATE login_verification_tokens SET used_at = NOW() WHERE id = ?', [challenge.id])
+    await prisma.login_verification_tokens.update({
+      where: {
+        id: challenge.id,
+      },
+      data: {
+        used_at: new Date(),
+      },
+    })
 
     const sessionToken = createSessionToken(challenge.user_id, challenge.role)
     const role = challenge.role as RoleUsuario

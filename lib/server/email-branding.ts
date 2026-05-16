@@ -1,4 +1,4 @@
-import { query } from '@/lib/db/mysql'
+import { prisma } from '@/lib/db/prisma'
 
 let cachedBranding: { appName: string; cachedAt: number } | null = null
 const BRANDING_CACHE_MS = 60_000
@@ -50,12 +50,16 @@ export async function getEmailBranding() {
   const fallbackName = process.env.APP_NAME || 'CRM'
 
   try {
-    const [config] = await query<any[]>(
-      `SELECT valor
-       FROM configuracoes
-       WHERE chave = 'empresa' AND scope = 'global' AND user_id = ''
-       LIMIT 1`
-    )
+    const config = await prisma.configuracoes.findFirst({
+      where: {
+        chave: 'empresa',
+        scope: 'global',
+        user_id: '',
+      },
+      select: {
+        valor: true,
+      },
+    })
 
     const appName = extractCompanyName(config?.valor) || fallbackName
 

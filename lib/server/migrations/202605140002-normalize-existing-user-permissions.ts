@@ -1,9 +1,18 @@
-import { query } from '@/lib/db/mysql'
+import { prisma } from '@/lib/db/prisma'
 import { getDefaultModulePermissions } from '@/lib/auth/module-access'
 import { getDefaultRulePermissions } from '@/lib/auth/rule-access'
 import type { RoleUsuario } from '@/lib/data/types'
 import { clearAuthenticatedUserCache } from '@/lib/auth/session'
 import { syncNormalizedUserPermissions } from '@/lib/server/user-permissions-store'
+
+async function query<T = unknown>(sql: string, params: unknown[] = []): Promise<T> {
+  const isRead = /^\s*(SELECT|SHOW|DESCRIBE|WITH)\b/i.test(sql)
+  if (isRead) {
+    return prisma.$queryRawUnsafe<T>(sql, ...params)
+  }
+
+  return prisma.$executeRawUnsafe(sql, ...params) as T
+}
 
 function normalizeRole(value: unknown): RoleUsuario {
   if (value === 'admin' || value === 'gerente' || value === 'orcamentista' || value === 'vendedor') {

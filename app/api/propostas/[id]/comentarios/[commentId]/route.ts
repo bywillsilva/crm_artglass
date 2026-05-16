@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
-import { query } from '@/lib/db/mysql'
-import { getServerSession } from '@/lib/auth/session'
+import { prisma } from '@/lib/db/prisma'
+import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { invalidateRuntimeCache } from '@/lib/server/runtime-cache'
@@ -10,29 +10,44 @@ import {
 } from '@/lib/server/proposal-workflow'
 
 async function getAuthenticatedUser() {
-  const session = await getServerSession()
-  if (!session) return null
-
-  const [user] = await query<any[]>(
-    'SELECT id, role, ativo, rule_permissions FROM usuarios WHERE id = ? LIMIT 1',
-    [session.userId]
-  )
-
-  if (!user || !user.ativo) return null
-  return user
+  return getAuthenticatedServerUser()
 }
 
 async function getComment(commentId: string) {
-  const [comment] = await query<any[]>(
-    `SELECT pc.id, pc.proposta_id, pc.usuario_id, pc.comentario, pc.created_at, p.cliente_id, p.numero, p.status, p.responsavel_id, p.orcamentista_id
-     FROM proposta_comentarios pc
-     INNER JOIN propostas p ON p.id = pc.proposta_id
-     WHERE pc.id = ?
-     LIMIT 1`,
-    [commentId]
-  )
+  const comment = await prisma.proposta_comentarios.findUnique({
+    where: { id: commentId },
+    select: {
+      id: true,
+      proposta_id: true,
+      usuario_id: true,
+      comentario: true,
+      created_at: true,
+      propostas: {
+        select: {
+          cliente_id: true,
+          numero: true,
+          status: true,
+          responsavel_id: true,
+          orcamentista_id: true,
+        },
+      },
+    },
+  })
 
   return comment
+    ? {
+        id: comment.id,
+        proposta_id: comment.proposta_id,
+        usuario_id: comment.usuario_id,
+        comentario: comment.comentario,
+        created_at: comment.created_at,
+        cliente_id: comment.propostas.cliente_id,
+        numero: comment.propostas.numero,
+        status: comment.propostas.status,
+        responsavel_id: comment.propostas.responsavel_id,
+        orcamentista_id: comment.propostas.orcamentista_id,
+      }
+    : null
 }
 
 function canSellerManageProposal(proposta: any, userId: string) {
@@ -76,10 +91,6 @@ function canManageComment(user: any, comment: any) {
   return comment.usuario_id === user.id
 }
 
-async function touchProposalUpdatedAt(propostaId: string) {
-  await query('UPDATE propostas SET updated_at = NOW() WHERE id = ?', [propostaId])
-}
-
 export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string; commentId: string }> }
@@ -106,37 +117,55 @@ export async function PUT(
       return NextResponse.json({ error: 'Comentario obrigatorio' }, { status: 400 })
     }
 
-    await query('UPDATE proposta_comentarios SET comentario = ? WHERE id = ?', [
-      comentario,
-      commentId,
-    ])
-    await touchProposalUpdatedAt(id)
+    const updatedComment = await prisma.$transaction(async (tx) => {
+      await tx.proposta_comentarios.update({
+        where: { id: commentId },
+        data: { comentario },
+      })
+      await tx.propostas.update({
+        where: { id },
+        data: { updated_at: new Date() },
+      })
+      await tx.interacoes.create({
+        data: {
+          id: uuidv4(),
+          cliente_id: comment.cliente_id,
+          usuario_id: user.id,
+          tipo: 'proposta',
+          descricao: `Comentario atualizado na proposta ${comment.numero || 'sem numero'}`,
+          dados: JSON.stringify({
+            proposta_id: id,
+            comment_id: commentId,
+            silent_notification: true,
+            origin: 'proposal_comment_edit',
+          }),
+          created_at: new Date(),
+        } as any,
+      })
 
-    await query(
-      `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
-       VALUES (?, ?, ?, 'proposta', ?, ?, NOW())`,
-      [
-        uuidv4(),
-        comment.cliente_id,
-        user.id,
-        `Comentario atualizado na proposta ${comment.numero || 'sem numero'}`,
-        JSON.stringify({
-          proposta_id: id,
-          comment_id: commentId,
-          silent_notification: true,
-          origin: 'proposal_comment_edit',
-        }),
-      ]
-    )
+      const saved = await tx.proposta_comentarios.findUnique({
+        where: { id: commentId },
+        select: {
+          id: true,
+          proposta_id: true,
+          usuario_id: true,
+          comentario: true,
+          created_at: true,
+          usuarios: { select: { nome: true } },
+        },
+      })
 
-    const [updatedComment] = await query<any[]>(
-      `SELECT pc.id, pc.proposta_id, pc.usuario_id, pc.comentario, pc.created_at, u.nome as usuario_nome
-       FROM proposta_comentarios pc
-       LEFT JOIN usuarios u ON u.id = pc.usuario_id
-       WHERE pc.id = ?
-       LIMIT 1`,
-      [commentId]
-    )
+      return saved
+        ? {
+            id: saved.id,
+            proposta_id: saved.proposta_id,
+            usuario_id: saved.usuario_id,
+            comentario: saved.comentario,
+            created_at: saved.created_at,
+            usuario_nome: saved.usuarios?.nome || null,
+          }
+        : null
+    })
 
     invalidateRuntimeCache('proposta:detail:')
     invalidateRuntimeCache('crm-bootstrap:')
@@ -173,25 +202,29 @@ export async function DELETE(
       return NextResponse.json({ error: 'Voce nao pode excluir este comentario' }, { status: 403 })
     }
 
-    await query('DELETE FROM proposta_comentarios WHERE id = ?', [commentId])
-    await touchProposalUpdatedAt(id)
-
-    await query(
-      `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
-       VALUES (?, ?, ?, 'proposta', ?, ?, NOW())`,
-      [
-        uuidv4(),
-        comment.cliente_id,
-        user.id,
-        `Comentario removido da proposta ${comment.numero || 'sem numero'}`,
-        JSON.stringify({
-          proposta_id: id,
-          comment_id: commentId,
-          silent_notification: true,
-          origin: 'proposal_comment_delete',
-        }),
-      ]
-    )
+    await prisma.$transaction([
+      prisma.proposta_comentarios.delete({ where: { id: commentId } }),
+      prisma.propostas.update({
+        where: { id },
+        data: { updated_at: new Date() },
+      }),
+      prisma.interacoes.create({
+        data: {
+          id: uuidv4(),
+          cliente_id: comment.cliente_id,
+          usuario_id: user.id,
+          tipo: 'proposta',
+          descricao: `Comentario removido da proposta ${comment.numero || 'sem numero'}`,
+          dados: JSON.stringify({
+            proposta_id: id,
+            comment_id: commentId,
+            silent_notification: true,
+            origin: 'proposal_comment_delete',
+          }),
+          created_at: new Date(),
+        } as any,
+      }),
+    ])
 
     invalidateRuntimeCache('proposta:detail:')
     invalidateRuntimeCache('crm-bootstrap:')

@@ -1,4 +1,4 @@
-import { query } from '@/lib/db/mysql'
+import { prisma } from '@/lib/db/prisma'
 import { migration202605130001 } from '@/lib/server/migrations/202605130001-baseline-crm-schema'
 import { migration202605130002 } from '@/lib/server/migrations/202605130002-follow-up-stage-offsets'
 import { migration202605130003 } from '@/lib/server/migrations/202605130003-user-rule-permissions'
@@ -7,6 +7,10 @@ import { migration202605140001 } from '@/lib/server/migrations/202605140001-clie
 import { migration202605140002 } from '@/lib/server/migrations/202605140002-normalize-existing-user-permissions'
 
 const MIGRATION_TABLE_NAME = 'schema_migrations'
+
+async function executeRaw(sql: string) {
+  await prisma.$executeRawUnsafe(sql)
+}
 
 export type SchemaMigration = {
   version: string
@@ -31,7 +35,7 @@ const SYSTEM_SCHEMA_MIGRATIONS: SchemaMigration[] = [
 ]
 
 async function ensureSchemaMigrationsTable() {
-  await query(`
+  await executeRaw(`
     CREATE TABLE IF NOT EXISTS ${MIGRATION_TABLE_NAME} (
       version VARCHAR(32) PRIMARY KEY,
       name VARCHAR(255) NOT NULL,
@@ -51,11 +55,22 @@ export function listKnownSchemaMigrations() {
 export async function listAppliedSchemaMigrations() {
   await ensureSchemaMigrationsTable()
 
-  return query<AppliedSchemaMigrationRow[]>(
-    `SELECT version, name, applied_at, execution_ms
-     FROM ${MIGRATION_TABLE_NAME}
-     ORDER BY version ASC`
-  )
+  const applied = await prisma.schema_migrations.findMany({
+    select: {
+      version: true,
+      name: true,
+      applied_at: true,
+      execution_ms: true,
+    },
+    orderBy: {
+      version: 'asc',
+    },
+  })
+
+  return applied.map((migration) => ({
+    ...migration,
+    applied_at: migration.applied_at.toISOString(),
+  }))
 }
 
 export async function getSchemaMigrationStatus() {
@@ -76,9 +91,11 @@ export async function getSchemaMigrationStatus() {
 export async function runPendingSchemaMigrations() {
   await ensureSchemaMigrationsTable()
 
-  const appliedRows = await query<Array<{ version: string }>>(
-    `SELECT version FROM ${MIGRATION_TABLE_NAME}`
-  )
+  const appliedRows = await prisma.schema_migrations.findMany({
+    select: {
+      version: true,
+    },
+  })
   const appliedVersions = new Set(appliedRows.map((row) => String(row.version)))
   const appliedThisRun: string[] = []
 
@@ -91,11 +108,13 @@ export async function runPendingSchemaMigrations() {
     await migration.run()
     const executionMs = Math.max(Date.now() - startedAt, 0)
 
-    await query(
-      `INSERT INTO ${MIGRATION_TABLE_NAME} (version, name, execution_ms)
-       VALUES (?, ?, ?)`,
-      [migration.version, migration.name, executionMs]
-    )
+    await prisma.schema_migrations.create({
+      data: {
+        version: migration.version,
+        name: migration.name,
+        execution_ms: executionMs,
+      },
+    })
 
     appliedVersions.add(migration.version)
     appliedThisRun.push(migration.version)

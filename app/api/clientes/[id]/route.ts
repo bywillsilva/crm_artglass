@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
 import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
-import { isTransientDatabaseError, query } from '@/lib/db/mysql'
+import { isTransientDatabaseError } from '@/lib/db/errors'
+import { prisma } from '@/lib/db/prisma'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
-import { formatDateTime } from '@/lib/server/proposal-workflow'
 import { jsonNoStore } from '@/lib/server/http-cache'
 import { ensureSchemaReadyForReads } from '@/lib/server/read-side-maintenance'
 import { inferClientType } from '@/lib/utils/client-document'
@@ -37,6 +37,34 @@ const CLIENT_SELECT_COLUMNS = `
   c.created_at,
   c.updated_at
 `
+
+const CLIENT_SELECT = {
+  id: true,
+  nome: true,
+  cpf: true,
+  email: true,
+  telefone: true,
+  empresa: true,
+  cargo: true,
+  tipo: true,
+  endereco: true,
+  numero: true,
+  bairro: true,
+  cidade: true,
+  estado: true,
+  cep: true,
+  origem: true,
+  status_funil: true,
+  observacoes: true,
+  responsavel_id: true,
+  created_at: true,
+  updated_at: true,
+} as const
+
+function isTransientClientDatabaseError(error: unknown) {
+  const prismaCode = typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code) : ''
+  return isTransientDatabaseError(error) || ['P1001', 'P1002', 'P1008', 'P1017'].includes(prismaCode)
+}
 
 function hasOwn(data: Record<string, unknown>, key: string) {
   return Object.prototype.hasOwnProperty.call(data, key)
@@ -91,26 +119,25 @@ export async function GET(
       return jsonNoStore(cachedCliente)
     }
 
-    const [cliente] = await query<any[]>(
-      `SELECT ${CLIENT_SELECT_COLUMNS}
-       FROM clientes c
-       WHERE c.id = ?`,
-      [id]
-    )
+    const cliente = await prisma.clientes.findUnique({
+      where: { id },
+      select: CLIENT_SELECT,
+    })
 
     if (!cliente) {
       return jsonNoStore({ error: 'Cliente nao encontrado' }, { status: 404 })
     }
 
     if (!hasRuleAccess(user, 'canViewAllClients')) {
-      const [allowedProposal] = await query<any[]>(
-        `SELECT 1
-         FROM propostas
-         WHERE cliente_id = ?
-           AND responsavel_id = ?
-         LIMIT 1`,
-        [id, user.id]
-      )
+      const allowedProposal = await prisma.propostas.findFirst({
+        where: {
+          cliente_id: id,
+          responsavel_id: user.id,
+        },
+        select: {
+          id: true,
+        },
+      })
 
       if (cliente.responsavel_id !== user.id && !allowedProposal) {
         return jsonNoStore({ error: 'Acesso negado a este cliente' }, { status: 403 })
@@ -122,7 +149,7 @@ export async function GET(
   } catch (error) {
     console.error('Erro ao buscar cliente:', error)
 
-    if (isTransientDatabaseError(error)) {
+    if (isTransientClientDatabaseError(error)) {
       const user = await getAuthenticatedServerUser().catch(() => null)
       const cacheKey = user ? `cliente:detail:${user.role}:${user.id}:${id}` : null
       const cachedCliente = cacheKey ? getRuntimeCache<any>(cacheKey) : null
@@ -159,14 +186,28 @@ export async function PUT(
     const { id } = await params
     const data = (await request.json()) as Record<string, unknown>
 
-      const [clienteAtual] = await query<any[]>(
-        `SELECT
-        id, nome, cpf, email, telefone, empresa, cargo, tipo, endereco, numero, bairro, cidade, estado, cep,
-        origem, status_funil, observacoes
-       FROM clientes
-       WHERE id = ?`,
-      [id]
-    )
+    const clienteAtual = await prisma.clientes.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        nome: true,
+        cpf: true,
+        email: true,
+        telefone: true,
+        empresa: true,
+        cargo: true,
+        tipo: true,
+        endereco: true,
+        numero: true,
+        bairro: true,
+        cidade: true,
+        estado: true,
+        cep: true,
+        origem: true,
+        status_funil: true,
+        observacoes: true,
+      },
+    })
 
     if (!clienteAtual) {
       return NextResponse.json({ error: 'Cliente nao encontrado' }, { status: 404 })
@@ -204,62 +245,63 @@ export async function PUT(
         : clienteAtual.observacoes,
     }
 
-    await query(
-      `UPDATE clientes SET
-        nome = ?, cpf = ?, email = ?, telefone = ?, empresa = ?, cargo = ?, tipo = ?,
-        endereco = ?, numero = ?, bairro = ?, cidade = ?, estado = ?, cep = ?, origem = ?,
-        status_funil = ?, observacoes = ?
-       WHERE id = ?`,
-      [
-        mergedCliente.nome,
-        mergedCliente.cpf,
-        mergedCliente.email,
-        mergedCliente.telefone,
-        mergedCliente.empresa,
-        mergedCliente.cargo,
-        mergedCliente.tipo,
-        mergedCliente.endereco,
-        mergedCliente.numero,
-        mergedCliente.bairro,
-        mergedCliente.cidade,
-        mergedCliente.estado,
-        mergedCliente.cep,
-        mergedCliente.origem,
-        statusFunil,
-        mergedCliente.observacoes,
-        id,
-      ]
-    )
+    const operations: any[] = [
+      prisma.clientes.update({
+        where: { id },
+        data: {
+          nome: mergedCliente.nome,
+          cpf: mergedCliente.cpf,
+          email: mergedCliente.email,
+          telefone: mergedCliente.telefone,
+          empresa: mergedCliente.empresa,
+          cargo: mergedCliente.cargo,
+          tipo: mergedCliente.tipo,
+          endereco: mergedCliente.endereco,
+          numero: mergedCliente.numero,
+          bairro: mergedCliente.bairro,
+          cidade: mergedCliente.cidade,
+          estado: mergedCliente.estado,
+          cep: mergedCliente.cep,
+          origem: mergedCliente.origem,
+          status_funil: statusFunil,
+          observacoes: mergedCliente.observacoes,
+        } as any,
+      }),
+    ]
 
     if (clienteAtual.status_funil !== statusFunil) {
-      await query(
-        `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
-         VALUES (?, ?, ?, 'mudanca_status', ?, ?, ?)`,
-        [
-          uuidv4(),
-          id,
-          user.id,
-          `Status alterado de ${clienteAtual.status_funil} para ${statusFunil}`,
-          JSON.stringify({ de: clienteAtual.status_funil, para: statusFunil }),
-          formatDateTime(new Date()),
-        ]
+      operations.push(
+        prisma.interacoes.create({
+          data: {
+            id: uuidv4(),
+            cliente_id: id,
+            usuario_id: user.id,
+            tipo: 'mudanca_status',
+            descricao: `Status alterado de ${clienteAtual.status_funil} para ${statusFunil}`,
+            dados: JSON.stringify({ de: clienteAtual.status_funil, para: statusFunil }),
+            created_at: new Date(),
+          } as any,
+        })
       )
     }
 
     if ((clienteAtual.observacoes || '') !== (mergedCliente.observacoes || '')) {
-      await query(
-        `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
-         VALUES (?, ?, ?, 'nota', ?, ?, ?)`,
-        [
-          uuidv4(),
-          id,
-          user.id,
-          'Observacoes do cliente atualizadas',
-          JSON.stringify({ campo: 'observacoes', origem: 'cliente' }),
-          formatDateTime(new Date()),
-        ]
+      operations.push(
+        prisma.interacoes.create({
+          data: {
+            id: uuidv4(),
+            cliente_id: id,
+            usuario_id: user.id,
+            tipo: 'nota',
+            descricao: 'Observacoes do cliente atualizadas',
+            dados: JSON.stringify({ campo: 'observacoes', origem: 'cliente' }),
+            created_at: new Date(),
+          } as any,
+        })
       )
     }
+
+    await prisma.$transaction(operations)
 
     await publishRealtimeEvent({
       actorUserId: user.id,
@@ -267,12 +309,10 @@ export async function PUT(
       resourceId: id,
     })
 
-    const [cliente] = await query<any[]>(
-      `SELECT ${CLIENT_SELECT_COLUMNS}
-       FROM clientes c
-       WHERE c.id = ?`,
-      [id]
-    )
+    const cliente = await prisma.clientes.findUnique({
+      where: { id },
+      select: CLIENT_SELECT,
+    })
     invalidateRuntimeCache('clientes:list:')
     invalidateRuntimeCache('cliente:detail:')
     invalidateRuntimeCache('dashboard:')
@@ -298,7 +338,9 @@ export async function DELETE(
     }
 
     const { id } = await params
-    await query('DELETE FROM clientes WHERE id = ?', [id])
+    await prisma.clientes.delete({
+      where: { id },
+    })
 
     invalidateRuntimeCache('clientes:list:')
     invalidateRuntimeCache('cliente:detail:')

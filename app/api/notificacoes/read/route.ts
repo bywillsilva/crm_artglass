@@ -1,6 +1,8 @@
+import { randomUUID } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
-import { isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysql'
+import { isTransientDatabaseError, logDatabaseError } from '@/lib/db/errors'
+import { prisma } from '@/lib/db/prisma'
 import { deleteRuntimeCache, getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 
 const NOTIFICATION_SCHEMA_CACHE_MS = 60 * 60 * 1000
@@ -10,6 +12,11 @@ const NOTIFICATION_READS_CACHE_TTL_MS = Math.max(
 )
 let notificationSchemaCheckedAt = 0
 let notificationSchemaPromise: Promise<void> | null = null
+
+function isTransientNotificationDatabaseError(error: unknown) {
+  const prismaCode = typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code) : ''
+  return isTransientDatabaseError(error) || ['P1001', 'P1002', 'P1008', 'P1017'].includes(prismaCode)
+}
 
 async function ensureReadNotificationsTable() {
   const now = Date.now()
@@ -23,7 +30,7 @@ async function ensureReadNotificationsTable() {
   }
 
   notificationSchemaPromise = (async () => {
-    await query(`
+    await prisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS notification_reads (
         id VARCHAR(36) PRIMARY KEY,
         user_id VARCHAR(36) NOT NULL,
@@ -57,10 +64,14 @@ export async function GET() {
       return NextResponse.json(cachedNotifications)
     }
 
-    const rows = await query<any[]>(
-      'SELECT notification_id FROM notification_reads WHERE user_id = ?',
-      [user.id]
-    )
+    const rows = await prisma.notification_reads.findMany({
+      where: {
+        user_id: user.id,
+      },
+      select: {
+        notification_id: true,
+      },
+    })
 
     const payload = rows.map((row) => row.notification_id)
     setRuntimeCache(cacheKey, payload, NOTIFICATION_READS_CACHE_TTL_MS)
@@ -86,19 +97,20 @@ export async function POST(request: NextRequest) {
     }
 
     const normalizedNotificationIds = [...new Set(notificationIds.map((notificationId) => String(notificationId)))]
-    const placeholders = normalizedNotificationIds.map(() => '(UUID(), ?, ?)').join(', ')
-    const params = normalizedNotificationIds.flatMap((notificationId) => [user.id, notificationId])
-
-    await query(
-      `INSERT IGNORE INTO notification_reads (id, user_id, notification_id) VALUES ${placeholders}`,
-      params
-    )
+    await prisma.notification_reads.createMany({
+      data: normalizedNotificationIds.map((notificationId) => ({
+        id: randomUUID(),
+        user_id: user.id,
+        notification_id: notificationId,
+      })),
+      skipDuplicates: true,
+    })
 
     deleteRuntimeCache(`notification-reads:${user.id}`)
     return NextResponse.json({ success: true })
   } catch (error) {
     logDatabaseError('Erro ao marcar notificacoes como lidas', error)
-    if (isTransientDatabaseError(error)) {
+    if (isTransientNotificationDatabaseError(error)) {
       return NextResponse.json({ success: true, degraded: true })
     }
     return NextResponse.json({ error: 'Erro ao marcar notificacoes como lidas' }, { status: 500 })

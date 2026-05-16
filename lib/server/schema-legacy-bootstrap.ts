@@ -1,4 +1,4 @@
-import { query } from '@/lib/db/mysql'
+import { prisma } from '@/lib/db/prisma'
 import {
   ensureClientSchema,
   ensureCrmRuntimeSchema,
@@ -13,6 +13,15 @@ import {
 import { ensureRealtimeEventsSchema } from '@/lib/server/realtime-events'
 
 const DATABASE_SCHEMA_CACHE_MS = 60 * 60 * 1000
+
+async function query<T = unknown>(sql: string, params: unknown[] = []): Promise<T> {
+  const isRead = /^\s*(SELECT|SHOW|DESCRIBE|WITH)\b/i.test(sql)
+  if (isRead) {
+    return prisma.$queryRawUnsafe<T>(sql, ...params)
+  }
+
+  return prisma.$executeRawUnsafe(sql, ...params) as T
+}
 
 let configuracoesSchemaCheckedAt = 0
 let configuracoesSchemaPromise: Promise<void> | null = null

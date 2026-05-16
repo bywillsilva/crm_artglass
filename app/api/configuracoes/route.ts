@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { isTransientDatabaseError, logDatabaseError, query } from '@/lib/db/mysql'
+import { isTransientDatabaseError, logDatabaseError } from '@/lib/db/errors'
+import { prisma } from '@/lib/db/prisma'
 import { v4 as uuidv4 } from 'uuid'
 import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
@@ -16,10 +17,38 @@ const GLOBAL_KEYS = ['empresa', 'funil']
 const CONFIG_SCHEMA_CACHE_MS = 60 * 60 * 1000
 const CONFIG_CACHE_TTL_MS = Math.max(Number(process.env.CONFIG_CACHE_TTL_MS || 30_000), 1000)
 
-const CONFIG_SELECT_COLUMNS = 'id, chave, scope, user_id, valor'
+const CONFIG_SELECT = {
+  id: true,
+  chave: true,
+  scope: true,
+  user_id: true,
+  valor: true,
+} as const
 
 let configuracoesSchemaCheckedAt = 0
 let configuracoesSchemaPromise: Promise<void> | null = null
+
+async function query<T = unknown>(sql: string, params: unknown[] = []): Promise<T> {
+  const isRead = /^\s*(SELECT|SHOW|DESCRIBE|WITH)\b/i.test(sql)
+  if (isRead) {
+    return prisma.$queryRawUnsafe<T>(sql, ...params)
+  }
+
+  return prisma.$executeRawUnsafe(sql, ...params) as T
+}
+
+function isTransientConfigurationDatabaseError(error: unknown) {
+  const prismaCode = typeof error === 'object' && error && 'code' in error ? String((error as { code?: unknown }).code) : ''
+  return isTransientDatabaseError(error) || ['P1001', 'P1002', 'P1008', 'P1017'].includes(prismaCode)
+}
+
+function preferUserScopedConfig<T extends { scope: string }>(configs: T[]) {
+  return [...configs].sort((a, b) => {
+    const priorityA = a.scope === 'user' ? 0 : 1
+    const priorityB = b.scope === 'user' ? 0 : 1
+    return priorityA - priorityB
+  })[0] || null
+}
 
 async function ensureConfiguracoesSchema() {
   const now = Date.now()
@@ -100,15 +129,16 @@ export async function GET(request: NextRequest) {
       }
 
       if (GLOBAL_KEYS.includes(chave)) {
-        const [config] = await query<any[]>(
-          `SELECT ${CONFIG_SELECT_COLUMNS}
-           FROM configuracoes
-           WHERE chave = ? AND scope = 'global' AND user_id = ''
-           LIMIT 1`,
-          [chave]
-        )
-        setRuntimeCache(scopedCacheKey, config || null, CONFIG_CACHE_TTL_MS)
-        return NextResponse.json(config || null, {
+        const config = await prisma.configuracoes.findFirst({
+          where: {
+            chave,
+            scope: 'global',
+            user_id: '',
+          },
+          select: CONFIG_SELECT,
+        })
+        setRuntimeCache(scopedCacheKey, config, CONFIG_CACHE_TTL_MS)
+        return NextResponse.json(config, {
           headers: {
             'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
           },
@@ -119,20 +149,19 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Nao autenticado' }, { status: 401 })
       }
 
-      const [config] = await query<any[]>(
-        `SELECT ${CONFIG_SELECT_COLUMNS}
-         FROM configuracoes
-         WHERE chave = ?
-           AND (
-             (scope = 'user' AND user_id = ?)
-             OR (scope = 'global' AND user_id = '')
-           )
-         ORDER BY CASE WHEN scope = 'user' THEN 0 ELSE 1 END
-          LIMIT 1`,
-        [chave, user.id]
-      )
-      setRuntimeCache(scopedCacheKey, config || null, CONFIG_CACHE_TTL_MS)
-      return NextResponse.json(config || null, {
+      const configs = await prisma.configuracoes.findMany({
+        where: {
+          chave,
+          OR: [
+            { scope: 'user', user_id: user.id },
+            { scope: 'global', user_id: '' },
+          ],
+        },
+        select: CONFIG_SELECT,
+      })
+      const config = preferUserScopedConfig(configs)
+      setRuntimeCache(scopedCacheKey, config, CONFIG_CACHE_TTL_MS)
+      return NextResponse.json(config, {
         headers: {
           'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
         },
@@ -153,20 +182,34 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const configs = await query<any[]>(
-      `SELECT ${CONFIG_SELECT_COLUMNS}
-       FROM configuracoes
-       WHERE (chave = 'empresa' AND scope = 'global' AND user_id = '')
-          OR (chave IN ('geral', 'notificacoes', 'aparencia') AND (
-               (scope = 'user' AND user_id = ?)
-               OR (scope = 'global' AND user_id = '')
-             ))
-       ORDER BY chave, CASE WHEN scope = 'user' THEN 0 ELSE 1 END`,
-      [user.id]
-    )
+    const configs = await prisma.configuracoes.findMany({
+      where: {
+        OR: [
+          { chave: 'empresa', scope: 'global', user_id: '' },
+          {
+            chave: { in: USER_KEYS },
+            OR: [
+              { scope: 'user', user_id: user.id },
+              { scope: 'global', user_id: '' },
+            ],
+          },
+        ],
+      },
+      select: CONFIG_SELECT,
+      orderBy: { chave: 'asc' },
+    })
 
     const byKey = new Map<string, any>()
-    configs.forEach((config) => {
+    const orderedConfigs = [...configs].sort((a, b) => {
+      const keyOrder = a.chave.localeCompare(b.chave)
+      if (keyOrder !== 0) {
+        return keyOrder
+      }
+      const priorityA = a.scope === 'user' ? 0 : 1
+      const priorityB = b.scope === 'user' ? 0 : 1
+      return priorityA - priorityB
+    })
+    orderedConfigs.forEach((config) => {
       if (!byKey.has(config.chave)) {
         byKey.set(config.chave, config)
       }
@@ -180,7 +223,7 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error) {
-    if (!isTransientDatabaseError(error)) {
+    if (!isTransientConfigurationDatabaseError(error)) {
       logDatabaseError('Erro ao buscar configuracoes', error)
     }
     return NextResponse.json([], {
@@ -212,34 +255,42 @@ export async function POST(request: NextRequest) {
 
     const scope = isCompanyConfig ? 'global' : 'user'
     const userId = isCompanyConfig ? '' : user.id
+    const serializedValue = JSON.stringify(data.valor)
 
-    const [existing] = await query<any[]>(
-      `SELECT ${CONFIG_SELECT_COLUMNS}
-       FROM configuracoes
-       WHERE chave = ? AND scope = ? AND user_id = ?
-       LIMIT 1`,
-      [data.chave, scope, userId]
-    )
+    const existing = await prisma.configuracoes.findFirst({
+      where: {
+        chave: data.chave,
+        scope,
+        user_id: userId,
+      },
+      select: { id: true },
+    })
 
     if (existing) {
-      await query(
-        'UPDATE configuracoes SET valor = ? WHERE chave = ? AND scope = ? AND user_id = ?',
-        [JSON.stringify(data.valor), data.chave, scope, userId]
-      )
+      await prisma.configuracoes.update({
+        where: { id: existing.id },
+        data: { valor: serializedValue },
+      })
     } else {
-      await query(
-        'INSERT INTO configuracoes (id, chave, scope, user_id, valor) VALUES (?, ?, ?, ?, ?)',
-        [uuidv4(), data.chave, scope, userId, JSON.stringify(data.valor)]
-      )
+      await prisma.configuracoes.create({
+        data: {
+          id: uuidv4(),
+          chave: data.chave,
+          scope,
+          user_id: userId,
+          valor: serializedValue,
+        },
+      })
     }
 
-    const [config] = await query<any[]>(
-      `SELECT ${CONFIG_SELECT_COLUMNS}
-       FROM configuracoes
-       WHERE chave = ? AND scope = ? AND user_id = ?
-       LIMIT 1`,
-      [data.chave, scope, userId]
-    )
+    const config = await prisma.configuracoes.findFirst({
+      where: {
+        chave: data.chave,
+        scope,
+        user_id: userId,
+      },
+      select: CONFIG_SELECT,
+    })
 
     deleteRuntimeCache(`config:list:${user.id}`)
     deleteRuntimeCache(`config:${data.chave}:${scope === 'global' ? 'global' : user.id}`)
@@ -257,7 +308,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(config)
   } catch (error) {
     logDatabaseError('Erro ao salvar configuracao', error)
-    if (isTransientDatabaseError(error)) {
+    if (isTransientConfigurationDatabaseError(error)) {
       return NextResponse.json({ error: 'Banco temporariamente indisponivel. Tente novamente em instantes.' }, { status: 503 })
     }
     return NextResponse.json({ error: 'Erro ao salvar configuracao' }, { status: 500 })

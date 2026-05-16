@@ -1,4 +1,4 @@
-import { query } from '@/lib/db/mysql'
+import { prisma } from '@/lib/db/prisma'
 import { sendEmail } from '@/lib/email'
 
 export type EffectiveGeneralSettings = {
@@ -70,28 +70,44 @@ export async function getEffectiveUserSettings(userId: string) {
     let configs: any[]
 
     try {
-      configs = await query<any[]>(
-        `SELECT chave, scope, valor
-         FROM configuracoes
-         WHERE chave IN ('geral', 'notificacoes')
-           AND (
-             (scope = 'user' AND user_id = ?)
-             OR (scope = 'global' AND user_id = '')
-           )
-         ORDER BY chave, CASE WHEN scope = 'user' THEN 0 ELSE 1 END`,
-        [userId]
-      )
+      configs = await prisma.configuracoes.findMany({
+        where: {
+          chave: {
+            in: ['geral', 'notificacoes'],
+          },
+          OR: [
+            { scope: 'user', user_id: userId },
+            { scope: 'global', user_id: '' },
+          ],
+        },
+        select: {
+          chave: true,
+          scope: true,
+          valor: true,
+        },
+        orderBy: {
+          chave: 'asc',
+        },
+      })
+      configs = configs.sort((a, b) => {
+        const keyOrder = String(a.chave).localeCompare(String(b.chave))
+        if (keyOrder !== 0) {
+          return keyOrder
+        }
+        const priorityA = a.scope === 'user' ? 0 : 1
+        const priorityB = b.scope === 'user' ? 0 : 1
+        return priorityA - priorityB
+      })
     } catch (error) {
       if (!isUnknownColumnError(error)) {
         throw error
       }
 
-      configs = await query<any[]>(
+      configs = await prisma.$queryRawUnsafe<any[]>(
         `SELECT chave, 'global' as scope, valor
          FROM configuracoes
          WHERE chave IN ('geral', 'notificacoes')
-         ORDER BY chave`,
-        []
+         ORDER BY chave`
       )
     }
 

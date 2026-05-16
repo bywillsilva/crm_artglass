@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { v4 as uuidv4 } from 'uuid'
-import { isTransientDatabaseError, query } from '@/lib/db/mysql'
+import { isTransientDatabaseError } from '@/lib/db/errors'
+import { prisma } from '@/lib/db/prisma'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { persistSavedProposalFiles, saveProposalFiles } from '@/lib/server/proposal-files'
@@ -8,6 +9,7 @@ import { syncProposalServices } from '@/lib/server/proposal-services'
 import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
+import { normalizeJsonPayload } from '@/lib/server/json-normalize'
 import { ensureProposalReadSideReady } from '@/lib/server/read-side-maintenance'
 import {
   getNextProposalNumber,
@@ -183,6 +185,25 @@ function normalizeMaterialTag(value: unknown) {
   return normalized ? normalized.slice(0, 80) : null
 }
 
+function parseDateOnly(value: string | null) {
+  if (!value) {
+    return null
+  }
+
+  const parsed = new Date(`${value}T00:00:00`)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function parseTimeOnly(value: string | null) {
+  if (!value) {
+    return null
+  }
+
+  const [hours, minutes, seconds = '00'] = value.split(':')
+  const parsed = new Date(Date.UTC(1970, 0, 1, Number(hours), Number(minutes), Number(seconds)))
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
 async function insertProposalWithUniqueNumber(params: {
   id: string
   clienteId: string
@@ -207,39 +228,36 @@ async function insertProposalWithUniqueNumber(params: {
     const numero = await getNextProposalNumber()
 
     try {
-      await query(
-        `INSERT INTO propostas (
-          id, numero, cliente_id, responsavel_id, orcamentista_id, retificacoes_count, titulo, descricao,
-          material_tag, valor, desconto, valor_final, status, validade, servicos, condicoes, follow_up_base_at, follow_up_time
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          params.id,
+      await prisma.propostas.create({
+        data: {
+          id: params.id,
           numero,
-          params.clienteId,
-          params.responsavelId,
-          params.orcamentistaId,
-          0,
-          params.titulo,
-          params.descricao,
-          params.materialTag,
-          params.valor,
-          params.desconto,
-          params.valorFinal,
-          params.status,
-          params.validade,
-          JSON.stringify(params.servicos),
-          params.condicoes,
-          params.status === 'enviado_ao_cliente' ? formatDateTime(params.now) : null,
-          params.followUpTime,
-        ]
-      )
+          cliente_id: params.clienteId,
+          responsavel_id: params.responsavelId,
+          orcamentista_id: params.orcamentistaId,
+          retificacoes_count: 0,
+          titulo: params.titulo,
+          descricao: params.descricao,
+          material_tag: params.materialTag,
+          valor: params.valor,
+          desconto: params.desconto,
+          valor_final: params.valorFinal,
+          status: params.status,
+          validade: parseDateOnly(params.validade),
+          servicos: JSON.stringify(params.servicos),
+          condicoes: params.condicoes,
+          follow_up_base_at: params.status === 'enviado_ao_cliente' ? params.now : null,
+          follow_up_time: parseTimeOnly(params.followUpTime),
+        },
+      })
 
       return numero
     } catch (error: any) {
       const isNumeroDuplicate =
-        error?.code === 'ER_DUP_ENTRY' &&
-        String(error?.sqlMessage || '').toLowerCase().includes('for key') &&
-        String(error?.sqlMessage || '').toLowerCase().includes('numero')
+        error?.code === 'P2002' ||
+        (error?.code === 'ER_DUP_ENTRY' &&
+          String(error?.sqlMessage || '').toLowerCase().includes('for key') &&
+          String(error?.sqlMessage || '').toLowerCase().includes('numero'))
 
       if (!isNumeroDuplicate || attempt === maxAttempts - 1) {
         throw error
@@ -327,10 +345,14 @@ async function validateResponsavel(responsavelId: string | null, sessionUser: an
     throw new Error('Selecione um vendedor responsavel para a proposta.')
   }
 
-  const [responsavel] = await query<any[]>(
-    'SELECT id, role, ativo FROM usuarios WHERE id = ? LIMIT 1',
-    [resolvedId]
-  )
+  const responsavel = await prisma.usuarios.findUnique({
+    where: { id: resolvedId },
+    select: {
+      id: true,
+      role: true,
+      ativo: true,
+    },
+  })
 
   if (!responsavel || !responsavel.ativo || !['vendedor', 'gerente'].includes(responsavel.role)) {
     throw new Error('O responsavel informado para a proposta e invalido.')
@@ -344,10 +366,14 @@ async function validateOrcamentista(orcamentistaId: string | null) {
     return null
   }
 
-  const [orcamentista] = await query<any[]>(
-    'SELECT id, role, ativo FROM usuarios WHERE id = ? LIMIT 1',
-    [orcamentistaId]
-  )
+  const orcamentista = await prisma.usuarios.findUnique({
+    where: { id: orcamentistaId },
+    select: {
+      id: true,
+      role: true,
+      ativo: true,
+    },
+  })
 
   if (!orcamentista || !orcamentista.ativo || orcamentista.role !== 'orcamentista') {
     throw new Error('O orcamentista informado para a proposta e invalido.')
@@ -362,30 +388,47 @@ async function persistProposalComment(propostaId: string, usuarioId: string, com
     return
   }
 
-  await query(
-    `INSERT INTO proposta_comentarios (id, proposta_id, usuario_id, comentario)
-     VALUES (?, ?, ?, ?)`,
-    [uuidv4(), propostaId, usuarioId, cleaned]
-  )
+  await prisma.proposta_comentarios.create({
+    data: {
+      id: uuidv4(),
+      proposta_id: propostaId,
+      usuario_id: usuarioId,
+      comentario: cleaned,
+    },
+  })
 }
 
 async function findReusableSeedProposal(clienteId: string) {
-  const [proposal] = await query<any[]>(
-    `SELECT p.id, p.numero
-     FROM propostas p
-     LEFT JOIN proposta_anexos pa ON pa.proposta_id = p.id
-     LEFT JOIN proposta_comentarios pc ON pc.proposta_id = p.id
-       WHERE p.cliente_id = ?
-        AND p.status = 'novo_cliente'
-        AND COALESCE(p.valor, 0) <= 0
-        AND (p.descricao IS NULL OR TRIM(p.descricao) = '')
-        AND (p.titulo = 'Novo cliente' OR p.titulo LIKE 'Novo cliente - %')
-     GROUP BY p.id, p.numero, p.created_at
-     HAVING COUNT(DISTINCT pa.id) = 0 AND COUNT(DISTINCT pc.id) = 0
-     ORDER BY p.created_at DESC
-     LIMIT 1`,
-    [clienteId]
-  )
+  const [proposal] = await prisma.propostas.findMany({
+    where: {
+      cliente_id: clienteId,
+      status: 'novo_cliente',
+      valor: {
+        lte: 0,
+      },
+      OR: [
+        { descricao: null },
+        { descricao: '' },
+      ],
+      titulo: {
+        startsWith: 'Novo cliente',
+      },
+      proposta_anexos: {
+        none: {},
+      },
+      proposta_comentarios: {
+        none: {},
+      },
+    },
+    select: {
+      id: true,
+      numero: true,
+    },
+    orderBy: {
+      created_at: 'desc',
+    },
+    take: 1,
+  })
 
   return proposal || null
 }
@@ -476,17 +519,18 @@ export async function GET(request: NextRequest) {
 
     let propostas: any[]
     try {
-      propostas = await query(sql, params)
+      propostas = await prisma.$queryRawUnsafe<any[]>(sql, ...params)
     } catch (error) {
       if (!isUnknownColumnError(error)) {
         throw error
       }
 
       const legacySql = sql.replace(PROPOSAL_LIST_SELECT_COLUMNS, PROPOSAL_LIST_SELECT_COLUMNS_LEGACY)
-      propostas = await query(legacySql, params)
+      propostas = await prisma.$queryRawUnsafe<any[]>(legacySql, ...params)
     }
-    setRuntimeCache(cacheKey, propostas, PROPOSTAS_CACHE_TTL_MS)
-    return jsonNoStore(propostas)
+    const payload = normalizeJsonPayload(propostas)
+    setRuntimeCache(cacheKey, payload, PROPOSTAS_CACHE_TTL_MS)
+    return jsonNoStore(payload)
   } catch (error) {
     console.error('Erro ao buscar propostas:', error)
 
@@ -536,10 +580,14 @@ export async function POST(request: NextRequest) {
     const id = uuidv4()
     const now = new Date()
     const status = normalizeProposalStatus(data.status)
-    const [cliente] = await query<any[]>(
-      'SELECT id, nome, responsavel_id FROM clientes WHERE id = ? LIMIT 1',
-      [data.clienteId]
-    )
+    const cliente = await prisma.clientes.findUnique({
+      where: { id: data.clienteId },
+      select: {
+        id: true,
+        nome: true,
+        responsavel_id: true,
+      },
+    })
 
     if (!cliente) {
       return NextResponse.json({ error: 'Cliente nao encontrado para a proposta' }, { status: 404 })
@@ -613,31 +661,26 @@ export async function POST(request: NextRequest) {
       }))
 
     if (reusableSeedProposal) {
-      await query(
-        `UPDATE propostas SET
-          cliente_id = ?, responsavel_id = ?, orcamentista_id = ?, titulo = ?, descricao = ?,
-          material_tag = ?, valor = ?, desconto = ?, valor_final = ?, status = ?, validade = ?, servicos = ?,
-          condicoes = ?, follow_up_base_at = ?, follow_up_time = ?
-         WHERE id = ?`,
-        [
-          data.clienteId,
-          responsavelId,
-          orcamentistaId,
-          data.titulo || 'Proposta Comercial',
-          data.descricao || null,
-          materialTag,
+      await prisma.propostas.update({
+        where: { id: propostaId },
+        data: {
+          cliente_id: data.clienteId,
+          responsavel_id: responsavelId,
+          orcamentista_id: orcamentistaId,
+          titulo: data.titulo || 'Proposta Comercial',
+          descricao: data.descricao || null,
+          material_tag: materialTag,
           valor,
           desconto,
-          valorFinal,
+          valor_final: valorFinal,
           status,
-          data.validade || null,
-          JSON.stringify(data.servicos || []),
-          data.condicoes || null,
-          status === 'enviado_ao_cliente' ? formatDateTime(now) : null,
-          data.followUpTime || null,
-          propostaId,
-        ]
-      )
+          validade: parseDateOnly(data.validade || null),
+          servicos: JSON.stringify(data.servicos || []),
+          condicoes: data.condicoes || null,
+          follow_up_base_at: status === 'enviado_ao_cliente' ? now : null,
+          follow_up_time: parseTimeOnly(data.followUpTime || null),
+        },
+      })
     }
 
     await syncProposalServices(propostaId, data.servicos || [])
@@ -650,18 +693,17 @@ export async function POST(request: NextRequest) {
     await persistSavedProposalFiles(propostaId, user.id, savedFiles)
     await setProposalKanbanPosition(propostaId, status, data.kanbanPosition ?? 0)
 
-    await query(
-      `INSERT INTO interacoes (id, cliente_id, usuario_id, tipo, descricao, dados, created_at)
-       VALUES (?, ?, ?, 'proposta', ?, ?, ?)`,
-      [
-        uuidv4(),
-        data.clienteId,
-        user.id,
-        `Proposta ${numero} criada em ${status}`,
-        JSON.stringify({ proposta_id: propostaId, status, silent_notification: true }),
-        formatDateTime(now),
-      ]
-    )
+    await prisma.interacoes.create({
+      data: {
+        id: uuidv4(),
+        cliente_id: data.clienteId,
+        usuario_id: user.id,
+        tipo: 'proposta',
+        descricao: `Proposta ${numero} criada em ${status}`,
+        dados: JSON.stringify({ proposta_id: propostaId, status, silent_notification: true }),
+        created_at: now,
+      },
+    })
 
     await handleProposalAutomationOnCreate({
       clienteId: data.clienteId,
@@ -686,7 +728,7 @@ export async function POST(request: NextRequest) {
       resourceId: propostaId,
     })
 
-    const [proposta] = await query<any[]>(
+    const [proposta] = await prisma.$queryRawUnsafe<any[]>(
       `SELECT
          ${PROPOSAL_LIST_SELECT_COLUMNS}
         FROM propostas p
@@ -704,9 +746,9 @@ export async function POST(request: NextRequest) {
           GROUP BY proposta_id
         ) pc ON pc.proposta_id = p.id
         WHERE p.id = ?`,
-      [propostaId]
+      propostaId
     )
-    return NextResponse.json(proposta, { status: 201 })
+    return NextResponse.json(normalizeJsonPayload(proposta), { status: 201 })
   } catch (error) {
     console.error('Erro ao criar proposta:', error)
     return NextResponse.json(

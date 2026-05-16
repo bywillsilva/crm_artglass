@@ -1,4 +1,13 @@
-import { query } from '@/lib/db/mysql'
+import { prisma } from '@/lib/db/prisma'
+
+async function query<T = unknown>(sql: string, params: unknown[] = []): Promise<T> {
+  const isRead = /^\s*(SELECT|SHOW|DESCRIBE|WITH)\b/i.test(sql)
+  if (isRead) {
+    return prisma.$queryRawUnsafe<T>(sql, ...params)
+  }
+
+  return prisma.$executeRawUnsafe(sql, ...params) as T
+}
 
 export const migration202605130003 = {
   version: '202605130003',
@@ -17,4 +26,3 @@ export const migration202605130003 = {
     }
   },
 }
-
