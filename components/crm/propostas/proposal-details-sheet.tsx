@@ -77,6 +77,18 @@ type ProposalAttachmentSnapshot = {
   usuarioId?: string
 }
 
+type ProposalDetailsActionKey =
+  | 'value'
+  | 'description'
+  | 'responsavel'
+  | 'technical'
+  | 'comment:create'
+  | 'comment:save'
+  | `comment:delete:${string}`
+  | `attachment:delete:${string}`
+  | 'attachment:upload'
+  | `postClosing:${PosFechamentoEtapa}`
+
 interface ProposalDetailsSheetProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -297,8 +309,8 @@ export function ProposalDetailsSheet({
   const [editingValorVidro, setEditingValorVidro] = useState('')
   const [editingValorAcessorios, setEditingValorAcessorios] = useState('')
   const [editingObservacoesTecnicas, setEditingObservacoesTecnicas] = useState('')
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const isSubmittingRef = useRef(false)
+  const [pendingActions, setPendingActions] = useState<Partial<Record<ProposalDetailsActionKey, true>>>({})
+  const pendingActionsRef = useRef(new Set<ProposalDetailsActionKey>())
   const attachmentInputRef = useRef<HTMLInputElement | null>(null)
   const detailErrorMessage = useMemo(() => {
     if (!error) return null
@@ -596,16 +608,27 @@ export function ProposalDetailsSheet({
     } satisfies InlineProposalUpdatePayload
   }
 
-  const beginSubmit = () => {
-    if (isSubmittingRef.current) return false
-    isSubmittingRef.current = true
-    setIsSubmitting(true)
+  const beginAction = (key: ProposalDetailsActionKey) => {
+    if (pendingActionsRef.current.has(key)) return false
+    pendingActionsRef.current.add(key)
+    setPendingActions((prev) => ({ ...prev, [key]: true }))
     return true
   }
 
-  const endSubmit = () => {
-    isSubmittingRef.current = false
-    setIsSubmitting(false)
+  const endAction = (key: ProposalDetailsActionKey) => {
+    pendingActionsRef.current.delete(key)
+    setPendingActions((prev) => {
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }
+
+  const isActionPending = (key: ProposalDetailsActionKey) => Boolean(pendingActions[key])
+
+  const buildScopedUpdatePayload = (overrides: InlineProposalUpdatePayload = {}) => {
+    if (!propostaSource) return null
+    return overrides
   }
 
   const syncProposalSnapshot = async (proposalSnapshot: any) => {
@@ -786,18 +809,19 @@ export function ProposalDetailsSheet({
   }
 
   const handleSaveValue = async () => {
-    if (!propostaId || !propostaSource || !beginSubmit()) return
+    const actionKey: ProposalDetailsActionKey = 'value'
+    if (!propostaId || !propostaSource || !beginAction(actionKey)) return
 
     const parsedValue = parseCurrencyInput(editingValue)
     if (parsedValue === null || parsedValue < 0) {
       toast.error('Informe um valor valido para a proposta.')
-      endSubmit()
+      endAction(actionKey)
       return
     }
 
-    const payload = buildInlineUpdatePayload({ valor: parsedValue })
+    const payload = buildScopedUpdatePayload({ valor: parsedValue })
     if (!payload) {
-      endSubmit()
+      endAction(actionKey)
       return
     }
 
@@ -809,16 +833,17 @@ export function ProposalDetailsSheet({
     } catch (error: any) {
       toast.error(error?.message || 'Erro ao atualizar valor da proposta.')
     } finally {
-      endSubmit()
+      endAction(actionKey)
     }
   }
 
   const handleSaveDescription = async () => {
-    if (!propostaId || !propostaSource || !beginSubmit()) return
+    const actionKey: ProposalDetailsActionKey = 'description'
+    if (!propostaId || !propostaSource || !beginAction(actionKey)) return
 
-    const payload = buildInlineUpdatePayload({ descricao: editingDescription })
+    const payload = buildScopedUpdatePayload({ descricao: editingDescription })
     if (!payload) {
-      endSubmit()
+      endAction(actionKey)
       return
     }
 
@@ -830,16 +855,17 @@ export function ProposalDetailsSheet({
     } catch (error: any) {
       toast.error(error?.message || 'Erro ao atualizar descricao da proposta.')
     } finally {
-      endSubmit()
+      endAction(actionKey)
     }
   }
 
   const handleSaveResponsavel = async () => {
-    if (!propostaId || !propostaSource || !beginSubmit()) return
+    const actionKey: ProposalDetailsActionKey = 'responsavel'
+    if (!propostaId || !propostaSource || !beginAction(actionKey)) return
 
     if (!editingResponsavelId) {
       toast.error('Selecione um vendedor responsavel para continuar.')
-      endSubmit()
+      endAction(actionKey)
       return
     }
 
@@ -849,13 +875,13 @@ export function ProposalDetailsSheet({
 
     if (!responsavelSelecionado) {
       toast.error('Nao foi possivel localizar o vendedor selecionado.')
-      endSubmit()
+      endAction(actionKey)
       return
     }
 
-    const payload = buildInlineUpdatePayload({ responsavelId: editingResponsavelId })
+    const payload = buildScopedUpdatePayload({ responsavelId: editingResponsavelId })
     if (!payload) {
-      endSubmit()
+      endAction(actionKey)
       return
     }
 
@@ -875,7 +901,7 @@ export function ProposalDetailsSheet({
     } catch (error: any) {
       toast.error(error?.message || 'Erro ao atualizar vendedor responsavel.')
     } finally {
-      endSubmit()
+      endAction(actionKey)
     }
   }
 
@@ -900,7 +926,8 @@ export function ProposalDetailsSheet({
   }
 
   const handleSaveTechnicalDetails = async () => {
-    if (!propostaId || !propostaSource || !beginSubmit()) return
+    const actionKey: ProposalDetailsActionKey = 'technical'
+    if (!propostaId || !propostaSource || !beginAction(actionKey)) return
 
     const areaM2 = parseOptionalNumericInput(editingAreaM2)
     const perfisBruto = parseOptionalNumericInput(editingPerfisBruto)
@@ -917,11 +944,11 @@ export function ProposalDetailsSheet({
 
     if (invalidTechnicalValue) {
       toast.error('Revise os dados tecnicos e informe apenas numeros validos.')
-      endSubmit()
+      endAction(actionKey)
       return
     }
 
-    const payload = buildInlineUpdatePayload({
+    const payload = buildScopedUpdatePayload({
       areaM2,
       perfisBruto,
       perfisLiquidos,
@@ -930,7 +957,7 @@ export function ProposalDetailsSheet({
       observacoesTecnicas: editingObservacoesTecnicas.trim() || null,
     })
     if (!payload) {
-      endSubmit()
+      endAction(actionKey)
       return
     }
 
@@ -942,12 +969,13 @@ export function ProposalDetailsSheet({
     } catch (error: any) {
       toast.error(error?.message || 'Erro ao atualizar dados tecnicos.')
     } finally {
-      endSubmit()
+      endAction(actionKey)
     }
   }
 
   const handleSetPostClosingStep = async (step: PosFechamentoEtapa) => {
-    if (!propostaId || !propostaSource || !canManagePostClosingSteps || !beginSubmit()) return
+    const actionKey: ProposalDetailsActionKey = `postClosing:${step}`
+    if (!propostaId || !propostaSource || !canManagePostClosingSteps || !beginAction(actionKey)) return
 
     const now = new Date().toISOString()
     const field = postClosingDateFields[step]
@@ -956,13 +984,13 @@ export function ProposalDetailsSheet({
     payload[field] = isCompleted ? null : now
 
     try {
-      const updatedProposal = await updateProposta(propostaId, buildInlineUpdatePayload(payload) || payload)
+      const updatedProposal = await updateProposta(propostaId, buildScopedUpdatePayload(payload) || payload)
       await syncProposalSnapshot(updatedProposal)
       toast.success('Etapa de pos-fechamento atualizada.')
     } catch (error: any) {
       toast.error(error?.message || 'Erro ao atualizar pos-fechamento.')
     } finally {
-      endSubmit()
+      endAction(actionKey)
     }
   }
 
@@ -1098,9 +1126,9 @@ export function ProposalDetailsSheet({
   }
 
   const handleCreateComment = async () => {
-    if (!propostaId || !newComment.trim()) return
+    const actionKey: ProposalDetailsActionKey = 'comment:create'
+    if (!propostaId || !newComment.trim() || !beginAction(actionKey)) return
 
-    setIsSubmitting(true)
     try {
       const response = await fetch(`/api/propostas/${propostaId}/comentarios`, {
         method: 'POST',
@@ -1119,14 +1147,14 @@ export function ProposalDetailsSheet({
     } catch (error: any) {
       toast.error(error.message || 'Erro ao registrar comentario.')
     } finally {
-      setIsSubmitting(false)
+      endAction(actionKey)
     }
   }
 
   const handleSaveComment = async () => {
-    if (!propostaId || !editingCommentId || !editingComment.trim()) return
+    const actionKey: ProposalDetailsActionKey = 'comment:save'
+    if (!propostaId || !editingCommentId || !editingComment.trim() || !beginAction(actionKey)) return
 
-    setIsSubmitting(true)
     try {
       const response = await fetch(
         `/api/propostas/${propostaId}/comentarios/${editingCommentId}`,
@@ -1151,17 +1179,18 @@ export function ProposalDetailsSheet({
     } catch (error: any) {
       toast.error(error.message || 'Erro ao atualizar comentario.')
     } finally {
-      setIsSubmitting(false)
+      endAction(actionKey)
     }
   }
 
   const handleDeleteComment = async (commentId: string) => {
-    if (!propostaId) return
+    const actionKey: ProposalDetailsActionKey = `comment:delete:${commentId}`
+    if (!propostaId || !beginAction(actionKey)) return
     if (typeof window !== 'undefined' && !window.confirm('Excluir este comentario?')) {
+      endAction(actionKey)
       return
     }
 
-    setIsSubmitting(true)
     try {
       const response = await fetch(
         `/api/propostas/${propostaId}/comentarios/${commentId}`,
@@ -1183,17 +1212,18 @@ export function ProposalDetailsSheet({
     } catch (error: any) {
       toast.error(error.message || 'Erro ao excluir comentario.')
     } finally {
-      setIsSubmitting(false)
+      endAction(actionKey)
     }
   }
 
   const handleDeleteAttachment = async (attachmentId: string) => {
-    if (!propostaId) return
+    const actionKey: ProposalDetailsActionKey = `attachment:delete:${attachmentId}`
+    if (!propostaId || !beginAction(actionKey)) return
     if (typeof window !== 'undefined' && !window.confirm('Excluir este anexo?')) {
+      endAction(actionKey)
       return
     }
 
-    setIsSubmitting(true)
     try {
       const response = await fetch(
         `/api/propostas/${propostaId}/anexos/${attachmentId}`,
@@ -1210,7 +1240,7 @@ export function ProposalDetailsSheet({
     } catch (error: any) {
       toast.error(error.message || 'Erro ao excluir anexo.')
     } finally {
-      setIsSubmitting(false)
+      endAction(actionKey)
     }
   }
 
@@ -1218,11 +1248,11 @@ export function ProposalDetailsSheet({
     const selectedFiles = Array.from(event.target.files || [])
     event.target.value = ''
 
-    if (!propostaId || !selectedFiles.length) {
+    const actionKey: ProposalDetailsActionKey = 'attachment:upload'
+    if (!propostaId || !selectedFiles.length || !beginAction(actionKey)) {
       return
     }
 
-    setIsSubmitting(true)
     try {
       const updatedProposal = await updateProposta(propostaId, {
         anexos: selectedFiles as unknown as Proposta['anexos'],
@@ -1234,7 +1264,7 @@ export function ProposalDetailsSheet({
     } catch (error: any) {
       toast.error(error?.message || 'Erro ao enviar os anexos da proposta.')
     } finally {
-      setIsSubmitting(false)
+      endAction(actionKey)
     }
   }
 
@@ -1313,11 +1343,11 @@ export function ProposalDetailsSheet({
                             setIsEditingValue(false)
                             setEditingValue(formatCurrencyInputValue(propostaSource.valor || 0))
                           }}
-                          disabled={isSubmitting}
+                          disabled={isActionPending('value')}
                         >
                           Cancelar
                         </Button>
-                        <Button type="button" onClick={() => void handleSaveValue()} disabled={isSubmitting}>
+                        <Button type="button" onClick={() => void handleSaveValue()} pending={isActionPending('value')} disabled={isActionPending('value')}>
                           Salvar valor
                         </Button>
                       </div>
@@ -1364,11 +1394,11 @@ export function ProposalDetailsSheet({
                             setIsEditingDescription(false)
                             setEditingDescription(propostaSource.descricao || '')
                           }}
-                          disabled={isSubmitting}
+                          disabled={isActionPending('description')}
                         >
                           Cancelar
                         </Button>
-                        <Button type="button" onClick={() => void handleSaveDescription()} disabled={isSubmitting}>
+                        <Button type="button" onClick={() => void handleSaveDescription()} pending={isActionPending('description')} disabled={isActionPending('description')}>
                           Salvar descricao
                         </Button>
                       </div>
@@ -1443,7 +1473,7 @@ export function ProposalDetailsSheet({
                           <button
                             key={step}
                             type="button"
-                            disabled={isSubmitting}
+                            disabled={isActionPending(`postClosing:${step}`)}
                             onClick={() => void handleSetPostClosingStep(step)}
                             className={`flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition ${
                               completed
@@ -1557,14 +1587,15 @@ export function ProposalDetailsSheet({
                             type="button"
                             variant="outline"
                             onClick={resetTechnicalEditingState}
-                            disabled={isSubmitting}
+                            disabled={isActionPending('technical')}
                           >
                             Cancelar
                           </Button>
                           <Button
                             type="button"
                             onClick={() => void handleSaveTechnicalDetails()}
-                            disabled={isSubmitting}
+                            pending={isActionPending('technical')}
+                            disabled={isActionPending('technical')}
                           >
                             Salvar dados tecnicos
                           </Button>
@@ -1637,7 +1668,7 @@ export function ProposalDetailsSheet({
                             <Select
                               value={editingResponsavelId}
                               onValueChange={setEditingResponsavelId}
-                              disabled={isSubmitting}
+                              disabled={isActionPending('responsavel')}
                             >
                               <SelectTrigger className="h-11 border-border/80 bg-secondary/10">
                                 <SelectValue placeholder="Selecione o vendedor responsavel" />
@@ -1659,7 +1690,7 @@ export function ProposalDetailsSheet({
                                   setIsEditingResponsavel(false)
                                   setEditingResponsavelId(propostaSource.responsavelId || '')
                                 }}
-                                disabled={isSubmitting}
+                                disabled={isActionPending('responsavel')}
                               >
                                 Cancelar
                               </Button>
@@ -1667,7 +1698,8 @@ export function ProposalDetailsSheet({
                                 type="button"
                                 size="sm"
                                 onClick={() => void handleSaveResponsavel()}
-                                disabled={isSubmitting || !editingResponsavelId}
+                                pending={isActionPending('responsavel')}
+                                disabled={isActionPending('responsavel') || !editingResponsavelId}
                               >
                                 Salvar vendedor
                               </Button>
@@ -1758,7 +1790,8 @@ export function ProposalDetailsSheet({
                           size="sm"
                           variant="outline"
                           onClick={() => attachmentInputRef.current?.click()}
-                          disabled={isSubmitting}
+                          pending={isActionPending('attachment:upload')}
+                          disabled={isActionPending('attachment:upload')}
                         >
                           Adicionar anexo
                         </Button>
@@ -1793,7 +1826,7 @@ export function ProposalDetailsSheet({
                                   event.preventDefault()
                                   void handleDeleteAttachment(anexo.id)
                                 }}
-                                disabled={isSubmitting}
+                                disabled={isActionPending(`attachment:delete:${anexo.id}`)}
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
@@ -1861,7 +1894,7 @@ export function ProposalDetailsSheet({
                                   size="icon"
                                   className="h-8 w-8 text-destructive"
                                   onClick={() => void handleDeleteComment(item.id)}
-                                  disabled={isSubmitting}
+                                  disabled={isActionPending(`comment:delete:${item.id}`)}
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
@@ -1891,7 +1924,8 @@ export function ProposalDetailsSheet({
                                 <Button
                                   type="button"
                                   onClick={() => void handleSaveComment()}
-                                  disabled={isSubmitting || !editingComment.trim()}
+                                  pending={isActionPending('comment:save')}
+                                  disabled={isActionPending('comment:save') || !editingComment.trim()}
                                 >
                                   Salvar
                                 </Button>
@@ -1934,7 +1968,8 @@ export function ProposalDetailsSheet({
                       <Button
                         type="button"
                         onClick={() => void handleCreateComment()}
-                        disabled={isSubmitting || !newComment.trim()}
+                        pending={isActionPending('comment:create')}
+                        disabled={isActionPending('comment:create') || !newComment.trim()}
                         className="max-w-full whitespace-normal text-right"
                       >
                         <Send className="mr-2 h-4 w-4" />

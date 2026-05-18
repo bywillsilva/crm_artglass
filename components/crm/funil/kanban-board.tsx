@@ -556,8 +556,8 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const [updatingProposalIds, setUpdatingProposalIds] = useState<Record<string, true>>({})
   const [detailsPropostaId, setDetailsPropostaId] = useState<string | null>(null)
   const [isTouchDevice, setIsTouchDevice] = useState(false)
-  const [isSubmittingMove, setIsSubmittingMove] = useState(false)
-  const isSubmittingMoveRef = useRef(false)
+  const [submittingMoveIds, setSubmittingMoveIds] = useState<Record<string, true>>({})
+  const submittingMoveIdsRef = useRef(new Set<string>())
   const [dragState, setDragState] = useState<DragState | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const columnScrollRefs = useRef<Partial<Record<StatusProposta, HTMLDivElement | null>>>({})
@@ -1313,7 +1313,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         dialogSnapshot?: PendingMoveDialogSnapshot
       }
     ) => {
-      if (isSubmittingMoveRef.current) return
+      if (submittingMoveIdsRef.current.has(proposta.id)) return
 
       const effectiveSellerWorkflowAction = options.sellerWorkflowAction || ''
       const baseTargetStatus = options.adminStatus || options.targetStatus
@@ -1355,8 +1355,8 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         kanbanOrder: options.kanbanPosition ?? proposta.kanbanOrder ?? null,
       }
 
-      isSubmittingMoveRef.current = true
-      setIsSubmittingMove(true)
+      submittingMoveIdsRef.current.add(proposta.id)
+      setSubmittingMoveIds((prev) => ({ ...prev, [proposta.id]: true }))
       setOptimisticPropostas((prev) => ({ ...prev, [proposta.id]: optimisticPatch }))
       setUpdatingProposalIds((prev) => ({ ...prev, [proposta.id]: true }))
 
@@ -1437,8 +1437,12 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         }
         toast.error(error?.message || 'Nao foi possivel atualizar a proposta.')
       } finally {
-        isSubmittingMoveRef.current = false
-        setIsSubmittingMove(false)
+        submittingMoveIdsRef.current.delete(proposta.id)
+        setSubmittingMoveIds((prev) => {
+          const next = { ...prev }
+          delete next[proposta.id]
+          return next
+        })
         setUpdatingProposalIds((prev) => {
           const next = { ...prev }
           delete next[proposta.id]
@@ -1450,7 +1454,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   )
 
   const confirmMove = async () => {
-    if (!pendingMove || isSubmittingMoveRef.current) return
+    if (!pendingMove || submittingMoveIdsRef.current.has(pendingMove.propostaId)) return
     const proposta = propostasById.get(pendingMove.propostaId)
     if (!proposta) return
 
@@ -1512,6 +1516,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const pendingMoveProposal = pendingMove
     ? propostasById.get(pendingMove.propostaId) || null
     : null
+  const isPendingMoveSubmitting = Boolean(pendingMove && submittingMoveIds[pendingMove.propostaId])
   const pendingMoveClient = pendingMoveProposal
     ? lookups.clientesById.get(pendingMoveProposal.clienteId) || null
     : null
@@ -2477,15 +2482,15 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
               </div>
             )}
             <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setPendingMove(null)} disabled={isSubmittingMove}>
+              <Button variant="outline" onClick={() => setPendingMove(null)} disabled={isPendingMoveSubmitting}>
                 Cancelar
               </Button>
               <Button
                 data-enter-confirm="true"
                 onClick={() => void confirmMove()}
-                pending={isSubmittingMove}
+                pending={isPendingMoveSubmitting}
                 disabled={
-                  isSubmittingMove ||
+                  isPendingMoveSubmitting ||
                     !approvalRequirementsReady ||
                     (isSellerMove && !effectiveSellerAction) ||
                     (isAdminCommercialMove && !resolvedTargetStatus) ||
