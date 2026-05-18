@@ -9,6 +9,7 @@ import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/
 import { jsonNoStore } from '@/lib/server/http-cache'
 import { ensureSchemaReadyForReads } from '@/lib/server/read-side-maintenance'
 import { inferClientType } from '@/lib/utils/client-document'
+import { normalizeClientOrigin } from '@/lib/utils/client-origin'
 
 const CLIENTE_DETAIL_CACHE_TTL_MS = Math.max(
   Number(process.env.CLIENTE_DETAIL_CACHE_TTL_MS || 30_000),
@@ -239,7 +240,7 @@ export async function PUT(
       cidade: hasOwn(data, 'cidade') ? normalizeNullableText(data.cidade) : clienteAtual.cidade,
       estado: hasOwn(data, 'estado') ? normalizeNullableText(data.estado) : clienteAtual.estado,
       cep: hasOwn(data, 'cep') ? normalizeNullableText(data.cep) : clienteAtual.cep,
-      origem: hasOwn(data, 'origem') ? normalizeNullableText(data.origem) : clienteAtual.origem,
+      origem: hasOwn(data, 'origem') ? normalizeClientOrigin(data.origem) : normalizeClientOrigin(clienteAtual.origem),
       observacoes: hasOwn(data, 'observacoes')
         ? normalizeNullableText(data.observacoes)
         : clienteAtual.observacoes,

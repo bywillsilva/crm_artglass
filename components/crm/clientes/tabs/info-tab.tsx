@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { MapPin, Phone, Mail, Building2, Calendar, User, Briefcase, IdCard } from 'lucide-react'
 import type { Cliente } from '@/lib/data/types'
 import { getClientDocumentLabel } from '@/lib/utils/client-document'
+import { getClientOriginLabel } from '@/lib/utils/client-origin'
 
 interface InfoTabProps {
   cliente: Cliente
@@ -12,7 +13,7 @@ interface InfoTabProps {
 
 export function InfoTab({ cliente }: InfoTabProps) {
   const { formatDate } = useAppSettings()
-  const origemLabel = cliente.origem?.trim() || 'Nao informado'
+  const origemLabel = getClientOriginLabel(cliente.origem)
   const clientDocumentLabel = getClientDocumentLabel(cliente.tipo)
   const ruaNumero = [cliente.endereco, cliente.numero].filter(Boolean).join(', ')
   const enderecoCompleto = [ruaNumero, cliente.bairro, cliente.cidade, cliente.estado, cliente.cep]

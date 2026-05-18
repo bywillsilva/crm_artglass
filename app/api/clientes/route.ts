@@ -14,6 +14,7 @@ import {
   setProposalKanbanPosition,
 } from '@/lib/server/proposal-workflow'
 import { inferClientType } from '@/lib/utils/client-document'
+import { normalizeClientOrigin } from '@/lib/utils/client-origin'
 
 const CLIENTES_CACHE_TTL_MS = Math.max(Number(process.env.CLIENTES_CACHE_TTL_MS || 30_000), 1000)
 
@@ -382,7 +383,7 @@ export async function POST(request: NextRequest) {
       cidade: normalizeNullableText(data.cidade),
       estado: normalizeNullableText(data.estado),
       cep: normalizeNullableText(data.cep),
-      origem: normalizeNullableText(data.origem),
+      origem: normalizeClientOrigin(data.origem),
       statusFunil: normalizeNullableText(data.statusFunil ?? data.status) || 'lead_novo',
       observacoes: normalizeNullableText(data.observacoes),
     }

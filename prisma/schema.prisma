@@ -359,8 +359,10 @@ enum clientes_origem {
   site
   indicacao
   google
+  google_ads
   facebook
   instagram
+  prospeccao
   telefone
   outro
 }

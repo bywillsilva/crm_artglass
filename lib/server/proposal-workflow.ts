@@ -810,7 +810,9 @@ export async function ensureClientSchema() {
       origemColumn &&
       (origemColumn.IS_NULLABLE !== 'YES' ||
         origemColumn.COLUMN_DEFAULT !== null ||
-        !String(origemColumn.COLUMN_TYPE || '').includes(`'outro'`))
+        !String(origemColumn.COLUMN_TYPE || '').includes(`'outro'`) ||
+        !String(origemColumn.COLUMN_TYPE || '').includes(`'google_ads'`) ||
+        !String(origemColumn.COLUMN_TYPE || '').includes(`'prospeccao'`))
     const cpfNeedsCreate = !cpfColumn
     const tipoNeedsCreate = !tipoColumn
 
@@ -840,7 +842,7 @@ export async function ensureClientSchema() {
       await query(`
         ALTER TABLE clientes
         MODIFY COLUMN email VARCHAR(255) NULL,
-        MODIFY COLUMN origem ENUM('site', 'indicacao', 'google', 'facebook', 'instagram', 'telefone', 'outro') NULL DEFAULT NULL
+        MODIFY COLUMN origem ENUM('site', 'indicacao', 'google', 'google_ads', 'facebook', 'instagram', 'prospeccao', 'telefone', 'outro') NULL DEFAULT NULL
       `)
     }
 

@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/pagination'
 import { Search, MoreHorizontal, Eye, Pencil, Trash2, Phone } from 'lucide-react'
 import type { Cliente } from '@/lib/data/types'
+import { getClientOriginLabel } from '@/lib/utils/client-origin'
 import { ClientForm } from './client-form'
 
 interface ClientsTableProps {
@@ -86,7 +87,7 @@ export function ClientsTable({ onNewClient }: ClientsTableProps) {
     }
   }, [currentPage, totalPages])
 
-  const getOrigemLabel = (origem?: string) => origem?.trim() || 'Nao informado'
+  const getOrigemLabel = (origem?: string) => getClientOriginLabel(origem)
 
   const buildPageItems = (page: number, total: number) => {
     if (total <= 7) {

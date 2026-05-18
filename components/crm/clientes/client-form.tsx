@@ -41,6 +41,7 @@ import {
   getClientDocumentValidationMessage,
   isValidClientDocument,
 } from '@/lib/utils/client-document'
+import { CLIENT_ORIGIN_OPTIONS, normalizeClientOrigin } from '@/lib/utils/client-origin'
 
 function getClientFormDefaults(cliente?: Cliente) {
   if (cliente) {
@@ -87,24 +88,7 @@ function normalizeOptionalText(value: string | undefined) {
 }
 
 function normalizeOrigemOption(value: string | undefined) {
-  const trimmed = normalizeOptionalText(value)
-  if (!trimmed) return ''
-
-  const normalizedValue = trimmed
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-
-  const matchedOption = origens.find((origem) => {
-    const normalizedOption = origem
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-
-    return normalizedOption === normalizedValue
-  })
-
-  return matchedOption || trimmed
+  return normalizeClientOrigin(value) || ''
 }
 
 function RequiredLabel({ children }: { children: string }) {
@@ -165,8 +149,6 @@ interface ClientFormProps {
   onClose: () => void
   cliente?: Cliente
 }
-
-const origens = ['Google Ads', 'Facebook', 'Instagram', 'Site', 'Indicacao', 'Prospeccao', 'Outro']
 
 export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
   const { addCliente, updateCliente } = useCRM()
@@ -553,9 +535,9 @@ export function ClientForm({ open, onClose, cliente }: ClientFormProps) {
                       </FormControl>
                       <SelectContent>
                         <SelectItem value="nao_informado">Nao informado</SelectItem>
-                        {origens.map((origem) => (
-                          <SelectItem key={origem} value={origem}>
-                            {origem}
+                        {CLIENT_ORIGIN_OPTIONS.map((origem) => (
+                          <SelectItem key={origem.value} value={origem.value}>
+                            {origem.label}
                           </SelectItem>
                         ))}
                       </SelectContent>
