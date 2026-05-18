@@ -20,6 +20,7 @@ const funilStages: { status: StatusProposta; color: string }[] = [
   { status: 'stand_by', color: '#71717a' },
   { status: 'em_retificacao', color: '#a855f7' },
   { status: 'fechado', color: '#10b981' },
+  { status: 'pos_fechamento', color: '#06b6d4' },
   { status: 'perdido', color: '#ef4444' },
 ]
 

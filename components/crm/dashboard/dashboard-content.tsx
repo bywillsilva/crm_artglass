@@ -48,6 +48,7 @@ const funnelStatuses: StatusProposta[] = [
   'stand_by',
   'em_retificacao',
   'fechado',
+  'pos_fechamento',
   'perdido',
 ]
 
@@ -63,6 +64,7 @@ const statusColors: Record<StatusProposta, string> = {
   stand_by: '#71717a',
   em_retificacao: '#a855f7',
   fechado: '#10b981',
+  pos_fechamento: '#06b6d4',
   perdido: '#ef4444',
   aguardando_follow_up_3_dias: '#f59e0b',
   aguardando_follow_up_7_dias: '#f59e0b',

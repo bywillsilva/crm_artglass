@@ -17,6 +17,7 @@ export type ProposalWorkflowStatus =
   | 'stand_by'
   | 'em_retificacao'
   | 'fechado'
+  | 'pos_fechamento'
   | 'perdido'
 
 const LEGACY_STATUSES = [
@@ -53,6 +54,7 @@ const FINAL_STATUSES: ProposalWorkflowStatus[] = [
   'stand_by',
   'em_retificacao',
   'fechado',
+  'pos_fechamento',
   'perdido',
 ]
 
@@ -230,6 +232,7 @@ export function normalizeProposalStatus(status?: string | null): ProposalWorkflo
     case 'stand_by':
     case 'em_retificacao':
     case 'fechado':
+    case 'pos_fechamento':
     case 'perdido':
       return status
     case 'em_cotacao':
@@ -326,6 +329,12 @@ async function ensureProposalColumns() {
            'follow_up_time',
             'material_tag',
             'kanban_order',
+            'pos_fechamento_contrato_feito_at',
+            'pos_fechamento_contrato_enviado_at',
+            'pos_fechamento_aguardando_pagamento_at',
+            'pos_fechamento_pagamento_confirmado_at',
+            'pos_fechamento_aguardando_os_at',
+            'pos_fechamento_ordem_servico_liberada_at',
             'area_m2',
             'perfis_bruto',
             'perfis_liquidos',
@@ -362,8 +371,32 @@ async function ensureProposalColumns() {
     await query(`ALTER TABLE propostas ADD COLUMN kanban_order BIGINT NULL AFTER follow_up_time`)
   }
 
+  if (!existing.has('pos_fechamento_contrato_feito_at')) {
+    await query(`ALTER TABLE propostas ADD COLUMN pos_fechamento_contrato_feito_at DATETIME NULL AFTER kanban_order`)
+  }
+
+  if (!existing.has('pos_fechamento_contrato_enviado_at')) {
+    await query(`ALTER TABLE propostas ADD COLUMN pos_fechamento_contrato_enviado_at DATETIME NULL AFTER pos_fechamento_contrato_feito_at`)
+  }
+
+  if (!existing.has('pos_fechamento_pagamento_confirmado_at')) {
+    await query(`ALTER TABLE propostas ADD COLUMN pos_fechamento_pagamento_confirmado_at DATETIME NULL AFTER pos_fechamento_contrato_enviado_at`)
+  }
+
+  if (!existing.has('pos_fechamento_aguardando_pagamento_at')) {
+    await query(`ALTER TABLE propostas ADD COLUMN pos_fechamento_aguardando_pagamento_at DATETIME NULL AFTER pos_fechamento_contrato_enviado_at`)
+  }
+
+  if (!existing.has('pos_fechamento_aguardando_os_at')) {
+    await query(`ALTER TABLE propostas ADD COLUMN pos_fechamento_aguardando_os_at DATETIME NULL AFTER pos_fechamento_pagamento_confirmado_at`)
+  }
+
+  if (!existing.has('pos_fechamento_ordem_servico_liberada_at')) {
+    await query(`ALTER TABLE propostas ADD COLUMN pos_fechamento_ordem_servico_liberada_at DATETIME NULL AFTER pos_fechamento_aguardando_os_at`)
+  }
+
   if (!existing.has('area_m2')) {
-    await query(`ALTER TABLE propostas ADD COLUMN area_m2 DECIMAL(10,2) NULL AFTER kanban_order`)
+    await query(`ALTER TABLE propostas ADD COLUMN area_m2 DECIMAL(10,2) NULL AFTER pos_fechamento_ordem_servico_liberada_at`)
   }
 
   if (!existing.has('perfis_bruto')) {
@@ -1350,7 +1383,7 @@ export function requiresOrcamentistaAssignment(status: ProposalWorkflowStatus) {
 }
 
 export function requiresPositiveProposalValue(status: ProposalWorkflowStatus) {
-  return !['novo_cliente', 'em_orcamento', 'em_retificacao'].includes(status)
+  return !['novo_cliente', 'em_orcamento', 'em_retificacao', 'pos_fechamento'].includes(status)
 }
 
 export function canOrcamentistaAccessProposal(proposta: {

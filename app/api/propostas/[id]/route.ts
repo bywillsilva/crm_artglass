@@ -82,6 +82,12 @@ const PROPOSAL_BASE_SELECT_COLUMNS = `
   p.follow_up_base_at,
   p.follow_up_time,
   p.kanban_order,
+  p.pos_fechamento_contrato_feito_at,
+  p.pos_fechamento_contrato_enviado_at,
+  p.pos_fechamento_aguardando_pagamento_at,
+  p.pos_fechamento_pagamento_confirmado_at,
+  p.pos_fechamento_aguardando_os_at,
+  p.pos_fechamento_ordem_servico_liberada_at,
   p.created_at,
   p.updated_at,
   c.nome as cliente_nome,
@@ -103,6 +109,12 @@ const PROPOSAL_BASE_SELECT_COLUMNS_LEGACY = `
   p.follow_up_base_at,
   p.follow_up_time,
   p.kanban_order,
+  NULL as pos_fechamento_contrato_feito_at,
+  NULL as pos_fechamento_contrato_enviado_at,
+  NULL as pos_fechamento_aguardando_pagamento_at,
+  NULL as pos_fechamento_pagamento_confirmado_at,
+  NULL as pos_fechamento_aguardando_os_at,
+  NULL as pos_fechamento_ordem_servico_liberada_at,
   p.created_at,
   p.updated_at,
   c.nome as cliente_nome,
@@ -147,6 +159,12 @@ type ProposalPayload = {
   clienteCep?: string | null
   clienteValorFechado?: number | null
   kanbanPosition?: number | null
+  posFechamentoContratoFeitoAt?: string | null
+  posFechamentoContratoEnviadoAt?: string | null
+  posFechamentoAguardandoPagamentoAt?: string | null
+  posFechamentoPagamentoConfirmadoAt?: string | null
+  posFechamentoAguardandoOsAt?: string | null
+  posFechamentoOrdemServicoLiberadaAt?: string | null
   anexos: File[]
 }
 
@@ -197,6 +215,7 @@ const SELLER_VISIBLE_STATUSES: ProposalWorkflowStatus[] = [
   'follow_up_7_dias',
   'stand_by',
   'fechado',
+  'pos_fechamento',
   'perdido',
 ]
 
@@ -209,7 +228,8 @@ const SELLER_ALLOWED_TRANSITIONS: Partial<Record<ProposalWorkflowStatus, Proposa
   aguardando_follow_up_7_dias: ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
   follow_up_7_dias: ['follow_up_1_dia', 'follow_up_3_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
   stand_by: ['stand_by', 'enviar_ao_cliente', 'enviado_ao_cliente', 'em_retificacao', 'fechado', 'perdido'],
-  fechado: ['em_retificacao'],
+  fechado: ['pos_fechamento', 'em_retificacao'],
+  pos_fechamento: ['enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'stand_by', 'em_retificacao', 'fechado', 'perdido'],
   perdido: ['em_retificacao'],
 }
 
@@ -223,7 +243,13 @@ const WORKFLOW_ALLOWED_TRANSITIONS: Partial<Record<ProposalWorkflowStatus, Propo
   novo_cliente: ['em_orcamento'],
   em_orcamento: ['novo_cliente', 'aguardando_aprovacao', 'em_retificacao'],
   em_retificacao: ['aguardando_aprovacao', 'em_orcamento'],
-  aguardando_aprovacao: ['enviar_ao_cliente', 'em_retificacao'],
+  aguardando_aprovacao: [
+    'enviar_ao_cliente',
+    'follow_up_1_dia',
+    'follow_up_3_dias',
+    'follow_up_7_dias',
+    'em_retificacao',
+  ],
   enviar_ao_cliente: ['enviado_ao_cliente', 'aguardando_aprovacao', 'em_retificacao', 'em_orcamento'],
   enviado_ao_cliente: ['follow_up_1_dia', 'fechado', 'perdido', 'em_retificacao'],
   follow_up_1_dia: ['follow_up_3_dias', 'follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
@@ -232,7 +258,8 @@ const WORKFLOW_ALLOWED_TRANSITIONS: Partial<Record<ProposalWorkflowStatus, Propo
   aguardando_follow_up_7_dias: ['follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
   follow_up_7_dias: ['follow_up_1_dia', 'follow_up_3_dias', 'fechado', 'perdido', 'em_retificacao', 'stand_by'],
   stand_by: ['enviado_ao_cliente', 'em_retificacao', 'fechado', 'perdido'],
-  fechado: ['enviado_ao_cliente', 'em_retificacao'],
+  fechado: ['pos_fechamento', 'enviado_ao_cliente', 'em_retificacao'],
+  pos_fechamento: ['novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao', 'enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'follow_up_3_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'perdido'],
   perdido: ['enviado_ao_cliente', 'em_retificacao'],
 }
 
@@ -259,6 +286,11 @@ function parseNullableNumber(value: unknown) {
     return Number.isFinite(value) ? value : null
   }
 
+  if (typeof value === 'bigint') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
   if (typeof value === 'string') {
     const trimmed = value.trim()
     if (!trimmed) return null
@@ -272,7 +304,69 @@ function parseNullableNumber(value: unknown) {
     return Number.isFinite(parsed) ? parsed : null
   }
 
+  if (value && typeof value === 'object' && typeof (value as { toString?: unknown }).toString === 'function') {
+    const serialized = (value as { toString: () => string }).toString()
+    if (serialized && serialized !== '[object Object]') {
+      return parseNullableNumber(serialized)
+    }
+  }
+
   return null
+}
+
+function firstPositiveNumber(...values: unknown[]) {
+  for (const value of values) {
+    const parsed = parseNullableNumber(value)
+    if (parsed != null && parsed > 0) {
+      return parsed
+    }
+  }
+
+  return null
+}
+
+function resolveSafeProposalValue(params: {
+  requestedClosedValue: number | null
+  requestedProposalValue: number | null
+  existingProposalValue: number | null
+  existingFinalValue: number | null
+}) {
+  const existingPositiveValue = firstPositiveNumber(
+    params.existingProposalValue,
+    params.existingFinalValue
+  )
+
+  if (params.requestedClosedValue != null && params.requestedClosedValue > 0) {
+    return params.requestedClosedValue
+  }
+
+  if (params.requestedProposalValue != null && params.requestedProposalValue > 0) {
+    return params.requestedProposalValue
+  }
+
+  // Nunca troca um valor positivo salvo por zero/null enviado por snapshot incompleto.
+  if (existingPositiveValue != null) {
+    return existingPositiveValue
+  }
+
+  return params.requestedClosedValue ?? params.requestedProposalValue ?? params.existingProposalValue ?? params.existingFinalValue ?? 0
+}
+
+function parseOptionalDateTime(value: unknown) {
+  if (value == null || value === '') {
+    return null
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value
+  }
+
+  const parsed = new Date(String(value))
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function serializeDateTimeForDatabase(value: Date | null) {
+  return value ? formatDateTime(value) : null
 }
 
 function isUnknownColumnError(error: unknown) {
@@ -469,6 +563,12 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
         workflowAction: getOptionalString('workflowAction'),
         followUpTime: getOptionalString('followUpTime'),
         kanbanPosition: hasField('kanbanPosition') ? parseKanbanPosition(formData.get('kanbanPosition')) : undefined,
+        posFechamentoContratoFeitoAt: getOptionalString('posFechamentoContratoFeitoAt'),
+        posFechamentoContratoEnviadoAt: getOptionalString('posFechamentoContratoEnviadoAt'),
+        posFechamentoAguardandoPagamentoAt: getOptionalString('posFechamentoAguardandoPagamentoAt'),
+        posFechamentoPagamentoConfirmadoAt: getOptionalString('posFechamentoPagamentoConfirmadoAt'),
+        posFechamentoAguardandoOsAt: getOptionalString('posFechamentoAguardandoOsAt'),
+        posFechamentoOrdemServicoLiberadaAt: getOptionalString('posFechamentoOrdemServicoLiberadaAt'),
         clienteId: hasField('clienteId') ? String(formData.get('clienteId') || '') || undefined : undefined,
       clienteTipo:
         !hasField('clienteTipo')
@@ -524,6 +624,24 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
     workflowAction: hasOwnField('workflowAction') ? data.workflowAction || null : undefined,
     followUpTime: hasOwnField('followUpTime') ? data.followUpTime || null : undefined,
     kanbanPosition: hasOwnField('kanbanPosition') ? parseKanbanPosition(data.kanbanPosition) : undefined,
+    posFechamentoContratoFeitoAt: hasOwnField('posFechamentoContratoFeitoAt')
+      ? data.posFechamentoContratoFeitoAt || null
+      : undefined,
+    posFechamentoContratoEnviadoAt: hasOwnField('posFechamentoContratoEnviadoAt')
+      ? data.posFechamentoContratoEnviadoAt || null
+      : undefined,
+    posFechamentoAguardandoPagamentoAt: hasOwnField('posFechamentoAguardandoPagamentoAt')
+      ? data.posFechamentoAguardandoPagamentoAt || null
+      : undefined,
+    posFechamentoPagamentoConfirmadoAt: hasOwnField('posFechamentoPagamentoConfirmadoAt')
+      ? data.posFechamentoPagamentoConfirmadoAt || null
+      : undefined,
+    posFechamentoAguardandoOsAt: hasOwnField('posFechamentoAguardandoOsAt')
+      ? data.posFechamentoAguardandoOsAt || null
+      : undefined,
+    posFechamentoOrdemServicoLiberadaAt: hasOwnField('posFechamentoOrdemServicoLiberadaAt')
+      ? data.posFechamentoOrdemServicoLiberadaAt || null
+      : undefined,
     clienteId: hasOwnField('clienteId') ? data.clienteId : undefined,
     clienteTipo:
       !hasOwnField('clienteTipo')
@@ -632,12 +750,17 @@ async function getProposalDetailPayload(id: string, initialProposal?: any, user?
   }
 
 function canViewProposal(user: any, proposta: any) {
+  const status = normalizeProposalStatus(proposta.status)
+  if (status === 'pos_fechamento' && !hasRuleAccess(user, 'canViewPostClosing')) {
+    return user.role === 'admin'
+  }
+
   if (user.role === 'admin' || user.role === 'gerente') return true
   if (user.role === 'vendedor') {
     return (
       hasRuleAccess(user, 'allowSellerViewReleasedProposals') &&
       proposta.responsavel_id === user.id &&
-      isSellerVisibleStatus(normalizeProposalStatus(proposta.status))
+      isSellerVisibleStatus(status)
     )
   }
   if (user.role === 'orcamentista') {
@@ -654,12 +777,17 @@ function canViewProposal(user: any, proposta: any) {
 }
 
 function canEditProposal(user: any, proposta: any) {
+  const status = normalizeProposalStatus(proposta.status)
+  if (status === 'pos_fechamento' && !hasRuleAccess(user, 'canViewPostClosing')) {
+    return user.role === 'admin'
+  }
+
   if (user.role === 'admin' || user.role === 'gerente') return true
   if (user.role === 'vendedor') {
     return (
       hasRuleAccess(user, 'allowSellerViewReleasedProposals') &&
       proposta.responsavel_id === user.id &&
-      isSellerVisibleStatus(normalizeProposalStatus(proposta.status))
+      isSellerVisibleStatus(status)
     )
   }
   if (user.role === 'orcamentista') {
@@ -681,7 +809,7 @@ function isTransitionAllowed(user: any, currentStatus: ProposalWorkflowStatus, n
   }
 
   if (user.role === 'admin') {
-    return WORKFLOW_ALLOWED_TRANSITIONS[currentStatus]?.includes(nextStatus) ?? false
+    return true
   }
 
   if (user.role === 'gerente') {
@@ -743,12 +871,7 @@ async function persistProposalComment(propostaId: string, usuarioId: string, com
 }
 
 async function touchProposalUpdatedAt(propostaId: string) {
-  await prisma.propostas.update({
-    where: { id: propostaId },
-    data: {
-      updated_at: new Date(),
-    },
-  })
+  await prisma.$executeRawUnsafe('UPDATE propostas SET updated_at = NOW() WHERE id = ?', propostaId)
 }
 
 function formatWorkflowComment(
@@ -883,6 +1006,13 @@ export async function PUT(
         ? getProposalAttachments(id)
         : Promise.resolve([] as ProposalAttachmentRecord[])
     const isStatusChange = nextStatus !== previousStatus
+    const hasPostClosingStepUpdate =
+      data.posFechamentoContratoFeitoAt !== undefined ||
+      data.posFechamentoContratoEnviadoAt !== undefined ||
+      data.posFechamentoAguardandoPagamentoAt !== undefined ||
+      data.posFechamentoPagamentoConfirmadoAt !== undefined ||
+      data.posFechamentoAguardandoOsAt !== undefined ||
+      data.posFechamentoOrdemServicoLiberadaAt !== undefined
     const requireRetificationJustification = hasRuleAccess(user, 'requireRetificationJustification')
     const requireStandByJustification = hasRuleAccess(user, 'requireStandByJustification')
     const requireLostJustification = hasRuleAccess(user, 'requireLostJustification')
@@ -900,9 +1030,40 @@ export async function PUT(
         (nextStatus === 'stand_by' && requireStandByJustification) ||
         (nextStatus === 'em_retificacao' && requireRetificationJustification))
 
+    if (
+      user.role !== 'admin' &&
+      isStatusChange &&
+      nextStatus === 'pos_fechamento' &&
+      previousStatus !== 'fechado'
+    ) {
+      return NextResponse.json(
+        { error: 'A proposta so pode ir para pos-fechamento quando estiver na etapa Fechado.' },
+        { status: 400 }
+      )
+    }
+
     if (!isTransitionAllowed(user, previousStatus, nextStatus)) {
       return NextResponse.json(
         { error: 'Voce nao pode mover esta proposta para a etapa selecionada.' },
+        { status: 403 }
+      )
+    }
+
+    if (
+      user.role !== 'admin' &&
+      isStatusChange &&
+      nextStatus === 'pos_fechamento' &&
+      !hasRuleAccess(user, 'canMoveProposalToPostClosing')
+    ) {
+      return NextResponse.json(
+        { error: 'Este usuario nao pode mover propostas para pos-fechamento.' },
+        { status: 403 }
+      )
+    }
+
+    if (hasPostClosingStepUpdate && !hasRuleAccess(user, 'canManagePostClosingSteps')) {
+      return NextResponse.json(
+        { error: 'Este usuario nao pode marcar etapas de pos-fechamento.' },
         { status: 403 }
       )
     }
@@ -976,7 +1137,7 @@ export async function PUT(
     }
 
     const isWorkflowDrivenUpdate =
-      Boolean(workflowAction) || isStatusChange || data.kanbanPosition !== undefined
+      Boolean(workflowAction) || isStatusChange || data.kanbanPosition !== undefined || hasPostClosingStepUpdate
     const requestedClienteId =
       data.clienteId === undefined || (isWorkflowDrivenUpdate && !data.clienteId)
         ? propostaAtual.cliente_id
@@ -1174,18 +1335,35 @@ export async function PUT(
     const requestedClosedValue = parseNullableNumber(data.clienteValorFechado)
     const requestedProposalValue = parseNullableNumber(data.valor)
     const requestedDiscount = parseNullableNumber(data.desconto)
+    const existingProposalValue = parseNullableNumber(propostaAtual.valor)
+    const existingFinalValue = parseNullableNumber(propostaAtual.valor_final)
     const materialTag =
       data.materialTag === undefined
         ? normalizeMaterialTag(propostaAtual.material_tag)
         : normalizeMaterialTag(data.materialTag)
-    const valor = requestedClosedValue ?? requestedProposalValue ?? parseNullableNumber(propostaAtual.valor) ?? 0
-    const desconto = requestedDiscount ?? parseNullableNumber(propostaAtual.desconto) ?? 0
+    const valor = resolveSafeProposalValue({
+      requestedClosedValue,
+      requestedProposalValue,
+      existingProposalValue,
+      existingFinalValue,
+    })
+    const desconto =
+      requestedDiscount ??
+      (existingProposalValue && existingProposalValue > 0 ? parseNullableNumber(propostaAtual.desconto) : 0) ??
+      0
     const valorFinal = valor - (valor * desconto) / 100
     const resolvedClienteId = requestedClienteId
 
     if (requiresPositiveProposalValue(storedStatus) && valor <= 0) {
       return NextResponse.json(
         { error: 'Informe o valor do orcamento antes de avancar esta proposta.' },
+        { status: 400 }
+      )
+    }
+
+    if (storedStatus === 'pos_fechamento' && valor <= 0) {
+      return NextResponse.json(
+        { error: 'Informe o valor da proposta antes de mover para pos-fechamento.' },
         { status: 400 }
       )
     }
@@ -1336,12 +1514,39 @@ export async function PUT(
       (previousStatus !== storedStatus && storedStatus === 'enviado_ao_cliente'
         ? formatFollowUpTimeFromDate(changedAt)
         : propostaAtual.follow_up_time ?? null)
+    const posFechamentoContratoFeitoAt =
+      data.posFechamentoContratoFeitoAt === undefined
+        ? parseOptionalDateTime(propostaAtual.pos_fechamento_contrato_feito_at)
+        : parseOptionalDateTime(data.posFechamentoContratoFeitoAt)
+    const posFechamentoContratoEnviadoAt =
+      data.posFechamentoContratoEnviadoAt === undefined
+        ? parseOptionalDateTime(propostaAtual.pos_fechamento_contrato_enviado_at)
+        : parseOptionalDateTime(data.posFechamentoContratoEnviadoAt)
+    const posFechamentoAguardandoPagamentoAt =
+      data.posFechamentoAguardandoPagamentoAt === undefined
+        ? parseOptionalDateTime(propostaAtual.pos_fechamento_aguardando_pagamento_at)
+        : parseOptionalDateTime(data.posFechamentoAguardandoPagamentoAt)
+    const posFechamentoPagamentoConfirmadoAt =
+      data.posFechamentoPagamentoConfirmadoAt === undefined
+        ? parseOptionalDateTime(propostaAtual.pos_fechamento_pagamento_confirmado_at)
+        : parseOptionalDateTime(data.posFechamentoPagamentoConfirmadoAt)
+    const posFechamentoAguardandoOsAt =
+      data.posFechamentoAguardandoOsAt === undefined
+        ? parseOptionalDateTime(propostaAtual.pos_fechamento_aguardando_os_at)
+        : parseOptionalDateTime(data.posFechamentoAguardandoOsAt)
+    const posFechamentoOrdemServicoLiberadaAt =
+      data.posFechamentoOrdemServicoLiberadaAt === undefined
+        ? parseOptionalDateTime(propostaAtual.pos_fechamento_ordem_servico_liberada_at)
+        : parseOptionalDateTime(data.posFechamentoOrdemServicoLiberadaAt)
 
     await prisma.$executeRawUnsafe(
         `UPDATE propostas SET
         cliente_id = ?, titulo = ?, material_tag = ?, area_m2 = ?, perfis_bruto = ?, perfis_liquidos = ?, valor_perfil = ?, valor_vidro = ?, valor_acessorios = ?, observacoes_tecnicas = ?, descricao = ?, valor = ?, desconto = ?,
         valor_final = ?, status = ?, validade = ?, servicos = ?, condicoes = ?,
-        responsavel_id = ?, orcamentista_id = ?, follow_up_base_at = ?, follow_up_time = ?, updated_at = NOW()
+        responsavel_id = ?, orcamentista_id = ?, follow_up_base_at = ?, follow_up_time = ?,
+        pos_fechamento_contrato_feito_at = ?, pos_fechamento_contrato_enviado_at = ?, pos_fechamento_aguardando_pagamento_at = ?,
+        pos_fechamento_pagamento_confirmado_at = ?, pos_fechamento_aguardando_os_at = ?,
+        pos_fechamento_ordem_servico_liberada_at = ?, updated_at = NOW()
        WHERE id = ?`,
       resolvedClienteId,
       data.titulo || propostaAtual.titulo || 'Proposta Comercial',
@@ -1365,6 +1570,12 @@ export async function PUT(
       orcamentistaId,
       followUpBaseAt ? formatDateTime(followUpBaseAt) : null,
       followUpTime,
+      serializeDateTimeForDatabase(posFechamentoContratoFeitoAt),
+      serializeDateTimeForDatabase(posFechamentoContratoEnviadoAt),
+      serializeDateTimeForDatabase(posFechamentoAguardandoPagamentoAt),
+      serializeDateTimeForDatabase(posFechamentoPagamentoConfirmadoAt),
+      serializeDateTimeForDatabase(posFechamentoAguardandoOsAt),
+      serializeDateTimeForDatabase(posFechamentoOrdemServicoLiberadaAt),
       id
     )
 
@@ -1394,7 +1605,7 @@ export async function PUT(
       await touchProposalUpdatedAt(id)
     }
 
-    if (previousStatus !== storedStatus || data.kanbanPosition !== null) {
+    if (previousStatus !== storedStatus || data.kanbanPosition !== undefined) {
       await setProposalKanbanPosition(id, storedStatus, data.kanbanPosition ?? 0)
       await touchProposalUpdatedAt(id)
     }

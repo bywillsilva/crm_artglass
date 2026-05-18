@@ -10,6 +10,7 @@ export type RuleGroupKey =
   | 'comentariosArquivos'
   | 'aprovacao'
   | 'fechamento'
+  | 'posFechamento'
   | 'clientes'
   | 'buscaNotificacoes'
   | 'dashboardRelatorios'
@@ -80,6 +81,12 @@ export const RULE_GROUPS: Array<{
     rules: ['requireClosedClientData'],
   },
   {
+    key: 'posFechamento',
+    title: 'Pos-fechamento',
+    description: 'Controla a etapa operacional depois que a proposta ja foi fechada comercialmente.',
+    rules: ['canMoveProposalToPostClosing', 'canViewPostClosing', 'canManagePostClosingSteps'],
+  },
+  {
     key: 'clientes',
     title: 'Clientes',
     description: 'Controla a edicao direta do cadastro do cliente fora dos fluxos guiados da proposta.',
@@ -140,6 +147,9 @@ export const ruleLabels: Record<RuleKey, string> = {
   canAssignProposalOrcamentistaOnForm: 'Escolher orcamentista no formulario da proposta',
   canViewTechnicalProposalData: 'Visualizar dados tecnicos da proposta',
   canEditProposalResponsavelDirectly: 'Alterar vendedor diretamente nos detalhes',
+  canMoveProposalToPostClosing: 'Mover proposta para pos-fechamento',
+  canViewPostClosing: 'Visualizar pos-fechamento',
+  canManagePostClosingSteps: 'Marcar etapas de pos-fechamento',
   allowSellerCommentsOnResponsibleProposals: 'Permitir comentarios do vendedor',
   allowSellerViewReleasedProposals: 'Mostrar propostas liberadas ao vendedor',
   allowOrcamentistaViewAssignedProposalsOutsideScope: 'Permitir visualizar proposta fora do escopo do funil',
@@ -193,6 +203,12 @@ export const ruleDescriptions: Record<RuleKey, string> = {
     'Libera a leitura dos dados tecnicos estruturados da proposta dentro de detalhes, listagens e consultas relacionadas.',
   canEditProposalResponsavelDirectly:
     'Libera a troca direta do vendedor responsavel pela proposta sem precisar abrir o formulario completo da proposta.',
+  canMoveProposalToPostClosing:
+    'Permite mover propostas fechadas para a coluna de pos-fechamento e manter o acompanhamento operacional depois da venda.',
+  canViewPostClosing:
+    'Permite visualizar propostas em pos-fechamento e acompanhar visualmente contrato, pagamento e ordem de servico.',
+  canManagePostClosingSteps:
+    'Permite marcar ou desmarcar etapas do pos-fechamento nos detalhes da proposta, sem exigir justificativa.',
   allowSellerCommentsOnResponsibleProposals:
     'Permite que o vendedor comente nas propostas em que ele e o responsavel, mesmo sem poder editar o restante do conteudo.',
   allowSellerViewReleasedProposals:
@@ -267,6 +283,9 @@ export function getDefaultRulePermissions(role: RoleUsuario): RulePermissions {
       canAssignProposalOrcamentistaOnForm: true,
       canViewTechnicalProposalData: false,
       canEditProposalResponsavelDirectly: false,
+      canMoveProposalToPostClosing: false,
+      canViewPostClosing: true,
+      canManagePostClosingSteps: false,
       requireClosedClientData: false,
     }
   }
@@ -293,6 +312,9 @@ export function getDefaultRulePermissions(role: RoleUsuario): RulePermissions {
       canSelectProposalResponsavelOnForm: true,
       canAssignProposalOrcamentistaOnForm: true,
       canEditProposalResponsavelDirectly: false,
+      canMoveProposalToPostClosing: false,
+      canViewPostClosing: true,
+      canManagePostClosingSteps: false,
       allowSellerCommentsOnResponsibleProposals: false,
       allowSellerViewReleasedProposals: false,
       allowOrcamentistaEditAssignedProposalsOutsideScope: false,
@@ -322,6 +344,9 @@ export function getDefaultRulePermissions(role: RoleUsuario): RulePermissions {
     canAssignProposalOrcamentistaOnForm: false,
     canViewTechnicalProposalData: false,
     canEditProposalResponsavelDirectly: false,
+    canMoveProposalToPostClosing: false,
+    canViewPostClosing: true,
+    canManagePostClosingSteps: false,
     allowOrcamentistaViewAssignedProposalsOutsideScope: false,
     allowOrcamentistaEditAssignedProposalsOutsideScope: false,
   }

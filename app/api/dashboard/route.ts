@@ -192,7 +192,7 @@ export async function GET(request: NextRequest) {
       () => dashboardQuery<any[]>(
         `SELECT COUNT(*) as total
          FROM propostas
-         WHERE status <> 'fechado' AND status <> 'perdido'${proposalFilter}`,
+         WHERE status NOT IN ('fechado', 'pos_fechamento', 'perdido')${proposalFilter}`,
         proposalParams
       ),
       () => dashboardQuery<any[]>(
@@ -200,19 +200,19 @@ export async function GET(request: NextRequest) {
         proposalParams
       ),
       () => dashboardQuery<any[]>(
-        `SELECT COUNT(*) as total FROM propostas WHERE status = 'fechado'${proposalFilter}`,
+        `SELECT COUNT(*) as total FROM propostas WHERE status IN ('fechado', 'pos_fechamento')${proposalFilter}`,
         proposalParams
       ),
       () => dashboardQuery<any[]>(
         `SELECT COALESCE(SUM(valor_final), 0) as total
          FROM propostas
-         WHERE status <> 'fechado' AND status <> 'perdido'${proposalFilter}`,
+         WHERE status NOT IN ('fechado', 'pos_fechamento', 'perdido')${proposalFilter}`,
         proposalParams
       ),
       () => dashboardQuery<any[]>(
         `SELECT COALESCE(SUM(valor_final), 0) as total
          FROM propostas
-            WHERE status = 'fechado'
+            WHERE status IN ('fechado', 'pos_fechamento')
              ${dateRange ? 'AND updated_at BETWEEN ? AND ?' : ''}${canViewAllDashboardData ? '' : ' AND responsavel_id = ?'}`,
          canViewAllDashboardData
            ? dateRange
@@ -227,7 +227,7 @@ export async function GET(request: NextRequest) {
          FROM propostas
          WHERE 1=1${proposalFilter}
          GROUP BY status
-         ORDER BY FIELD(status, 'novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao', 'enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'aguardando_follow_up_3_dias', 'follow_up_3_dias', 'aguardando_follow_up_7_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'perdido')`,
+         ORDER BY FIELD(status, 'novo_cliente', 'em_orcamento', 'em_retificacao', 'aguardando_aprovacao', 'enviar_ao_cliente', 'enviado_ao_cliente', 'follow_up_1_dia', 'aguardando_follow_up_3_dias', 'follow_up_3_dias', 'aguardando_follow_up_7_dias', 'follow_up_7_dias', 'stand_by', 'fechado', 'pos_fechamento', 'perdido')`,
         proposalParams
       ),
       () => dashboardQuery<any[]>(
@@ -236,7 +236,7 @@ export async function GET(request: NextRequest) {
             COALESCE(SUM(valor_final), 0) as valor,
             COUNT(*) as quantidade
           FROM propostas
-          WHERE status = 'fechado'
+          WHERE status IN ('fechado', 'pos_fechamento')
              ${dateRange ? 'AND updated_at BETWEEN ? AND ?' : ''}${canViewAllDashboardData ? '' : ' AND responsavel_id = ?'}
            GROUP BY DATE_FORMAT(updated_at, '%Y-%m')
            ORDER BY mes ASC`,
@@ -259,7 +259,7 @@ export async function GET(request: NextRequest) {
          FROM usuarios u
           LEFT JOIN propostas p
             ON u.id = p.responsavel_id
-            AND p.status = 'fechado'
+            AND p.status IN ('fechado', 'pos_fechamento')
             ${dateRange ? 'AND p.updated_at BETWEEN ? AND ?' : ''}
           WHERE u.role IN ('vendedor', 'gerente')
             ${canViewAllDashboardData ? '' : 'AND u.id = ?'}

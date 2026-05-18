@@ -133,7 +133,7 @@ export default function RelatorioVendedoresPage() {
 
         for (const proposta of propostas) {
           clientes.add(proposta.clienteId)
-          if (proposta.status === 'fechado') {
+          if (proposta.status === 'fechado' || proposta.status === 'pos_fechamento') {
             fechadas += 1
             receita += proposta.valor
           } else if (proposta.status === 'perdido') {

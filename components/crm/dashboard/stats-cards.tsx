@@ -51,7 +51,9 @@ export function StatsCards() {
       'em_retificacao',
     ].includes(proposta.status)
   )
-  const vendasFechadas = state.propostas.filter((proposta) => proposta.status === 'fechado')
+  const vendasFechadas = state.propostas.filter((proposta) =>
+    proposta.status === 'fechado' || proposta.status === 'pos_fechamento'
+  )
   const totalVendas = vendasFechadas.reduce((acc, proposta) => acc + proposta.valor, 0)
   const totalPropostas = state.propostas.length
   const taxaConversao =

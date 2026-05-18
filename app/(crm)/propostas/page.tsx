@@ -82,6 +82,7 @@ const tabs: { key: string; label: string; statuses?: StatusProposta[] }[] = [
   { key: 'todas', label: 'Todas' },
   { key: 'abertas', label: 'Em andamento', statuses: openStatuses },
   { key: 'fechadas', label: 'Fechadas', statuses: ['fechado'] },
+  { key: 'pos_fechamento', label: 'Pos-fechamento', statuses: ['pos_fechamento'] },
   { key: 'perdidas', label: 'Perdidas', statuses: ['perdido'] },
 ]
 
@@ -135,12 +136,14 @@ export default function PropostasPage() {
   const propostasPorTab = useMemo(() => {
     const abertas = propostasOrdenadas.filter((proposta) => openStatuses.includes(proposta.status))
     const fechadas = propostasOrdenadas.filter((proposta) => proposta.status === 'fechado')
+    const posFechamento = propostasOrdenadas.filter((proposta) => proposta.status === 'pos_fechamento')
     const perdidas = propostasOrdenadas.filter((proposta) => proposta.status === 'perdido')
 
     return {
       todas: propostasOrdenadas,
       abertas,
       fechadas,
+      pos_fechamento: posFechamento,
       perdidas,
     }
   }, [propostasOrdenadas])

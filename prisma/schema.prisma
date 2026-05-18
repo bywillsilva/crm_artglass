@@ -177,6 +177,12 @@ model propostas {
   follow_up_base_at                            DateTime?              @db.DateTime(0)
   follow_up_time                               DateTime?              @db.Time(0)
   kanban_order                                 BigInt?
+  pos_fechamento_contrato_feito_at             DateTime?              @db.DateTime(0)
+  pos_fechamento_contrato_enviado_at           DateTime?              @db.DateTime(0)
+  pos_fechamento_aguardando_pagamento_at       DateTime?              @db.DateTime(0)
+  pos_fechamento_pagamento_confirmado_at       DateTime?              @db.DateTime(0)
+  pos_fechamento_aguardando_os_at              DateTime?              @db.DateTime(0)
+  pos_fechamento_ordem_servico_liberada_at     DateTime?              @db.DateTime(0)
   area_m2                                      Decimal?               @db.Decimal(10, 2)
   perfis_bruto                                 Decimal?               @db.Decimal(10, 2)
   perfis_liquidos                              Decimal?               @db.Decimal(10, 2)
@@ -382,5 +388,6 @@ enum propostas_status {
   stand_by
   em_retificacao
   fechado
+  pos_fechamento
   perdido
 }

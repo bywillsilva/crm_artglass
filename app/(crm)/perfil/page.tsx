@@ -136,7 +136,9 @@ export default function PerfilPage() {
     (tarefa: Tarefa) => tarefa.responsavelId === currentUser?.id && tarefa.status === 'pendente'
   )
   const propostasAprovadas = propostas.filter(
-    (proposta: Proposta) => proposta.responsavelId === currentUser?.id && proposta.status === 'fechado'
+    (proposta: Proposta) =>
+      proposta.responsavelId === currentUser?.id &&
+      (proposta.status === 'fechado' || proposta.status === 'pos_fechamento')
   )
   const valorTotal = propostasAprovadas.reduce((acc: number, proposta: Proposta) => acc + proposta.valor, 0)
 

@@ -122,10 +122,7 @@ export async function PUT(
         where: { id: commentId },
         data: { comentario },
       })
-      await tx.propostas.update({
-        where: { id },
-        data: { updated_at: new Date() },
-      })
+      await tx.$executeRawUnsafe('UPDATE propostas SET updated_at = NOW() WHERE id = ?', id)
       await tx.interacoes.create({
         data: {
           id: uuidv4(),
@@ -202,13 +199,10 @@ export async function DELETE(
       return NextResponse.json({ error: 'Voce nao pode excluir este comentario' }, { status: 403 })
     }
 
-    await prisma.$transaction([
-      prisma.proposta_comentarios.delete({ where: { id: commentId } }),
-      prisma.propostas.update({
-        where: { id },
-        data: { updated_at: new Date() },
-      }),
-      prisma.interacoes.create({
+    await prisma.$transaction(async (tx) => {
+      await tx.proposta_comentarios.delete({ where: { id: commentId } })
+      await tx.$executeRawUnsafe('UPDATE propostas SET updated_at = NOW() WHERE id = ?', id)
+      await tx.interacoes.create({
         data: {
           id: uuidv4(),
           cliente_id: comment.cliente_id,
@@ -223,8 +217,8 @@ export async function DELETE(
           }),
           created_at: new Date(),
         } as any,
-      }),
-    ])
+      })
+    })
 
     invalidateRuntimeCache('proposta:detail:')
     invalidateRuntimeCache('crm-bootstrap:')

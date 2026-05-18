@@ -5,6 +5,8 @@ import { migration202605130003 } from '@/lib/server/migrations/202605130003-user
 import { migration202605130004 } from '@/lib/server/migrations/202605130004-crm-integrity-normalization'
 import { migration202605140001 } from '@/lib/server/migrations/202605140001-client-address-fields'
 import { migration202605140002 } from '@/lib/server/migrations/202605140002-normalize-existing-user-permissions'
+import { migration202605180001 } from '@/lib/server/migrations/202605180001-post-closing-workflow'
+import { migration202605180002 } from '@/lib/server/migrations/202605180002-post-closing-new-steps'
 
 const MIGRATION_TABLE_NAME = 'schema_migrations'
 
@@ -32,6 +34,8 @@ const SYSTEM_SCHEMA_MIGRATIONS: SchemaMigration[] = [
   migration202605130004,
   migration202605140001,
   migration202605140002,
+  migration202605180001,
+  migration202605180002,
 ]
 
 async function ensureSchemaMigrationsTable() {

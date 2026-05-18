@@ -26,6 +26,7 @@ const SELLER_VISIBLE_STATUSES = new Set([
   'follow_up_7_dias',
   'stand_by',
   'fechado',
+  'pos_fechamento',
   'perdido',
 ])
 
@@ -34,24 +35,34 @@ async function getAuthenticatedUser() {
 }
 
 async function getProposal(id: string) {
-  return prisma.propostas.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      status: true,
-      responsavel_id: true,
-      orcamentista_id: true,
-    },
-  })
+  const [proposta] = await prisma.$queryRawUnsafe<Array<{
+    id: string
+    status: string | null
+    responsavel_id: string | null
+    orcamentista_id: string | null
+  }>>(
+    `SELECT id, status, responsavel_id, orcamentista_id
+     FROM propostas
+     WHERE id = ?
+     LIMIT 1`,
+    id
+  )
+
+  return proposta || null
 }
 
 function canViewProposal(user: any, proposta: any) {
+  const status = String(proposta.status || '')
+  if (status === 'pos_fechamento' && !hasRuleAccess(user, 'canViewPostClosing')) {
+    return user.role === 'admin'
+  }
+
   if (user.role === 'admin' || user.role === 'gerente') return true
   if (user.role === 'vendedor') {
     return (
       hasRuleAccess(user, 'allowSellerViewReleasedProposals') &&
       proposta.responsavel_id === user.id &&
-      SELLER_VISIBLE_STATUSES.has(String(proposta.status || ''))
+      SELLER_VISIBLE_STATUSES.has(status)
     )
   }
   if (user.role === 'orcamentista') {
@@ -108,10 +119,7 @@ function buildAttachmentFileName(attachment: any) {
 }
 
 async function touchProposalUpdatedAt(propostaId: string) {
-  await prisma.propostas.update({
-    where: { id: propostaId },
-    data: { updated_at: new Date() },
-  })
+  await prisma.$executeRawUnsafe('UPDATE propostas SET updated_at = NOW() WHERE id = ?', propostaId)
 }
 
 async function backfillAttachmentStorage(
@@ -284,13 +292,10 @@ export async function DELETE(
       return NextResponse.json({ error: 'Voce nao pode excluir este anexo' }, { status: 403 })
     }
 
-    await prisma.$transaction([
-      prisma.proposta_anexos.delete({ where: { id: attachmentId } }),
-      prisma.propostas.update({
-        where: { id },
-        data: { updated_at: new Date() },
-      }),
-    ])
+    await prisma.$transaction(async (tx) => {
+      await tx.proposta_anexos.delete({ where: { id: attachmentId } })
+      await tx.$executeRawUnsafe('UPDATE propostas SET updated_at = NOW() WHERE id = ?', id)
+    })
     await deleteStoredFiles([attachment.caminho])
     invalidateRuntimeCache('propostas:list:')
     invalidateRuntimeCache('dashboard:')

@@ -33,6 +33,7 @@ import {
   getProposalCardVisualState,
   getProposalTaskStage,
 } from '@/lib/utils/proposal-kanban'
+import { getCurrentPostClosingLabel } from '@/lib/utils/post-closing'
 import { ProposalDetailsSheet } from '@/components/crm/propostas/proposal-details-sheet'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -53,6 +54,7 @@ const columns: StatusProposta[] = [
   'follow_up_7_dias',
   'stand_by',
   'fechado',
+  'pos_fechamento',
   'perdido',
 ]
 
@@ -68,6 +70,7 @@ const columnBorderColors: Record<StatusProposta, string> = {
   follow_up_7_dias: 'border-emerald-500',
   stand_by: 'border-zinc-500',
   fechado: 'border-emerald-600',
+  pos_fechamento: 'border-cyan-500',
   perdido: 'border-red-500',
   aguardando_follow_up_3_dias: 'border-amber-500',
   aguardando_follow_up_7_dias: 'border-amber-500',
@@ -127,6 +130,7 @@ const SELLER_COLUMNS: StatusProposta[] = [
   'follow_up_7_dias',
   'stand_by',
   'fechado',
+  'pos_fechamento',
   'perdido',
 ]
 
@@ -206,7 +210,15 @@ function formatFollowUpTimeForSubmission(date: Date) {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }
 
-function getAdminCommercialStatusOptions(status: StatusProposta, role?: string | null): StatusProposta[] {
+function getAdminCommercialStatusOptions(
+  status: StatusProposta,
+  role?: string | null,
+  canMoveToPostClosing = false
+): StatusProposta[] {
+  if (role === 'admin') {
+    return columns.filter((item) => item !== status)
+  }
+
   switch (status) {
     case 'enviar_ao_cliente':
       return role === 'admin'
@@ -223,7 +235,9 @@ function getAdminCommercialStatusOptions(status: StatusProposta, role?: string |
     case 'stand_by':
       return ['enviado_ao_cliente', 'em_retificacao', 'fechado', 'perdido']
     case 'fechado':
-      return ['em_retificacao']
+      return canMoveToPostClosing ? ['pos_fechamento', 'em_retificacao'] : ['em_retificacao']
+    case 'pos_fechamento':
+      return ['fechado', 'enviado_ao_cliente', 'em_retificacao', 'perdido']
     case 'perdido':
       return ['em_retificacao']
     default:
@@ -284,16 +298,31 @@ type ProposalDropTarget = {
 }
 
 function dedupePropostasById(propostas: Proposta[]) {
-  const seen = new Set<string>()
-  return propostas.filter((proposta) => {
+  const byId = new Map<string, Proposta>()
+
+  for (const proposta of propostas) {
     const id = String(proposta.id || '')
-    if (!id || seen.has(id)) {
-      return false
+    if (!id) {
+      continue
     }
 
-    seen.add(id)
-    return true
-  })
+    const current = byId.get(id)
+    if (!current) {
+      byId.set(id, proposta)
+      continue
+    }
+
+    const currentUpdatedAt = (current as unknown as Record<string, unknown>).updatedAt
+    const nextUpdatedAt = (proposta as unknown as Record<string, unknown>).updatedAt
+    const currentTime = currentUpdatedAt ? new Date(String(currentUpdatedAt)).getTime() : 0
+    const nextTime = nextUpdatedAt ? new Date(String(nextUpdatedAt)).getTime() : 0
+
+    if (nextTime >= currentTime) {
+      byId.set(id, { ...current, ...proposta })
+    }
+  }
+
+  return [...byId.values()]
 }
 
 function shouldReplaceTask(currentTask: { dataHora: Date }, nextTask: { dataHora: Date }) {
@@ -362,6 +391,8 @@ function getSellerActionOptions(status: StatusProposta): SellerMoveAction[] {
       return ['enviado_ao_cliente', 'em_retificacao', 'fechado', 'perdido']
     case 'fechado':
       return ['em_retificacao']
+    case 'pos_fechamento':
+      return []
     case 'perdido':
       return ['em_retificacao']
     default:
@@ -537,6 +568,8 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const dragVisualRef = useRef<{ x: number; y: number; offsetX: number; offsetY: number } | null>(null)
   const dragDropTargetRef = useRef<ProposalDropTarget>({ status: null, index: null })
   const dragHasMovedRef = useRef(false)
+  const canViewPostClosingColumn = hasRuleAccess(user, 'canViewPostClosing')
+  const canMoveToPostClosing = hasRuleAccess(user, 'canMoveProposalToPostClosing')
 
   const resetPendingMoveDialog = useCallback(() => {
     setPendingMove(null)
@@ -730,26 +763,33 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
 
   const propostasVisiveis = useMemo(() => {
     const source = propostasBase
-    if (user?.role === 'admin' || user?.role === 'gerente') return source
+    const sourceWithPostClosingRule = canViewPostClosingColumn
+      ? source
+      : source.filter((proposta) => resolveKanbanDisplayStatus(proposta.status) !== 'pos_fechamento')
+
+    if (user?.role === 'admin' || user?.role === 'gerente') return sourceWithPostClosingRule
     if (user?.role === 'orcamentista') {
-      return source.filter(
+      return sourceWithPostClosingRule.filter(
         (proposta) =>
           (!proposta.orcamentistaId || proposta.orcamentistaId === user.id) &&
           ORCAMENTISTA_COLUMNS.includes(proposta.status)
       )
     }
-    return source.filter(
+    return sourceWithPostClosingRule.filter(
       (proposta) =>
         proposta.responsavelId === user?.id &&
         SELLER_COLUMNS.includes(resolveKanbanDisplayStatus(proposta.status))
     )
-  }, [propostasBase, user?.id, user?.role])
+  }, [canViewPostClosingColumn, propostasBase, user?.id, user?.role])
 
   const visibleColumns = useMemo(() => {
-    if (user?.role === 'admin' || user?.role === 'gerente') return columns
+    const filterPostClosing = (items: StatusProposta[]) =>
+      canViewPostClosingColumn ? items : items.filter((status) => status !== 'pos_fechamento')
+
+    if (user?.role === 'admin' || user?.role === 'gerente') return filterPostClosing(columns)
     if (user?.role === 'orcamentista') return ORCAMENTISTA_COLUMNS
-    return SELLER_COLUMNS
-  }, [user?.role])
+    return filterPostClosing(SELLER_COLUMNS)
+  }, [canViewPostClosingColumn, user?.role])
 
   const propostasById = useMemo(
     () => new Map(propostasVisiveis.map((proposta) => [proposta.id, proposta])),
@@ -986,6 +1026,16 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         targetStatus: proposta.status,
         kanbanPosition: targetIndex,
       })
+      return
+    }
+
+    if (user?.role !== 'admin' && targetStatus === 'pos_fechamento' && proposta.status !== 'fechado') {
+      toast.error('A proposta so pode ir para pos-fechamento quando estiver na coluna Fechado.')
+      return
+    }
+
+    if (user?.role !== 'admin' && targetStatus === 'pos_fechamento' && !canMoveToPostClosing) {
+      toast.error('Este usuario nao tem permissao para mover propostas para pos-fechamento.')
       return
     }
 
@@ -1343,10 +1393,35 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
           ...(options.moveFiles?.length ? { anexos: options.moveFiles } : {}),
         }
 
-        await updateProposta({
+        const updatedProposal = (await updateProposta({
           id: proposta.id,
           ...proposalMovePayload,
-        } as Proposta)
+        } as Proposta)) as Partial<Proposta> & Record<string, unknown>
+        const updatedValue = parseProposalNumericInput(String(updatedProposal.valor ?? ''))
+        const updatedKanbanOrder = parseProposalNumericInput(
+          String(updatedProposal.kanbanOrder ?? updatedProposal.kanban_order ?? '')
+        )
+        setOptimisticPropostas((prev) => ({
+          ...prev,
+          [proposta.id]: {
+            ...optimisticPatch,
+            status: (updatedProposal.status as StatusProposta | undefined) || optimisticPatch.status,
+            valor: updatedValue != null ? updatedValue : optimisticPatch.valor,
+            responsavelId:
+              typeof updatedProposal.responsavelId === 'string'
+                ? updatedProposal.responsavelId
+                : optimisticPatch.responsavelId,
+            orcamentistaId:
+              typeof updatedProposal.orcamentistaId === 'string'
+                ? updatedProposal.orcamentistaId
+                : optimisticPatch.orcamentistaId,
+            kanbanOrder: updatedKanbanOrder != null ? updatedKanbanOrder : optimisticPatch.kanbanOrder,
+            followUpTime:
+              typeof updatedProposal.followUpTime === 'string'
+                ? updatedProposal.followUpTime
+                : optimisticPatch.followUpTime,
+          },
+        }))
         toast.success('Proposta atualizada com sucesso.')
         resetPendingMoveDialog()
       } catch (error: any) {
@@ -1448,7 +1523,11 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
     pendingMove?.targetStatus === pendingMoveProposal?.status
   const sellerActionOptions = pendingMoveProposal ? getSellerActionOptions(pendingMoveProposal.status) : []
   const adminCommercialOptions = pendingMoveProposal
-    ? getAdminCommercialStatusOptions(pendingMoveDisplayStatus || pendingMoveProposal.status, user?.role)
+    ? getAdminCommercialStatusOptions(
+        pendingMoveDisplayStatus || pendingMoveProposal.status,
+        user?.role,
+        canMoveToPostClosing
+      )
     : []
   const selectedSellerAction = isSellerMove ? sellerAction : ''
   const isSellerDirectTargetMove =
@@ -1985,6 +2064,13 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                         </p>
 
                         <ProposalMaterialTagList value={proposta.materialTag} />
+
+                        {proposta.status === 'pos_fechamento' ? (
+                          <div className="mt-3 inline-flex max-w-full items-center gap-1.5 rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-cyan-200">
+                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                            <span className="truncate">{getCurrentPostClosingLabel(proposta)}</span>
+                          </div>
+                        ) : null}
 
                         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                           <span>Vend.: {proposta.responsavelNome || '-'}</span>

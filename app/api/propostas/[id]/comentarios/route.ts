@@ -100,10 +100,7 @@ export async function POST(
         },
       })
 
-      await tx.propostas.update({
-        where: { id },
-        data: { updated_at: new Date() },
-      })
+      await tx.$executeRawUnsafe('UPDATE propostas SET updated_at = NOW() WHERE id = ?', id)
 
       await tx.interacoes.create({
         data: {

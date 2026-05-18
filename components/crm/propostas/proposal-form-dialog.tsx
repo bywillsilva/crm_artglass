@@ -40,6 +40,7 @@ const visibleStatuses: StatusProposta[] = [
   'follow_up_7_dias',
   'stand_by',
   'fechado',
+  'pos_fechamento',
   'perdido',
 ]
 
@@ -66,7 +67,8 @@ const workflowStatusOptionsByCurrentStatus: Partial<Record<StatusProposta, Statu
   follow_up_3_dias: ['follow_up_3_dias', 'follow_up_7_dias', 'em_retificacao', 'fechado', 'perdido', 'stand_by'],
   follow_up_7_dias: ['follow_up_7_dias', 'em_retificacao', 'fechado', 'perdido', 'stand_by'],
   stand_by: ['stand_by', 'enviado_ao_cliente', 'em_retificacao', 'fechado', 'perdido'],
-  fechado: ['fechado', 'enviado_ao_cliente', 'em_retificacao'],
+  fechado: ['fechado', 'pos_fechamento', 'enviado_ao_cliente', 'em_retificacao'],
+  pos_fechamento: ['pos_fechamento', 'fechado', 'enviado_ao_cliente', 'em_retificacao', 'perdido'],
   perdido: ['perdido', 'enviado_ao_cliente', 'em_retificacao'],
 }
 

@@ -80,6 +80,17 @@ function toNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+function firstPositiveNumber(...values: unknown[]) {
+  for (const value of values) {
+    const parsed = parseNumberLike(value)
+    if (parsed != null && parsed > 0) {
+      return parsed
+    }
+  }
+
+  return null
+}
+
 function parseNumberLike(value: unknown) {
   if (typeof value === 'number') {
     return Number.isFinite(value) ? value : null
@@ -160,6 +171,8 @@ function mapPropostaStatusFromApi(status?: string): StatusProposta {
       return 'em_retificacao'
     case 'fechado':
       return 'fechado'
+    case 'pos_fechamento':
+      return 'pos_fechamento'
     case 'perdido':
       return 'perdido'
     case 'em_cotacao':
@@ -210,6 +223,8 @@ function mapPropostaStatusToApi(status?: StatusProposta | string) {
       return 'em_retificacao'
     case 'fechado':
       return 'fechado'
+    case 'pos_fechamento':
+      return 'pos_fechamento'
     case 'perdido':
       return 'perdido'
     default:
@@ -296,7 +311,7 @@ function normalizeProposta(row: JsonRecord): Proposta {
     valorAcessorios: parseNumberLike(row.valorAcessorios ?? row.valor_acessorios),
     observacoesTecnicas: row.observacoesTecnicas ?? row.observacoes_tecnicas ?? null,
     kanbanOrder: toNumber(row.kanbanOrder ?? row.kanban_order),
-    valor: toNumber(row.valor ?? row.valor_final),
+    valor: firstPositiveNumber(row.valor, row.valor_final) ?? toNumber(row.valor ?? row.valor_final),
     descricao: row.descricao ?? '',
     status: mapPropostaStatusFromApi(row.status),
     responsavelId: row.responsavelId ?? row.responsavel_id ?? '',
@@ -306,6 +321,32 @@ function normalizeProposta(row: JsonRecord): Proposta {
     retificacoesCount: toNumber(row.retificacoesCount ?? row.retificacoes_count),
     anexosCount: toNumber(row.anexosCount ?? row.anexos_count),
     comentariosCount: toNumber(row.comentariosCount ?? row.comentarios_count),
+    posFechamentoContratoFeitoAt:
+      row.posFechamentoContratoFeitoAt ?? row.pos_fechamento_contrato_feito_at
+        ? toDate(row.posFechamentoContratoFeitoAt ?? row.pos_fechamento_contrato_feito_at)
+        : null,
+    posFechamentoContratoEnviadoAt:
+      row.posFechamentoContratoEnviadoAt ?? row.pos_fechamento_contrato_enviado_at
+        ? toDate(row.posFechamentoContratoEnviadoAt ?? row.pos_fechamento_contrato_enviado_at)
+        : null,
+    posFechamentoAguardandoPagamentoAt:
+      row.posFechamentoAguardandoPagamentoAt ?? row.pos_fechamento_aguardando_pagamento_at
+        ? toDate(
+            row.posFechamentoAguardandoPagamentoAt ?? row.pos_fechamento_aguardando_pagamento_at
+          )
+        : null,
+    posFechamentoPagamentoConfirmadoAt:
+      row.posFechamentoPagamentoConfirmadoAt ?? row.pos_fechamento_pagamento_confirmado_at
+        ? toDate(row.posFechamentoPagamentoConfirmadoAt ?? row.pos_fechamento_pagamento_confirmado_at)
+        : null,
+    posFechamentoAguardandoOsAt:
+      row.posFechamentoAguardandoOsAt ?? row.pos_fechamento_aguardando_os_at
+        ? toDate(row.posFechamentoAguardandoOsAt ?? row.pos_fechamento_aguardando_os_at)
+        : null,
+    posFechamentoOrdemServicoLiberadaAt:
+      row.posFechamentoOrdemServicoLiberadaAt ?? row.pos_fechamento_ordem_servico_liberada_at
+        ? toDate(row.posFechamentoOrdemServicoLiberadaAt ?? row.pos_fechamento_ordem_servico_liberada_at)
+        : null,
     anexos: Array.isArray(row.anexos)
       ? row.anexos.map((anexo: JsonRecord) => ({
           id: anexo.id,
@@ -1637,6 +1678,24 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     clienteCep: hasOwnField('clienteCep') ? (data.clienteCep || null) : undefined,
     clienteValorFechado: hasOwnField('clienteValorFechado') ? (parsedClienteValorFechado ?? null) : undefined,
     kanbanPosition: hasOwnField('kanbanPosition') ? parsedKanbanPosition : undefined,
+    posFechamentoContratoFeitoAt: hasOwnField('posFechamentoContratoFeitoAt')
+      ? (data.posFechamentoContratoFeitoAt || null)
+      : undefined,
+    posFechamentoContratoEnviadoAt: hasOwnField('posFechamentoContratoEnviadoAt')
+      ? (data.posFechamentoContratoEnviadoAt || null)
+      : undefined,
+    posFechamentoAguardandoPagamentoAt: hasOwnField('posFechamentoAguardandoPagamentoAt')
+      ? (data.posFechamentoAguardandoPagamentoAt || null)
+      : undefined,
+    posFechamentoPagamentoConfirmadoAt: hasOwnField('posFechamentoPagamentoConfirmadoAt')
+      ? (data.posFechamentoPagamentoConfirmadoAt || null)
+      : undefined,
+    posFechamentoAguardandoOsAt: hasOwnField('posFechamentoAguardandoOsAt')
+      ? (data.posFechamentoAguardandoOsAt || null)
+      : undefined,
+    posFechamentoOrdemServicoLiberadaAt: hasOwnField('posFechamentoOrdemServicoLiberadaAt')
+      ? (data.posFechamentoOrdemServicoLiberadaAt || null)
+      : undefined,
   })
   const anexos = Array.isArray(data.anexos)
     ? (data.anexos as unknown[]).filter((item): item is File => item instanceof File)
@@ -1677,6 +1736,18 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     follow_up_time: payload.followUpTime,
     kanbanOrder: parsedKanbanPosition,
     kanban_order: parsedKanbanPosition,
+    posFechamentoContratoFeitoAt: data.posFechamentoContratoFeitoAt,
+    pos_fechamento_contrato_feito_at: data.posFechamentoContratoFeitoAt,
+    posFechamentoContratoEnviadoAt: data.posFechamentoContratoEnviadoAt,
+    pos_fechamento_contrato_enviado_at: data.posFechamentoContratoEnviadoAt,
+    posFechamentoAguardandoPagamentoAt: data.posFechamentoAguardandoPagamentoAt,
+    pos_fechamento_aguardando_pagamento_at: data.posFechamentoAguardandoPagamentoAt,
+    posFechamentoPagamentoConfirmadoAt: data.posFechamentoPagamentoConfirmadoAt,
+    pos_fechamento_pagamento_confirmado_at: data.posFechamentoPagamentoConfirmadoAt,
+    posFechamentoAguardandoOsAt: data.posFechamentoAguardandoOsAt,
+    pos_fechamento_aguardando_os_at: data.posFechamentoAguardandoOsAt,
+    posFechamentoOrdemServicoLiberadaAt: data.posFechamentoOrdemServicoLiberadaAt,
+    pos_fechamento_ordem_servico_liberada_at: data.posFechamentoOrdemServicoLiberadaAt,
   })
 
   await mutate(`/api/propostas/${id}`, (current) => mergeEntitySnapshot(current, optimisticPatch), {
@@ -1698,7 +1769,6 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     await mutateEntityByPrefix('/api/propostas', id, updated as JsonRecord)
     await patchBootstrapEntity('propostas', id, updated as JsonRecord)
     mutateByPrefix('/api/tarefas')
-    mutateByPrefix('/api/crm/bootstrap')
     mutate('/api/dashboard')
     mutateByPrefix('/api/interacoes')
     return updated

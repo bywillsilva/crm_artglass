@@ -37,6 +37,7 @@ const funnelStatuses: { status: StatusProposta; color: string }[] = [
   { status: 'stand_by', color: '#71717a' },
   { status: 'em_retificacao', color: '#a855f7' },
   { status: 'fechado', color: '#10b981' },
+  { status: 'pos_fechamento', color: '#06b6d4' },
   { status: 'perdido', color: '#ef4444' },
 ]
 
@@ -134,13 +135,13 @@ export default function RelatoriosPage() {
       const seller = proposta.responsavelId ? sellerMap.get(proposta.responsavelId) : undefined
       if (seller) {
         seller.clientes.add(proposta.clienteId)
-        if (proposta.status === 'fechado') {
+        if (proposta.status === 'fechado' || proposta.status === 'pos_fechamento') {
           seller.vendas += 1
           seller.receita += proposta.valor
         }
       }
 
-      if (proposta.status === 'fechado') {
+      if (proposta.status === 'fechado' || proposta.status === 'pos_fechamento') {
         vendasFechadasLocal += 1
         totalReceitaLocal += proposta.valor
       }
@@ -298,7 +299,7 @@ function buildEvolutionData(propostas: Proposta[], filter: DateFilterValue, loca
 
     bucket.leads += 1
 
-    if (proposta.status === 'fechado') {
+    if (proposta.status === 'fechado' || proposta.status === 'pos_fechamento') {
       bucket.vendas += 1
       bucket.receita += proposta.valor
     }

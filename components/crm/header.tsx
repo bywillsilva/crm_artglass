@@ -549,7 +549,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
                 }}
               >
                 <DropdownMenuTrigger asChild>{notificationButton}</DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-[min(92vw,24rem)]">
+                <DropdownMenuContent align="end" className="max-h-[min(72vh,34rem)] w-[min(92vw,24rem)] overflow-y-auto">
                   <DropdownMenuLabel className="flex items-center justify-between">
                     <span>Notificacoes</span>
                     {actionNotifications.length > 0 && (
@@ -576,9 +576,9 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
                       <div key={group}>
                         <DropdownMenuLabel className="flex items-center gap-2 text-xs text-muted-foreground">
                           <Icon className="h-3 w-3" />
-                          {GROUP_META[group].title}
+                          {GROUP_META[group].title} ({items.length})
                         </DropdownMenuLabel>
-                        {items.slice(0, 5).map((item) => (
+                        {items.map((item) => (
                           <DropdownMenuItem
                             key={item.id}
                             onSelect={() => {
@@ -677,7 +677,7 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
               }}
             >
               <DropdownMenuTrigger asChild>{desktopNotificationButton}</DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-[min(92vw,24rem)]">
+              <DropdownMenuContent align="end" className="max-h-[min(72vh,34rem)] w-[min(92vw,24rem)] overflow-y-auto">
                 <DropdownMenuLabel className="flex items-center justify-between">
                   <span>Notificacoes</span>
                   {actionNotifications.length > 0 && (
@@ -704,9 +704,9 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
                     <div key={group}>
                       <DropdownMenuLabel className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Icon className="h-3 w-3" />
-                        {GROUP_META[group].title}
+                        {GROUP_META[group].title} ({items.length})
                       </DropdownMenuLabel>
-                      {items.slice(0, 5).map((item) => (
+                      {items.map((item) => (
                         <DropdownMenuItem
                           key={item.id}
                           onSelect={() => {

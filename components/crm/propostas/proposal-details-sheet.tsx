@@ -5,6 +5,8 @@ import { mutate } from 'swr'
 import {
   AlertCircle,
   CalendarClock,
+  CheckCircle2,
+  Circle,
   MessageSquare,
   Paperclip,
   Pencil,
@@ -17,8 +19,21 @@ import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useCRM } from '@/lib/context/crm-context'
 import { prefetchProposta, updateProposta, useProposta, useSession } from '@/lib/hooks/use-api'
-import { statusPropostaColors, statusPropostaLabels, type Proposta } from '@/lib/data/types'
+import {
+  posFechamentoEtapaLabels,
+  posFechamentoEtapas,
+  statusPropostaColors,
+  statusPropostaLabels,
+  type PosFechamentoEtapa,
+  type Proposta,
+} from '@/lib/data/types'
 import { parseProposalMaterialTags } from '@/lib/utils/proposal-material-tags'
+import {
+  getCurrentPostClosingLabel,
+  getCurrentPostClosingStep,
+  isPostClosingStepCompleted,
+  postClosingDateFields,
+} from '@/lib/utils/post-closing'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -150,6 +165,22 @@ function mergeProposalSnapshot(primary: Proposta, fallback: Proposta) {
           : 0,
     anexos: primary.anexos ?? fallback.anexos,
     comentarios: primary.comentarios ?? fallback.comentarios,
+    posFechamentoContratoFeitoAt:
+      primary.posFechamentoContratoFeitoAt ?? fallback.posFechamentoContratoFeitoAt ?? null,
+    posFechamentoContratoEnviadoAt:
+      primary.posFechamentoContratoEnviadoAt ?? fallback.posFechamentoContratoEnviadoAt ?? null,
+    posFechamentoAguardandoPagamentoAt:
+      primary.posFechamentoAguardandoPagamentoAt ??
+      fallback.posFechamentoAguardandoPagamentoAt ??
+      null,
+    posFechamentoPagamentoConfirmadoAt:
+      primary.posFechamentoPagamentoConfirmadoAt ?? fallback.posFechamentoPagamentoConfirmadoAt ?? null,
+    posFechamentoAguardandoOsAt:
+      primary.posFechamentoAguardandoOsAt ??
+      fallback.posFechamentoAguardandoOsAt ??
+      null,
+    posFechamentoOrdemServicoLiberadaAt:
+      primary.posFechamentoOrdemServicoLiberadaAt ?? fallback.posFechamentoOrdemServicoLiberadaAt ?? null,
   } satisfies Proposta
 }
 
@@ -429,6 +460,29 @@ export function ProposalDetailsSheet({
     () => canViewTechnicalDetails && canInlineEdit,
     [canInlineEdit, canViewTechnicalDetails]
   )
+  const canViewPostClosing = useMemo(
+    () => Boolean(propostaSource && hasRuleAccess(user, 'canViewPostClosing')),
+    [propostaSource, user]
+  )
+  const canManagePostClosingSteps = useMemo(
+    () => Boolean(propostaSource && canViewPostClosing && hasRuleAccess(user, 'canManagePostClosingSteps')),
+    [canViewPostClosing, propostaSource, user]
+  )
+  const currentPostClosingStep = useMemo(
+    () => getCurrentPostClosingStep(propostaSource),
+    [propostaSource]
+  )
+  const currentPostClosingLabel = useMemo(
+    () => getCurrentPostClosingLabel(propostaSource),
+    [propostaSource]
+  )
+  const shouldShowPostClosing =
+    canViewPostClosing &&
+    Boolean(
+      propostaSource?.status === 'pos_fechamento' ||
+        currentPostClosingStep ||
+        posFechamentoEtapas.some((step) => Boolean(propostaSource?.[postClosingDateFields[step]]))
+    )
   const technicalMetrics = useMemo(
     () => [
       {
@@ -529,6 +583,12 @@ export function ProposalDetailsSheet({
       responsavelId: propostaSource.responsavelId || undefined,
       orcamentistaId: propostaSource.orcamentistaId || undefined,
       followUpTime: propostaSource.followUpTime || null,
+      posFechamentoContratoFeitoAt: propostaSource.posFechamentoContratoFeitoAt ?? null,
+      posFechamentoContratoEnviadoAt: propostaSource.posFechamentoContratoEnviadoAt ?? null,
+      posFechamentoAguardandoPagamentoAt: propostaSource.posFechamentoAguardandoPagamentoAt ?? null,
+      posFechamentoPagamentoConfirmadoAt: propostaSource.posFechamentoPagamentoConfirmadoAt ?? null,
+      posFechamentoAguardandoOsAt: propostaSource.posFechamentoAguardandoOsAt ?? null,
+      posFechamentoOrdemServicoLiberadaAt: propostaSource.posFechamentoOrdemServicoLiberadaAt ?? null,
       ...overrides,
     } satisfies InlineProposalUpdatePayload
   }
@@ -537,7 +597,35 @@ export function ProposalDetailsSheet({
     if (!propostaId || !proposalSnapshot) return
     const hasAttachmentDetails = Array.isArray(proposalSnapshot.anexos)
     const hasCommentDetails = Array.isArray(proposalSnapshot.comentarios)
-    const proposalPatch: Record<string, unknown> = { ...proposalSnapshot }
+    const postClosingSnapshot = {
+      contratoFeito:
+        proposalSnapshot.posFechamentoContratoFeitoAt ??
+        proposalSnapshot.pos_fechamento_contrato_feito_at,
+      contratoEnviado:
+        proposalSnapshot.posFechamentoContratoEnviadoAt ??
+        proposalSnapshot.pos_fechamento_contrato_enviado_at,
+      aguardandoPagamento:
+        proposalSnapshot.posFechamentoAguardandoPagamentoAt ??
+        proposalSnapshot.pos_fechamento_aguardando_pagamento_at,
+      pagamentoConfirmado:
+        proposalSnapshot.posFechamentoPagamentoConfirmadoAt ??
+        proposalSnapshot.pos_fechamento_pagamento_confirmado_at,
+      aguardandoOs:
+        proposalSnapshot.posFechamentoAguardandoOsAt ??
+        proposalSnapshot.pos_fechamento_aguardando_os_at,
+      liberadaProducao:
+        proposalSnapshot.posFechamentoOrdemServicoLiberadaAt ??
+        proposalSnapshot.pos_fechamento_ordem_servico_liberada_at,
+    }
+    const proposalPatch: Record<string, unknown> = {
+      ...proposalSnapshot,
+      posFechamentoContratoFeitoAt: postClosingSnapshot.contratoFeito,
+      posFechamentoContratoEnviadoAt: postClosingSnapshot.contratoEnviado,
+      posFechamentoAguardandoPagamentoAt: postClosingSnapshot.aguardandoPagamento,
+      posFechamentoPagamentoConfirmadoAt: postClosingSnapshot.pagamentoConfirmado,
+      posFechamentoAguardandoOsAt: postClosingSnapshot.aguardandoOs,
+      posFechamentoOrdemServicoLiberadaAt: postClosingSnapshot.liberadaProducao,
+    }
     const proposalCollectionPatch: Record<string, unknown> = compactSnapshot({
       id: proposalSnapshot.id,
       clienteId: proposalSnapshot.clienteId,
@@ -581,6 +669,18 @@ export function ProposalDetailsSheet({
       follow_up_base_at: proposalSnapshot.followUpBaseAt,
       followUpTime: proposalSnapshot.followUpTime,
       follow_up_time: proposalSnapshot.followUpTime,
+      posFechamentoContratoFeitoAt: postClosingSnapshot.contratoFeito,
+      pos_fechamento_contrato_feito_at: postClosingSnapshot.contratoFeito,
+      posFechamentoContratoEnviadoAt: postClosingSnapshot.contratoEnviado,
+      pos_fechamento_contrato_enviado_at: postClosingSnapshot.contratoEnviado,
+      posFechamentoAguardandoPagamentoAt: postClosingSnapshot.aguardandoPagamento,
+      pos_fechamento_aguardando_pagamento_at: postClosingSnapshot.aguardandoPagamento,
+      posFechamentoPagamentoConfirmadoAt: postClosingSnapshot.pagamentoConfirmado,
+      pos_fechamento_pagamento_confirmado_at: postClosingSnapshot.pagamentoConfirmado,
+      posFechamentoAguardandoOsAt: postClosingSnapshot.aguardandoOs,
+      pos_fechamento_aguardando_os_at: postClosingSnapshot.aguardandoOs,
+      posFechamentoOrdemServicoLiberadaAt: postClosingSnapshot.liberadaProducao,
+      pos_fechamento_ordem_servico_liberada_at: postClosingSnapshot.liberadaProducao,
       dataEnvio: proposalSnapshot.dataEnvio,
       criadoEm: proposalSnapshot.criadoEm,
       updatedAt: proposalSnapshot.updatedAt,
@@ -802,6 +902,34 @@ export function ProposalDetailsSheet({
       toast.success('Dados tecnicos atualizados.')
     } catch (error: any) {
       toast.error(error?.message || 'Erro ao atualizar dados tecnicos.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleSetPostClosingStep = async (step: PosFechamentoEtapa) => {
+    if (!propostaId || !propostaSource || !canManagePostClosingSteps) return
+
+    const stepIndex = posFechamentoEtapas.indexOf(step)
+    const nextCompletedIndex = stepIndex
+    const now = new Date().toISOString()
+    const payload: InlineProposalUpdatePayload = {}
+
+    posFechamentoEtapas.forEach((item, index) => {
+      const field = postClosingDateFields[item]
+      payload[field] =
+        index <= nextCompletedIndex
+          ? ((propostaSource[field] as Date | string | null | undefined) || now)
+          : null
+    })
+
+    setIsSubmitting(true)
+    try {
+      const updatedProposal = await updateProposta(propostaId, buildInlineUpdatePayload(payload) || payload)
+      await syncProposalSnapshot(updatedProposal)
+      toast.success('Etapa de pos-fechamento atualizada.')
+    } catch (error: any) {
+      toast.error(error?.message || 'Erro ao atualizar pos-fechamento.')
     } finally {
       setIsSubmitting(false)
     }
@@ -1237,6 +1365,74 @@ export function ProposalDetailsSheet({
                     </button>
                   )}
                 </div>
+
+                {shouldShowPostClosing ? (
+                  <div className="min-w-0 space-y-4 rounded-xl border border-cyan-500/20 bg-cyan-500/[0.04] p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-foreground">Pos-fechamento</p>
+                        <p className="text-sm text-muted-foreground">
+                          Acompanhe contrato, pagamento e liberacao da ordem de servico.
+                        </p>
+                      </div>
+                      <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/15 text-cyan-200">
+                        {currentPostClosingLabel}
+                      </Badge>
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {posFechamentoEtapas.map((step) => {
+                        const completed = isPostClosingStepCompleted(propostaSource, step)
+                        const Icon = completed ? CheckCircle2 : Circle
+                        const stepContent = (
+                          <>
+                            <Icon className={`h-4 w-4 shrink-0 ${completed ? 'text-cyan-300' : 'text-muted-foreground'}`} />
+                            <span className="min-w-0 text-sm font-medium">
+                              {posFechamentoEtapaLabels[step]}
+                            </span>
+                          </>
+                        )
+
+                        if (!canManagePostClosingSteps) {
+                          return (
+                            <div
+                              key={step}
+                              className={`flex items-center gap-3 rounded-xl border px-3 py-3 text-left ${
+                                completed
+                                  ? 'border-cyan-500/35 bg-cyan-500/15 text-foreground'
+                                  : 'border-border bg-secondary/10 text-muted-foreground'
+                              }`}
+                            >
+                              {stepContent}
+                            </div>
+                          )
+                        }
+
+                        return (
+                          <button
+                            key={step}
+                            type="button"
+                            disabled={isSubmitting}
+                            onClick={() => void handleSetPostClosingStep(step)}
+                            className={`flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition ${
+                              completed
+                                ? 'border-cyan-500/35 bg-cyan-500/15 text-foreground'
+                                : 'border-border bg-secondary/10 text-muted-foreground'
+                            } hover:border-cyan-500/50 hover:bg-cyan-500/10`}
+                          >
+                            {stepContent}
+                          </button>
+                        )
+                      })}
+                    </div>
+
+                    {!canManagePostClosingSteps ? (
+                      <p className="text-xs text-muted-foreground">
+                        Voce pode acompanhar esta etapa, mas a marcacao dos checks depende de permissao liberada pelo ADM.
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 {canViewTechnicalDetails ? (
                   <div className="min-w-0 space-y-4 rounded-xl border border-border bg-card p-4">

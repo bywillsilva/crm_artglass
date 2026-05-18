@@ -34,6 +34,7 @@ const SELLER_VISIBLE_STATUSES = [
   'follow_up_7_dias',
   'stand_by',
   'fechado',
+  'pos_fechamento',
   'perdido',
 ] as const
 
@@ -62,6 +63,12 @@ const PROPOSAL_LIST_SELECT_COLUMNS = `
   p.follow_up_base_at,
   p.follow_up_time,
   p.kanban_order,
+  p.pos_fechamento_contrato_feito_at,
+  p.pos_fechamento_contrato_enviado_at,
+  p.pos_fechamento_aguardando_pagamento_at,
+  p.pos_fechamento_pagamento_confirmado_at,
+  p.pos_fechamento_aguardando_os_at,
+  p.pos_fechamento_ordem_servico_liberada_at,
   p.created_at,
   p.updated_at,
   c.nome as cliente_nome,
@@ -96,6 +103,12 @@ const PROPOSAL_LIST_SELECT_COLUMNS_LEGACY = `
   p.follow_up_base_at,
   p.follow_up_time,
   p.kanban_order,
+  NULL as pos_fechamento_contrato_feito_at,
+  NULL as pos_fechamento_contrato_enviado_at,
+  NULL as pos_fechamento_aguardando_pagamento_at,
+  NULL as pos_fechamento_pagamento_confirmado_at,
+  NULL as pos_fechamento_aguardando_os_at,
+  NULL as pos_fechamento_ordem_servico_liberada_at,
   p.created_at,
   p.updated_at,
   c.nome as cliente_nome,
@@ -661,26 +674,30 @@ export async function POST(request: NextRequest) {
       }))
 
     if (reusableSeedProposal) {
-      await prisma.propostas.update({
-        where: { id: propostaId },
-        data: {
-          cliente_id: data.clienteId,
-          responsavel_id: responsavelId,
-          orcamentista_id: orcamentistaId,
-          titulo: data.titulo || 'Proposta Comercial',
-          descricao: data.descricao || null,
-          material_tag: materialTag,
-          valor,
-          desconto,
-          valor_final: valorFinal,
-          status,
-          validade: parseDateOnly(data.validade || null),
-          servicos: JSON.stringify(data.servicos || []),
-          condicoes: data.condicoes || null,
-          follow_up_base_at: status === 'enviado_ao_cliente' ? now : null,
-          follow_up_time: parseTimeOnly(data.followUpTime || null),
-        },
-      })
+      await prisma.$executeRawUnsafe(
+        `UPDATE propostas SET
+          cliente_id = ?, responsavel_id = ?, orcamentista_id = ?, titulo = ?, descricao = ?,
+          material_tag = ?, valor = ?, desconto = ?, valor_final = ?, status = ?,
+          validade = ?, servicos = ?, condicoes = ?, follow_up_base_at = ?, follow_up_time = ?,
+          updated_at = NOW()
+         WHERE id = ?`,
+        data.clienteId,
+        responsavelId,
+        orcamentistaId,
+        data.titulo || 'Proposta Comercial',
+        data.descricao || null,
+        materialTag,
+        valor,
+        desconto,
+        valorFinal,
+        status,
+        parseDateOnly(data.validade || null),
+        JSON.stringify(data.servicos || []),
+        data.condicoes || null,
+        status === 'enviado_ao_cliente' ? now : null,
+        parseTimeOnly(data.followUpTime || null),
+        propostaId
+      )
     }
 
     await syncProposalServices(propostaId, data.servicos || [])

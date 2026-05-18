@@ -39,7 +39,34 @@ export type StatusProposta =
   | 'stand_by'
   | 'em_retificacao'
   | 'fechado'
+  | 'pos_fechamento'
   | 'perdido'
+
+export type PosFechamentoEtapa =
+  | 'contrato_feito'
+  | 'contrato_enviado'
+  | 'aguardando_pagamento'
+  | 'pagamento_confirmado'
+  | 'aguardando_os'
+  | 'ordem_servico_liberada'
+
+export const posFechamentoEtapas: PosFechamentoEtapa[] = [
+  'contrato_feito',
+  'contrato_enviado',
+  'aguardando_pagamento',
+  'pagamento_confirmado',
+  'aguardando_os',
+  'ordem_servico_liberada',
+]
+
+export const posFechamentoEtapaLabels: Record<PosFechamentoEtapa, string> = {
+  contrato_feito: 'Contrato feito',
+  contrato_enviado: 'Contrato enviado',
+  aguardando_pagamento: 'Aguardando pagamento',
+  pagamento_confirmado: 'Pagamento confirmado',
+  aguardando_os: 'Aguardando OS',
+  ordem_servico_liberada: 'Liberada para producao',
+}
 
 export const sellerReleasedProposalStatuses: StatusProposta[] = [
   'enviar_ao_cliente',
@@ -51,6 +78,7 @@ export const sellerReleasedProposalStatuses: StatusProposta[] = [
   'follow_up_7_dias',
   'stand_by',
   'fechado',
+  'pos_fechamento',
   'perdido',
 ]
 
@@ -87,6 +115,9 @@ export type RuleKey =
   | 'canAssignProposalOrcamentistaOnForm'
   | 'canViewTechnicalProposalData'
   | 'canEditProposalResponsavelDirectly'
+  | 'canMoveProposalToPostClosing'
+  | 'canViewPostClosing'
+  | 'canManagePostClosingSteps'
   | 'allowSellerCommentsOnResponsibleProposals'
   | 'allowSellerViewReleasedProposals'
   | 'allowOrcamentistaViewAssignedProposalsOutsideScope'
@@ -198,6 +229,12 @@ export interface Proposta {
   comentariosCount?: number
   anexos?: PropostaAnexo[]
   comentarios?: PropostaComentario[]
+  posFechamentoContratoFeitoAt?: Date | null
+  posFechamentoContratoEnviadoAt?: Date | null
+  posFechamentoAguardandoPagamentoAt?: Date | null
+  posFechamentoPagamentoConfirmadoAt?: Date | null
+  posFechamentoAguardandoOsAt?: Date | null
+  posFechamentoOrdemServicoLiberadaAt?: Date | null
   followUpBaseAt?: Date | null
   followUpTime?: string | null
   dataEnvio: Date
@@ -271,6 +308,7 @@ export const statusPropostaLabels: Record<StatusProposta, string> = {
   stand_by: 'Stand-by',
   em_retificacao: 'Em Retificacao',
   fechado: 'Fechado',
+  pos_fechamento: 'Pos-fechamento',
   perdido: 'Perdido',
 }
 
@@ -288,6 +326,7 @@ export const statusPropostaColors: Record<StatusProposta, string> = {
   stand_by: 'bg-zinc-500/20 text-zinc-300 border-zinc-500/30',
   em_retificacao: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
   fechado: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+  pos_fechamento: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
   perdido: 'bg-red-500/20 text-red-400 border-red-500/30',
 }
 

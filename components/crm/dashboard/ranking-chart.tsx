@@ -46,7 +46,7 @@ export function RankingChart() {
     .filter((u) => u.role === 'vendedor' || u.role === 'gerente')
     .map((vendedor) => {
       const propostasAprovadas = state.propostas.filter(
-        (p) => p.status === 'fechado' && p.responsavelId === vendedor.id
+        (p) => (p.status === 'fechado' || p.status === 'pos_fechamento') && p.responsavelId === vendedor.id
       )
       const totalVendas = propostasAprovadas.reduce((acc, p) => acc + p.valor, 0)
       const qtdVendas = propostasAprovadas.length
