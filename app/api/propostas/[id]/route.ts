@@ -82,8 +82,10 @@ const PROPOSAL_BASE_SELECT_COLUMNS = `
   p.follow_up_base_at,
   p.follow_up_time,
   p.kanban_order,
+  p.pos_fechamento_aguardando_contrato_at,
   p.pos_fechamento_contrato_feito_at,
   p.pos_fechamento_contrato_enviado_at,
+  p.pos_fechamento_contrato_assinado_at,
   p.pos_fechamento_aguardando_pagamento_at,
   p.pos_fechamento_pagamento_confirmado_at,
   p.pos_fechamento_aguardando_os_at,
@@ -109,8 +111,10 @@ const PROPOSAL_BASE_SELECT_COLUMNS_LEGACY = `
   p.follow_up_base_at,
   p.follow_up_time,
   p.kanban_order,
+  NULL as pos_fechamento_aguardando_contrato_at,
   NULL as pos_fechamento_contrato_feito_at,
   NULL as pos_fechamento_contrato_enviado_at,
+  NULL as pos_fechamento_contrato_assinado_at,
   NULL as pos_fechamento_aguardando_pagamento_at,
   NULL as pos_fechamento_pagamento_confirmado_at,
   NULL as pos_fechamento_aguardando_os_at,
@@ -159,8 +163,10 @@ type ProposalPayload = {
   clienteCep?: string | null
   clienteValorFechado?: number | null
   kanbanPosition?: number | null
+  posFechamentoAguardandoContratoAt?: string | null
   posFechamentoContratoFeitoAt?: string | null
   posFechamentoContratoEnviadoAt?: string | null
+  posFechamentoContratoAssinadoAt?: string | null
   posFechamentoAguardandoPagamentoAt?: string | null
   posFechamentoPagamentoConfirmadoAt?: string | null
   posFechamentoAguardandoOsAt?: string | null
@@ -563,8 +569,10 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
         workflowAction: getOptionalString('workflowAction'),
         followUpTime: getOptionalString('followUpTime'),
         kanbanPosition: hasField('kanbanPosition') ? parseKanbanPosition(formData.get('kanbanPosition')) : undefined,
+        posFechamentoAguardandoContratoAt: getOptionalString('posFechamentoAguardandoContratoAt'),
         posFechamentoContratoFeitoAt: getOptionalString('posFechamentoContratoFeitoAt'),
         posFechamentoContratoEnviadoAt: getOptionalString('posFechamentoContratoEnviadoAt'),
+        posFechamentoContratoAssinadoAt: getOptionalString('posFechamentoContratoAssinadoAt'),
         posFechamentoAguardandoPagamentoAt: getOptionalString('posFechamentoAguardandoPagamentoAt'),
         posFechamentoPagamentoConfirmadoAt: getOptionalString('posFechamentoPagamentoConfirmadoAt'),
         posFechamentoAguardandoOsAt: getOptionalString('posFechamentoAguardandoOsAt'),
@@ -624,11 +632,17 @@ async function parseProposalPayload(request: NextRequest): Promise<ProposalPaylo
     workflowAction: hasOwnField('workflowAction') ? data.workflowAction || null : undefined,
     followUpTime: hasOwnField('followUpTime') ? data.followUpTime || null : undefined,
     kanbanPosition: hasOwnField('kanbanPosition') ? parseKanbanPosition(data.kanbanPosition) : undefined,
+    posFechamentoAguardandoContratoAt: hasOwnField('posFechamentoAguardandoContratoAt')
+      ? data.posFechamentoAguardandoContratoAt || null
+      : undefined,
     posFechamentoContratoFeitoAt: hasOwnField('posFechamentoContratoFeitoAt')
       ? data.posFechamentoContratoFeitoAt || null
       : undefined,
     posFechamentoContratoEnviadoAt: hasOwnField('posFechamentoContratoEnviadoAt')
       ? data.posFechamentoContratoEnviadoAt || null
+      : undefined,
+    posFechamentoContratoAssinadoAt: hasOwnField('posFechamentoContratoAssinadoAt')
+      ? data.posFechamentoContratoAssinadoAt || null
       : undefined,
     posFechamentoAguardandoPagamentoAt: hasOwnField('posFechamentoAguardandoPagamentoAt')
       ? data.posFechamentoAguardandoPagamentoAt || null
@@ -1007,8 +1021,10 @@ export async function PUT(
         : Promise.resolve([] as ProposalAttachmentRecord[])
     const isStatusChange = nextStatus !== previousStatus
     const hasPostClosingStepUpdate =
+      data.posFechamentoAguardandoContratoAt !== undefined ||
       data.posFechamentoContratoFeitoAt !== undefined ||
       data.posFechamentoContratoEnviadoAt !== undefined ||
+      data.posFechamentoContratoAssinadoAt !== undefined ||
       data.posFechamentoAguardandoPagamentoAt !== undefined ||
       data.posFechamentoPagamentoConfirmadoAt !== undefined ||
       data.posFechamentoAguardandoOsAt !== undefined ||
@@ -1514,6 +1530,10 @@ export async function PUT(
       (previousStatus !== storedStatus && storedStatus === 'enviado_ao_cliente'
         ? formatFollowUpTimeFromDate(changedAt)
         : propostaAtual.follow_up_time ?? null)
+    const posFechamentoAguardandoContratoAt =
+      data.posFechamentoAguardandoContratoAt === undefined
+        ? parseOptionalDateTime(propostaAtual.pos_fechamento_aguardando_contrato_at)
+        : parseOptionalDateTime(data.posFechamentoAguardandoContratoAt)
     const posFechamentoContratoFeitoAt =
       data.posFechamentoContratoFeitoAt === undefined
         ? parseOptionalDateTime(propostaAtual.pos_fechamento_contrato_feito_at)
@@ -1522,6 +1542,10 @@ export async function PUT(
       data.posFechamentoContratoEnviadoAt === undefined
         ? parseOptionalDateTime(propostaAtual.pos_fechamento_contrato_enviado_at)
         : parseOptionalDateTime(data.posFechamentoContratoEnviadoAt)
+    const posFechamentoContratoAssinadoAt =
+      data.posFechamentoContratoAssinadoAt === undefined
+        ? parseOptionalDateTime(propostaAtual.pos_fechamento_contrato_assinado_at)
+        : parseOptionalDateTime(data.posFechamentoContratoAssinadoAt)
     const posFechamentoAguardandoPagamentoAt =
       data.posFechamentoAguardandoPagamentoAt === undefined
         ? parseOptionalDateTime(propostaAtual.pos_fechamento_aguardando_pagamento_at)
@@ -1544,7 +1568,8 @@ export async function PUT(
         cliente_id = ?, titulo = ?, material_tag = ?, area_m2 = ?, perfis_bruto = ?, perfis_liquidos = ?, valor_perfil = ?, valor_vidro = ?, valor_acessorios = ?, observacoes_tecnicas = ?, descricao = ?, valor = ?, desconto = ?,
         valor_final = ?, status = ?, validade = ?, servicos = ?, condicoes = ?,
         responsavel_id = ?, orcamentista_id = ?, follow_up_base_at = ?, follow_up_time = ?,
-        pos_fechamento_contrato_feito_at = ?, pos_fechamento_contrato_enviado_at = ?, pos_fechamento_aguardando_pagamento_at = ?,
+        pos_fechamento_aguardando_contrato_at = ?, pos_fechamento_contrato_feito_at = ?, pos_fechamento_contrato_enviado_at = ?,
+        pos_fechamento_contrato_assinado_at = ?, pos_fechamento_aguardando_pagamento_at = ?,
         pos_fechamento_pagamento_confirmado_at = ?, pos_fechamento_aguardando_os_at = ?,
         pos_fechamento_ordem_servico_liberada_at = ?, updated_at = NOW()
        WHERE id = ?`,
@@ -1570,8 +1595,10 @@ export async function PUT(
       orcamentistaId,
       followUpBaseAt ? formatDateTime(followUpBaseAt) : null,
       followUpTime,
+      serializeDateTimeForDatabase(posFechamentoAguardandoContratoAt),
       serializeDateTimeForDatabase(posFechamentoContratoFeitoAt),
       serializeDateTimeForDatabase(posFechamentoContratoEnviadoAt),
+      serializeDateTimeForDatabase(posFechamentoContratoAssinadoAt),
       serializeDateTimeForDatabase(posFechamentoAguardandoPagamentoAt),
       serializeDateTimeForDatabase(posFechamentoPagamentoConfirmadoAt),
       serializeDateTimeForDatabase(posFechamentoAguardandoOsAt),

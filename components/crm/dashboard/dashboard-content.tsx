@@ -166,7 +166,7 @@ export function DashboardContent() {
           <StatsCard title="Leads em Proposta" value={stats?.totalLeads || 0} icon={Users} color="text-blue-400" bgColor="bg-blue-500/10" />
           <StatsCard title="Taxa de Conversao" value={`${stats?.taxaConversao || 0}%`} icon={TrendingUp} color="text-emerald-400" bgColor="bg-emerald-500/10" />
           <StatsCard title="Valor no Pipeline" value={formatCurrency(stats?.valorPipeline || 0)} icon={Target} color="text-purple-400" bgColor="bg-purple-500/10" />
-          <StatsCard title="Vendas Fechadas no Periodo" value={formatCurrency(stats?.vendasMes || 0)} icon={DollarSign} color="text-amber-400" bgColor="bg-amber-500/10" />
+          <StatsCard title="Pagamentos Confirmados" value={formatCurrency(stats?.vendasMes || 0)} icon={DollarSign} color="text-amber-400" bgColor="bg-amber-500/10" />
         </div>
 
         <DashboardCharts
@@ -192,7 +192,7 @@ export function DashboardContent() {
                       </AvatarFallback>
                     </Avatar>
                     <div className="flex-1">
-                      <p className="text-sm text-muted-foreground">Total fechado no periodo</p>
+                      <p className="text-sm text-muted-foreground">Total pago no periodo</p>
                       <p className="text-2xl font-bold text-foreground">{formatCurrency(valorAtual)}</p>
                     </div>
                   </div>

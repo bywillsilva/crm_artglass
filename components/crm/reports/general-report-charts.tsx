@@ -16,6 +16,12 @@ import {
   YAxis,
 } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  crmChartTooltipCursorStyle,
+  crmChartTooltipItemStyle,
+  crmChartTooltipLabelStyle,
+  crmChartTooltipStyle,
+} from '@/components/crm/charts/chart-tooltip'
 
 type FunnelDataItem = {
   name: string
@@ -76,7 +82,13 @@ export function GeneralReportCharts({
                 tickLine={false}
                 tick={<WrappedYAxisTick />}
               />
-              <Tooltip />
+              <Tooltip
+                contentStyle={crmChartTooltipStyle}
+                labelStyle={crmChartTooltipLabelStyle}
+                itemStyle={crmChartTooltipItemStyle}
+                cursor={crmChartTooltipCursorStyle}
+                formatter={(value: number) => [`${value} proposta${Number(value) === 1 ? '' : 's'}`, 'Quantidade']}
+              />
               <Bar dataKey="count" radius={[0, 4, 4, 0]}>
                 {funilData.map((entry, index) => (
                   <Cell key={`${entry.name}-${index}`} fill={entry.color} />
@@ -107,7 +119,12 @@ export function GeneralReportCharts({
                   <Cell key={`${entry.name}-${index}`} fill={colors[index % colors.length]} />
                 ))}
               </Pie>
-              <Tooltip />
+              <Tooltip
+                contentStyle={crmChartTooltipStyle}
+                labelStyle={crmChartTooltipLabelStyle}
+                itemStyle={crmChartTooltipItemStyle}
+                formatter={(value: number) => [`${value} lead${Number(value) === 1 ? '' : 's'}`, 'Quantidade']}
+              />
             </PieChart>
           </ResponsiveContainer>
         </CardContent>
@@ -123,7 +140,11 @@ export function GeneralReportCharts({
               <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
               <XAxis dataKey="mes" axisLine={false} tickLine={false} />
               <YAxis axisLine={false} tickLine={false} />
-              <Tooltip />
+              <Tooltip
+                contentStyle={crmChartTooltipStyle}
+                labelStyle={crmChartTooltipLabelStyle}
+                itemStyle={crmChartTooltipItemStyle}
+              />
               <Legend />
               <Line type="monotone" dataKey="leads" name="Leads" stroke="#3b82f6" strokeWidth={2} />
               <Line type="monotone" dataKey="vendas" name="Fechamentos" stroke="#10b981" strokeWidth={2} />
@@ -142,7 +163,12 @@ export function GeneralReportCharts({
               <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
               <XAxis dataKey="name" axisLine={false} tickLine={false} />
               <YAxis axisLine={false} tickLine={false} />
-              <Tooltip />
+              <Tooltip
+                contentStyle={crmChartTooltipStyle}
+                labelStyle={crmChartTooltipLabelStyle}
+                itemStyle={crmChartTooltipItemStyle}
+                cursor={crmChartTooltipCursorStyle}
+              />
               <Bar dataKey="vendas" name="Fechamentos" fill="#3b82f6" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>

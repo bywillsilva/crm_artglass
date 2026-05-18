@@ -10,6 +10,7 @@ import { notifyTaskEmail } from '@/lib/server/email-notifications'
 import { jsonNoStore } from '@/lib/server/http-cache'
 
 const TAREFAS_CACHE_TTL_MS = Math.max(Number(process.env.TAREFAS_CACHE_TTL_MS || 30_000), 1000)
+const ALL_FILTER_VALUES = new Set(['todos', 'todas', 'all'])
 
 const TASK_SELECT = {
   id: true,
@@ -69,15 +70,15 @@ export async function GET(request: NextRequest) {
 
     const where: any = {}
 
-    if (status && status !== 'todos') {
+    if (status && !ALL_FILTER_VALUES.has(status)) {
       where.status = status
     }
 
-    if (tipo && tipo !== 'todos') {
+    if (tipo && !ALL_FILTER_VALUES.has(tipo)) {
       where.tipo = tipo
     }
 
-    if (responsavel && responsavel !== 'todos') {
+    if (responsavel && !ALL_FILTER_VALUES.has(responsavel)) {
       where.responsavel_id = responsavel
     }
 

@@ -200,7 +200,7 @@ export async function GET(request: NextRequest) {
         proposalParams
       ),
       () => dashboardQuery<any[]>(
-        `SELECT COUNT(*) as total FROM propostas WHERE status IN ('fechado', 'pos_fechamento')${proposalFilter}`,
+        `SELECT COUNT(*) as total FROM propostas WHERE status = 'pos_fechamento'${proposalFilter}`,
         proposalParams
       ),
       () => dashboardQuery<any[]>(
@@ -212,8 +212,8 @@ export async function GET(request: NextRequest) {
       () => dashboardQuery<any[]>(
         `SELECT COALESCE(SUM(valor_final), 0) as total
          FROM propostas
-            WHERE status IN ('fechado', 'pos_fechamento')
-             ${dateRange ? 'AND updated_at BETWEEN ? AND ?' : ''}${canViewAllDashboardData ? '' : ' AND responsavel_id = ?'}`,
+            WHERE pos_fechamento_pagamento_confirmado_at IS NOT NULL
+             ${dateRange ? 'AND pos_fechamento_pagamento_confirmado_at BETWEEN ? AND ?' : ''}${canViewAllDashboardData ? '' : ' AND responsavel_id = ?'}`,
          canViewAllDashboardData
            ? dateRange
              ? [startDateTime, endDateTime]
@@ -232,13 +232,13 @@ export async function GET(request: NextRequest) {
       ),
       () => dashboardQuery<any[]>(
          `SELECT
-            DATE_FORMAT(updated_at, '%Y-%m') as mes,
+            DATE_FORMAT(pos_fechamento_pagamento_confirmado_at, '%Y-%m') as mes,
             COALESCE(SUM(valor_final), 0) as valor,
             COUNT(*) as quantidade
           FROM propostas
-          WHERE status IN ('fechado', 'pos_fechamento')
-             ${dateRange ? 'AND updated_at BETWEEN ? AND ?' : ''}${canViewAllDashboardData ? '' : ' AND responsavel_id = ?'}
-           GROUP BY DATE_FORMAT(updated_at, '%Y-%m')
+          WHERE pos_fechamento_pagamento_confirmado_at IS NOT NULL
+             ${dateRange ? 'AND pos_fechamento_pagamento_confirmado_at BETWEEN ? AND ?' : ''}${canViewAllDashboardData ? '' : ' AND responsavel_id = ?'}
+           GROUP BY DATE_FORMAT(pos_fechamento_pagamento_confirmado_at, '%Y-%m')
            ORDER BY mes ASC`,
          canViewAllDashboardData
            ? dateRange
@@ -259,8 +259,8 @@ export async function GET(request: NextRequest) {
          FROM usuarios u
           LEFT JOIN propostas p
             ON u.id = p.responsavel_id
-            AND p.status IN ('fechado', 'pos_fechamento')
-            ${dateRange ? 'AND p.updated_at BETWEEN ? AND ?' : ''}
+             AND p.pos_fechamento_pagamento_confirmado_at IS NOT NULL
+             ${dateRange ? 'AND p.pos_fechamento_pagamento_confirmado_at BETWEEN ? AND ?' : ''}
           WHERE u.role IN ('vendedor', 'gerente')
             ${canViewAllDashboardData ? '' : 'AND u.id = ?'}
           GROUP BY u.id, u.nome, u.avatar, u.meta_vendas

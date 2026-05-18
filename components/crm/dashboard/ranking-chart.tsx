@@ -6,6 +6,7 @@ import { useAppSettings } from '@/lib/context/app-settings-context'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Skeleton } from '@/components/ui/skeleton'
+import { hasConfirmedPayment, isPostClosingProposal } from '@/lib/utils/post-closing'
 
 export function RankingChart() {
   const [mounted, setMounted] = useState(false)
@@ -46,9 +47,11 @@ export function RankingChart() {
     .filter((u) => u.role === 'vendedor' || u.role === 'gerente')
     .map((vendedor) => {
       const propostasAprovadas = state.propostas.filter(
-        (p) => (p.status === 'fechado' || p.status === 'pos_fechamento') && p.responsavelId === vendedor.id
+        (p) => isPostClosingProposal(p) && p.responsavelId === vendedor.id
       )
-      const totalVendas = propostasAprovadas.reduce((acc, p) => acc + p.valor, 0)
+      const totalVendas = state.propostas
+        .filter((p) => hasConfirmedPayment(p) && p.responsavelId === vendedor.id)
+        .reduce((acc, p) => acc + p.valor, 0)
       const qtdVendas = propostasAprovadas.length
 
       return {

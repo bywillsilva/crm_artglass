@@ -43,16 +43,20 @@ export type StatusProposta =
   | 'perdido'
 
 export type PosFechamentoEtapa =
+  | 'aguardando_contrato'
   | 'contrato_feito'
   | 'contrato_enviado'
+  | 'contrato_assinado'
   | 'aguardando_pagamento'
   | 'pagamento_confirmado'
   | 'aguardando_os'
   | 'ordem_servico_liberada'
 
 export const posFechamentoEtapas: PosFechamentoEtapa[] = [
+  'aguardando_contrato',
   'contrato_feito',
   'contrato_enviado',
+  'contrato_assinado',
   'aguardando_pagamento',
   'pagamento_confirmado',
   'aguardando_os',
@@ -60,8 +64,10 @@ export const posFechamentoEtapas: PosFechamentoEtapa[] = [
 ]
 
 export const posFechamentoEtapaLabels: Record<PosFechamentoEtapa, string> = {
+  aguardando_contrato: 'Aguardando contrato',
   contrato_feito: 'Contrato feito',
   contrato_enviado: 'Contrato enviado',
+  contrato_assinado: 'Contrato assinado',
   aguardando_pagamento: 'Aguardando pagamento',
   pagamento_confirmado: 'Pagamento confirmado',
   aguardando_os: 'Aguardando OS',
@@ -229,8 +235,10 @@ export interface Proposta {
   comentariosCount?: number
   anexos?: PropostaAnexo[]
   comentarios?: PropostaComentario[]
+  posFechamentoAguardandoContratoAt?: Date | null
   posFechamentoContratoFeitoAt?: Date | null
   posFechamentoContratoEnviadoAt?: Date | null
+  posFechamentoContratoAssinadoAt?: Date | null
   posFechamentoAguardandoPagamentoAt?: Date | null
   posFechamentoPagamentoConfirmadoAt?: Date | null
   posFechamentoAguardandoOsAt?: Date | null

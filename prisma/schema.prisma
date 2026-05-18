@@ -177,8 +177,10 @@ model propostas {
   follow_up_base_at                            DateTime?              @db.DateTime(0)
   follow_up_time                               DateTime?              @db.Time(0)
   kanban_order                                 BigInt?
+  pos_fechamento_aguardando_contrato_at        DateTime?              @db.DateTime(0)
   pos_fechamento_contrato_feito_at             DateTime?              @db.DateTime(0)
   pos_fechamento_contrato_enviado_at           DateTime?              @db.DateTime(0)
+  pos_fechamento_contrato_assinado_at          DateTime?              @db.DateTime(0)
   pos_fechamento_aguardando_pagamento_at       DateTime?              @db.DateTime(0)
   pos_fechamento_pagamento_confirmado_at       DateTime?              @db.DateTime(0)
   pos_fechamento_aguardando_os_at              DateTime?              @db.DateTime(0)

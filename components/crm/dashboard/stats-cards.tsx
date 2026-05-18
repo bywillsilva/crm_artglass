@@ -6,6 +6,7 @@ import { useAppSettings } from '@/lib/context/app-settings-context'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DollarSign, Target, TrendingUp, Users } from 'lucide-react'
+import { hasConfirmedPayment, isPostClosingProposal } from '@/lib/utils/post-closing'
 
 export function StatsCards() {
   const [mounted, setMounted] = useState(false)
@@ -51,14 +52,13 @@ export function StatsCards() {
       'em_retificacao',
     ].includes(proposta.status)
   )
-  const vendasFechadas = state.propostas.filter((proposta) =>
-    proposta.status === 'fechado' || proposta.status === 'pos_fechamento'
-  )
-  const totalVendas = vendasFechadas.reduce((acc, proposta) => acc + proposta.valor, 0)
+  const vendasFechadas = state.propostas.filter((proposta) => isPostClosingProposal(proposta))
+  const vendasPagas = state.propostas.filter((proposta) => hasConfirmedPayment(proposta))
+  const totalVendas = vendasPagas.reduce((acc, proposta) => acc + proposta.valor, 0)
   const totalPropostas = state.propostas.length
   const taxaConversao =
     totalPropostas > 0 ? ((vendasFechadas.length / totalPropostas) * 100).toFixed(1) : '0'
-  const ticketMedio = vendasFechadas.length > 0 ? totalVendas / vendasFechadas.length : 0
+  const ticketMedio = vendasPagas.length > 0 ? totalVendas / vendasPagas.length : 0
 
   const stats = [
     {
@@ -72,7 +72,7 @@ export function StatsCards() {
     {
       title: 'Vendas do Mes',
       value: formatCurrency(totalVendas),
-      description: `${vendasFechadas.length} contratos fechados`,
+      description: `${vendasPagas.length} pagamentos confirmados`,
       icon: DollarSign,
       color: 'text-emerald-400',
       bgColor: 'bg-emerald-500/10',
@@ -80,7 +80,7 @@ export function StatsCards() {
     {
       title: 'Taxa de Conversao',
       value: `${taxaConversao}%`,
-      description: 'Propostas x fechamentos',
+      description: 'Propostas x pos-fechamento',
       icon: TrendingUp,
       color: 'text-amber-400',
       bgColor: 'bg-amber-500/10',
@@ -88,7 +88,7 @@ export function StatsCards() {
     {
       title: 'Ticket Medio',
       value: formatCurrency(ticketMedio),
-      description: 'Por venda fechada',
+      description: 'Por pagamento confirmado',
       icon: Target,
       color: 'text-purple-400',
       bgColor: 'bg-purple-500/10',

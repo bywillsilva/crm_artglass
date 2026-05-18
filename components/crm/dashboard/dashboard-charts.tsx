@@ -12,6 +12,12 @@ import {
   YAxis,
 } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  crmChartTooltipCursorStyle,
+  crmChartTooltipItemStyle,
+  crmChartTooltipLabelStyle,
+  crmChartTooltipStyle,
+} from '@/components/crm/charts/chart-tooltip'
 
 type FunnelChartItem = {
   name: string
@@ -49,7 +55,10 @@ export function DashboardCharts({
               <XAxis type="number" stroke="#666" />
               <YAxis type="category" dataKey="name" stroke="#666" width={140} />
               <Tooltip
-                contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333' }}
+                contentStyle={crmChartTooltipStyle}
+                labelStyle={crmChartTooltipLabelStyle}
+                itemStyle={crmChartTooltipItemStyle}
+                cursor={crmChartTooltipCursorStyle}
                 formatter={(value: number) => [`${value} propostas`, 'Quantidade']}
               />
               <Bar dataKey="value" radius={[0, 4, 4, 0]} isAnimationActive={false}>
@@ -72,7 +81,9 @@ export function DashboardCharts({
               <XAxis dataKey="name" stroke="#666" />
               <YAxis stroke="#666" tickFormatter={(value) => `R$${value / 1000}k`} />
               <Tooltip
-                contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #333' }}
+                contentStyle={crmChartTooltipStyle}
+                labelStyle={crmChartTooltipLabelStyle}
+                itemStyle={crmChartTooltipItemStyle}
                 formatter={(value: number) => [formatCurrency(value), 'Valor']}
               />
               <Area

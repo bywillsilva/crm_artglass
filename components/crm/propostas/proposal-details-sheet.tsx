@@ -165,10 +165,18 @@ function mergeProposalSnapshot(primary: Proposta, fallback: Proposta) {
           : 0,
     anexos: primary.anexos ?? fallback.anexos,
     comentarios: primary.comentarios ?? fallback.comentarios,
+    posFechamentoAguardandoContratoAt:
+      primary.posFechamentoAguardandoContratoAt ??
+      fallback.posFechamentoAguardandoContratoAt ??
+      null,
     posFechamentoContratoFeitoAt:
       primary.posFechamentoContratoFeitoAt ?? fallback.posFechamentoContratoFeitoAt ?? null,
     posFechamentoContratoEnviadoAt:
       primary.posFechamentoContratoEnviadoAt ?? fallback.posFechamentoContratoEnviadoAt ?? null,
+    posFechamentoContratoAssinadoAt:
+      primary.posFechamentoContratoAssinadoAt ??
+      fallback.posFechamentoContratoAssinadoAt ??
+      null,
     posFechamentoAguardandoPagamentoAt:
       primary.posFechamentoAguardandoPagamentoAt ??
       fallback.posFechamentoAguardandoPagamentoAt ??
@@ -290,6 +298,7 @@ export function ProposalDetailsSheet({
   const [editingValorAcessorios, setEditingValorAcessorios] = useState('')
   const [editingObservacoesTecnicas, setEditingObservacoesTecnicas] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const isSubmittingRef = useRef(false)
   const attachmentInputRef = useRef<HTMLInputElement | null>(null)
   const detailErrorMessage = useMemo(() => {
     if (!error) return null
@@ -583,14 +592,20 @@ export function ProposalDetailsSheet({
       responsavelId: propostaSource.responsavelId || undefined,
       orcamentistaId: propostaSource.orcamentistaId || undefined,
       followUpTime: propostaSource.followUpTime || null,
-      posFechamentoContratoFeitoAt: propostaSource.posFechamentoContratoFeitoAt ?? null,
-      posFechamentoContratoEnviadoAt: propostaSource.posFechamentoContratoEnviadoAt ?? null,
-      posFechamentoAguardandoPagamentoAt: propostaSource.posFechamentoAguardandoPagamentoAt ?? null,
-      posFechamentoPagamentoConfirmadoAt: propostaSource.posFechamentoPagamentoConfirmadoAt ?? null,
-      posFechamentoAguardandoOsAt: propostaSource.posFechamentoAguardandoOsAt ?? null,
-      posFechamentoOrdemServicoLiberadaAt: propostaSource.posFechamentoOrdemServicoLiberadaAt ?? null,
       ...overrides,
     } satisfies InlineProposalUpdatePayload
+  }
+
+  const beginSubmit = () => {
+    if (isSubmittingRef.current) return false
+    isSubmittingRef.current = true
+    setIsSubmitting(true)
+    return true
+  }
+
+  const endSubmit = () => {
+    isSubmittingRef.current = false
+    setIsSubmitting(false)
   }
 
   const syncProposalSnapshot = async (proposalSnapshot: any) => {
@@ -598,12 +613,18 @@ export function ProposalDetailsSheet({
     const hasAttachmentDetails = Array.isArray(proposalSnapshot.anexos)
     const hasCommentDetails = Array.isArray(proposalSnapshot.comentarios)
     const postClosingSnapshot = {
+      aguardandoContrato:
+        proposalSnapshot.posFechamentoAguardandoContratoAt ??
+        proposalSnapshot.pos_fechamento_aguardando_contrato_at,
       contratoFeito:
         proposalSnapshot.posFechamentoContratoFeitoAt ??
         proposalSnapshot.pos_fechamento_contrato_feito_at,
       contratoEnviado:
         proposalSnapshot.posFechamentoContratoEnviadoAt ??
         proposalSnapshot.pos_fechamento_contrato_enviado_at,
+      contratoAssinado:
+        proposalSnapshot.posFechamentoContratoAssinadoAt ??
+        proposalSnapshot.pos_fechamento_contrato_assinado_at,
       aguardandoPagamento:
         proposalSnapshot.posFechamentoAguardandoPagamentoAt ??
         proposalSnapshot.pos_fechamento_aguardando_pagamento_at,
@@ -619,8 +640,10 @@ export function ProposalDetailsSheet({
     }
     const proposalPatch: Record<string, unknown> = {
       ...proposalSnapshot,
+      posFechamentoAguardandoContratoAt: postClosingSnapshot.aguardandoContrato,
       posFechamentoContratoFeitoAt: postClosingSnapshot.contratoFeito,
       posFechamentoContratoEnviadoAt: postClosingSnapshot.contratoEnviado,
+      posFechamentoContratoAssinadoAt: postClosingSnapshot.contratoAssinado,
       posFechamentoAguardandoPagamentoAt: postClosingSnapshot.aguardandoPagamento,
       posFechamentoPagamentoConfirmadoAt: postClosingSnapshot.pagamentoConfirmado,
       posFechamentoAguardandoOsAt: postClosingSnapshot.aguardandoOs,
@@ -669,10 +692,14 @@ export function ProposalDetailsSheet({
       follow_up_base_at: proposalSnapshot.followUpBaseAt,
       followUpTime: proposalSnapshot.followUpTime,
       follow_up_time: proposalSnapshot.followUpTime,
+      posFechamentoAguardandoContratoAt: postClosingSnapshot.aguardandoContrato,
+      pos_fechamento_aguardando_contrato_at: postClosingSnapshot.aguardandoContrato,
       posFechamentoContratoFeitoAt: postClosingSnapshot.contratoFeito,
       pos_fechamento_contrato_feito_at: postClosingSnapshot.contratoFeito,
       posFechamentoContratoEnviadoAt: postClosingSnapshot.contratoEnviado,
       pos_fechamento_contrato_enviado_at: postClosingSnapshot.contratoEnviado,
+      posFechamentoContratoAssinadoAt: postClosingSnapshot.contratoAssinado,
+      pos_fechamento_contrato_assinado_at: postClosingSnapshot.contratoAssinado,
       posFechamentoAguardandoPagamentoAt: postClosingSnapshot.aguardandoPagamento,
       pos_fechamento_aguardando_pagamento_at: postClosingSnapshot.aguardandoPagamento,
       posFechamentoPagamentoConfirmadoAt: postClosingSnapshot.pagamentoConfirmado,
@@ -759,18 +786,21 @@ export function ProposalDetailsSheet({
   }
 
   const handleSaveValue = async () => {
-    if (!propostaId || !propostaSource) return
+    if (!propostaId || !propostaSource || !beginSubmit()) return
 
     const parsedValue = parseCurrencyInput(editingValue)
     if (parsedValue === null || parsedValue < 0) {
       toast.error('Informe um valor valido para a proposta.')
+      endSubmit()
       return
     }
 
     const payload = buildInlineUpdatePayload({ valor: parsedValue })
-    if (!payload) return
+    if (!payload) {
+      endSubmit()
+      return
+    }
 
-    setIsSubmitting(true)
     try {
       const updatedProposal = await updateProposta(propostaId, payload)
       setIsEditingValue(false)
@@ -779,17 +809,19 @@ export function ProposalDetailsSheet({
     } catch (error: any) {
       toast.error(error?.message || 'Erro ao atualizar valor da proposta.')
     } finally {
-      setIsSubmitting(false)
+      endSubmit()
     }
   }
 
   const handleSaveDescription = async () => {
-    if (!propostaId || !propostaSource) return
+    if (!propostaId || !propostaSource || !beginSubmit()) return
 
     const payload = buildInlineUpdatePayload({ descricao: editingDescription })
-    if (!payload) return
+    if (!payload) {
+      endSubmit()
+      return
+    }
 
-    setIsSubmitting(true)
     try {
       const updatedProposal = await updateProposta(propostaId, payload)
       setIsEditingDescription(false)
@@ -798,15 +830,16 @@ export function ProposalDetailsSheet({
     } catch (error: any) {
       toast.error(error?.message || 'Erro ao atualizar descricao da proposta.')
     } finally {
-      setIsSubmitting(false)
+      endSubmit()
     }
   }
 
   const handleSaveResponsavel = async () => {
-    if (!propostaId || !propostaSource) return
+    if (!propostaId || !propostaSource || !beginSubmit()) return
 
     if (!editingResponsavelId) {
       toast.error('Selecione um vendedor responsavel para continuar.')
+      endSubmit()
       return
     }
 
@@ -816,13 +849,16 @@ export function ProposalDetailsSheet({
 
     if (!responsavelSelecionado) {
       toast.error('Nao foi possivel localizar o vendedor selecionado.')
+      endSubmit()
       return
     }
 
     const payload = buildInlineUpdatePayload({ responsavelId: editingResponsavelId })
-    if (!payload) return
+    if (!payload) {
+      endSubmit()
+      return
+    }
 
-    setIsSubmitting(true)
     try {
       const updatedProposal = await updateProposta(propostaId, payload)
       const updatedProposalSnapshot =
@@ -839,7 +875,7 @@ export function ProposalDetailsSheet({
     } catch (error: any) {
       toast.error(error?.message || 'Erro ao atualizar vendedor responsavel.')
     } finally {
-      setIsSubmitting(false)
+      endSubmit()
     }
   }
 
@@ -864,7 +900,7 @@ export function ProposalDetailsSheet({
   }
 
   const handleSaveTechnicalDetails = async () => {
-    if (!propostaId || !propostaSource) return
+    if (!propostaId || !propostaSource || !beginSubmit()) return
 
     const areaM2 = parseOptionalNumericInput(editingAreaM2)
     const perfisBruto = parseOptionalNumericInput(editingPerfisBruto)
@@ -881,6 +917,7 @@ export function ProposalDetailsSheet({
 
     if (invalidTechnicalValue) {
       toast.error('Revise os dados tecnicos e informe apenas numeros validos.')
+      endSubmit()
       return
     }
 
@@ -892,9 +929,11 @@ export function ProposalDetailsSheet({
       valorAcessorios,
       observacoesTecnicas: editingObservacoesTecnicas.trim() || null,
     })
-    if (!payload) return
+    if (!payload) {
+      endSubmit()
+      return
+    }
 
-    setIsSubmitting(true)
     try {
       const updatedProposal = await updateProposta(propostaId, payload)
       setIsEditingTechnicalDetails(false)
@@ -903,27 +942,19 @@ export function ProposalDetailsSheet({
     } catch (error: any) {
       toast.error(error?.message || 'Erro ao atualizar dados tecnicos.')
     } finally {
-      setIsSubmitting(false)
+      endSubmit()
     }
   }
 
   const handleSetPostClosingStep = async (step: PosFechamentoEtapa) => {
-    if (!propostaId || !propostaSource || !canManagePostClosingSteps) return
+    if (!propostaId || !propostaSource || !canManagePostClosingSteps || !beginSubmit()) return
 
-    const stepIndex = posFechamentoEtapas.indexOf(step)
-    const nextCompletedIndex = stepIndex
     const now = new Date().toISOString()
+    const field = postClosingDateFields[step]
+    const isCompleted = Boolean(propostaSource[field])
     const payload: InlineProposalUpdatePayload = {}
+    payload[field] = isCompleted ? null : now
 
-    posFechamentoEtapas.forEach((item, index) => {
-      const field = postClosingDateFields[item]
-      payload[field] =
-        index <= nextCompletedIndex
-          ? ((propostaSource[field] as Date | string | null | undefined) || now)
-          : null
-    })
-
-    setIsSubmitting(true)
     try {
       const updatedProposal = await updateProposta(propostaId, buildInlineUpdatePayload(payload) || payload)
       await syncProposalSnapshot(updatedProposal)
@@ -931,7 +962,7 @@ export function ProposalDetailsSheet({
     } catch (error: any) {
       toast.error(error?.message || 'Erro ao atualizar pos-fechamento.')
     } finally {
-      setIsSubmitting(false)
+      endSubmit()
     }
   }
 

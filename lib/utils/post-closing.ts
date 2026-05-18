@@ -6,8 +6,10 @@ import {
 } from '@/lib/data/types'
 
 export const postClosingDateFields: Record<PosFechamentoEtapa, keyof Proposta> = {
+  aguardando_contrato: 'posFechamentoAguardandoContratoAt',
   contrato_feito: 'posFechamentoContratoFeitoAt',
   contrato_enviado: 'posFechamentoContratoEnviadoAt',
+  contrato_assinado: 'posFechamentoContratoAssinadoAt',
   aguardando_pagamento: 'posFechamentoAguardandoPagamentoAt',
   pagamento_confirmado: 'posFechamentoPagamentoConfirmadoAt',
   aguardando_os: 'posFechamentoAguardandoOsAt',
@@ -20,22 +22,6 @@ export function isPostClosingStepCompleted(
 ) {
   if (!proposta) {
     return false
-  }
-
-  if (step === 'aguardando_pagamento') {
-    return Boolean(
-        proposta.posFechamentoAguardandoPagamentoAt ||
-        proposta.posFechamentoPagamentoConfirmadoAt ||
-        proposta.posFechamentoAguardandoOsAt ||
-        proposta.posFechamentoOrdemServicoLiberadaAt
-    )
-  }
-
-  if (step === 'aguardando_os') {
-    return Boolean(
-      proposta.posFechamentoAguardandoOsAt ||
-        proposta.posFechamentoOrdemServicoLiberadaAt
-    )
   }
 
   return Boolean(proposta[postClosingDateFields[step]])
@@ -62,4 +48,16 @@ export function getCurrentPostClosingLabel(proposta: Partial<Proposta> | null | 
 
   const currentStep = completed.length ? completed[completed.length - 1] : null
   return currentStep ? posFechamentoEtapaLabels[currentStep] : 'Aguardando contrato'
+}
+
+export function isPostClosingProposal(proposta: Partial<Proposta> | null | undefined) {
+  return proposta?.status === 'pos_fechamento'
+}
+
+export function hasConfirmedPayment(proposta: Partial<Proposta> | null | undefined) {
+  return Boolean(proposta?.posFechamentoPagamentoConfirmadoAt)
+}
+
+export function hasProductionReleased(proposta: Partial<Proposta> | null | undefined) {
+  return Boolean(proposta?.posFechamentoOrdemServicoLiberadaAt)
 }

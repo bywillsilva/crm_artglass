@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { roleLabels } from '@/lib/data/types'
 import type { Proposta, Tarefa } from '@/lib/data/types'
+import { hasConfirmedPayment, isPostClosingProposal } from '@/lib/utils/post-closing'
 import { AlertCircle, Calendar, Check, Mail, Shield, User } from "lucide-react"
 import { toast } from "sonner"
 
@@ -138,9 +139,11 @@ export default function PerfilPage() {
   const propostasAprovadas = propostas.filter(
     (proposta: Proposta) =>
       proposta.responsavelId === currentUser?.id &&
-      (proposta.status === 'fechado' || proposta.status === 'pos_fechamento')
+      isPostClosingProposal(proposta)
   )
-  const valorTotal = propostasAprovadas.reduce((acc: number, proposta: Proposta) => acc + proposta.valor, 0)
+  const valorTotal = propostas
+    .filter((proposta: Proposta) => proposta.responsavelId === currentUser?.id && hasConfirmedPayment(proposta))
+    .reduce((acc: number, proposta: Proposta) => acc + proposta.valor, 0)
 
   if (!currentUser) return null
 
@@ -192,8 +195,8 @@ export default function PerfilPage() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <MetricCard title="Clientes" value={clientesDoUsuario.size} />
             <MetricCard title="Tarefas Pendentes" value={tarefasPendentes.length} />
-            <MetricCard title="Vendas Fechadas" value={propostasAprovadas.length} />
-            <MetricCard title="Valor Total" value={formatCurrency(valorTotal)} />
+            <MetricCard title="Pos-fechamento" value={propostasAprovadas.length} />
+            <MetricCard title="Valor Pago" value={formatCurrency(valorTotal)} />
           </div>
 
           {isEditing && (

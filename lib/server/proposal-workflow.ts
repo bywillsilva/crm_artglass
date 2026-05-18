@@ -329,8 +329,10 @@ async function ensureProposalColumns() {
            'follow_up_time',
             'material_tag',
             'kanban_order',
+            'pos_fechamento_aguardando_contrato_at',
             'pos_fechamento_contrato_feito_at',
             'pos_fechamento_contrato_enviado_at',
+            'pos_fechamento_contrato_assinado_at',
             'pos_fechamento_aguardando_pagamento_at',
             'pos_fechamento_pagamento_confirmado_at',
             'pos_fechamento_aguardando_os_at',
@@ -371,20 +373,28 @@ async function ensureProposalColumns() {
     await query(`ALTER TABLE propostas ADD COLUMN kanban_order BIGINT NULL AFTER follow_up_time`)
   }
 
+  if (!existing.has('pos_fechamento_aguardando_contrato_at')) {
+    await query(`ALTER TABLE propostas ADD COLUMN pos_fechamento_aguardando_contrato_at DATETIME NULL AFTER kanban_order`)
+  }
+
   if (!existing.has('pos_fechamento_contrato_feito_at')) {
-    await query(`ALTER TABLE propostas ADD COLUMN pos_fechamento_contrato_feito_at DATETIME NULL AFTER kanban_order`)
+    await query(`ALTER TABLE propostas ADD COLUMN pos_fechamento_contrato_feito_at DATETIME NULL AFTER pos_fechamento_aguardando_contrato_at`)
   }
 
   if (!existing.has('pos_fechamento_contrato_enviado_at')) {
     await query(`ALTER TABLE propostas ADD COLUMN pos_fechamento_contrato_enviado_at DATETIME NULL AFTER pos_fechamento_contrato_feito_at`)
   }
 
-  if (!existing.has('pos_fechamento_pagamento_confirmado_at')) {
-    await query(`ALTER TABLE propostas ADD COLUMN pos_fechamento_pagamento_confirmado_at DATETIME NULL AFTER pos_fechamento_contrato_enviado_at`)
+  if (!existing.has('pos_fechamento_contrato_assinado_at')) {
+    await query(`ALTER TABLE propostas ADD COLUMN pos_fechamento_contrato_assinado_at DATETIME NULL AFTER pos_fechamento_contrato_enviado_at`)
   }
 
   if (!existing.has('pos_fechamento_aguardando_pagamento_at')) {
-    await query(`ALTER TABLE propostas ADD COLUMN pos_fechamento_aguardando_pagamento_at DATETIME NULL AFTER pos_fechamento_contrato_enviado_at`)
+    await query(`ALTER TABLE propostas ADD COLUMN pos_fechamento_aguardando_pagamento_at DATETIME NULL AFTER pos_fechamento_contrato_assinado_at`)
+  }
+
+  if (!existing.has('pos_fechamento_pagamento_confirmado_at')) {
+    await query(`ALTER TABLE propostas ADD COLUMN pos_fechamento_pagamento_confirmado_at DATETIME NULL AFTER pos_fechamento_aguardando_pagamento_at`)
   }
 
   if (!existing.has('pos_fechamento_aguardando_os_at')) {

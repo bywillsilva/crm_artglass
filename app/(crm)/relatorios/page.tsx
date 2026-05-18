@@ -15,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { DollarSign, Users, Target, Percent } from 'lucide-react'
 import { statusPropostaLabels, type Proposta, type StatusProposta } from '@/lib/data/types'
 import { createDefaultDateFilter, isWithinDateFilter, type DateFilterValue } from '@/lib/utils/date-filter'
+import { hasConfirmedPayment, hasProductionReleased, isPostClosingProposal } from '@/lib/utils/post-closing'
 
 const GeneralReportCharts = dynamic(
   () => import('@/components/crm/reports/general-report-charts').then((mod) => mod.GeneralReportCharts),
@@ -74,6 +75,8 @@ export default function RelatoriosPage() {
     totalClientes,
     totalLeads,
     vendasFechadasCount,
+    pagamentosConfirmadosCount,
+    liberadasProducaoCount,
     totalReceita,
     taxaConversaoGeral,
     ticketMedio,
@@ -104,6 +107,8 @@ export default function RelatoriosPage() {
     const origemMap = new Map<string, number>()
     let totalLeadsLocal = 0
     let vendasFechadasLocal = 0
+    let pagamentosConfirmadosLocal = 0
+    let liberadasProducaoLocal = 0
     let totalReceitaLocal = 0
 
     for (const cliente of clientesFiltrados) {
@@ -135,15 +140,25 @@ export default function RelatoriosPage() {
       const seller = proposta.responsavelId ? sellerMap.get(proposta.responsavelId) : undefined
       if (seller) {
         seller.clientes.add(proposta.clienteId)
-        if (proposta.status === 'fechado' || proposta.status === 'pos_fechamento') {
+        if (isPostClosingProposal(proposta)) {
           seller.vendas += 1
+        }
+        if (hasConfirmedPayment(proposta)) {
           seller.receita += proposta.valor
         }
       }
 
-      if (proposta.status === 'fechado' || proposta.status === 'pos_fechamento') {
+      if (isPostClosingProposal(proposta)) {
         vendasFechadasLocal += 1
+      }
+
+      if (hasConfirmedPayment(proposta)) {
+        pagamentosConfirmadosLocal += 1
         totalReceitaLocal += proposta.valor
+      }
+
+      if (hasProductionReleased(proposta)) {
+        liberadasProducaoLocal += 1
       }
     }
 
@@ -151,12 +166,14 @@ export default function RelatoriosPage() {
       totalClientes: clientesFiltrados.length,
       totalLeads: totalLeadsLocal,
       vendasFechadasCount: vendasFechadasLocal,
+      pagamentosConfirmadosCount: pagamentosConfirmadosLocal,
+      liberadasProducaoCount: liberadasProducaoLocal,
       totalReceita: totalReceitaLocal,
       taxaConversaoGeral:
         propostasFiltradas.length > 0
           ? ((vendasFechadasLocal / propostasFiltradas.length) * 100).toFixed(1)
           : '0',
-      ticketMedio: vendasFechadasLocal > 0 ? totalReceitaLocal / vendasFechadasLocal : 0,
+      ticketMedio: pagamentosConfirmadosLocal > 0 ? totalReceitaLocal / pagamentosConfirmadosLocal : 0,
       funilData: funnelStatuses.map((stage) => {
         const data = proposalCounts.get(stage.status) || { count: 0, valor: 0 }
         return {
@@ -192,7 +209,7 @@ export default function RelatoriosPage() {
       {
         title: 'Receita Total',
         value: formatCurrency(totalReceita),
-        description: `${vendasFechadasCount} vendas`,
+        description: `${pagamentosConfirmadosCount} pagamentos confirmados`,
         icon: DollarSign,
         color: 'text-emerald-400',
         bgColor: 'bg-emerald-500/10',
@@ -200,7 +217,7 @@ export default function RelatoriosPage() {
       {
         title: 'Taxa de Conversao',
         value: `${taxaConversaoGeral}%`,
-        description: 'Propostas -> Fechamentos',
+        description: 'Propostas -> Pos-fechamento',
         icon: Percent,
         color: 'text-amber-400',
         bgColor: 'bg-amber-500/10',
@@ -208,13 +225,23 @@ export default function RelatoriosPage() {
       {
         title: 'Ticket Medio',
         value: formatCurrency(ticketMedio),
-        description: 'Por fechamento',
+        description: `${liberadasProducaoCount} liberadas para producao`,
         icon: Target,
         color: 'text-purple-400',
         bgColor: 'bg-purple-500/10',
       },
     ],
-    [formatCurrency, taxaConversaoGeral, ticketMedio, totalClientes, totalLeads, totalReceita, vendasFechadasCount]
+    [
+      formatCurrency,
+      liberadasProducaoCount,
+      pagamentosConfirmadosCount,
+      taxaConversaoGeral,
+      ticketMedio,
+      totalClientes,
+      totalLeads,
+      totalReceita,
+      vendasFechadasCount,
+    ]
   )
 
   const colors = ['#3b82f6', '#10b981', '#f59e0b', '#a855f7', '#06b6d4', '#ef4444']
@@ -299,8 +326,11 @@ function buildEvolutionData(propostas: Proposta[], filter: DateFilterValue, loca
 
     bucket.leads += 1
 
-    if (proposta.status === 'fechado' || proposta.status === 'pos_fechamento') {
+    if (isPostClosingProposal(proposta)) {
       bucket.vendas += 1
+    }
+
+    if (hasConfirmedPayment(proposta)) {
       bucket.receita += proposta.valor
     }
   })

@@ -13,6 +13,12 @@ import {
   YAxis,
 } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  crmChartTooltipCursorStyle,
+  crmChartTooltipItemStyle,
+  crmChartTooltipLabelStyle,
+  crmChartTooltipStyle,
+} from '@/components/crm/charts/chart-tooltip'
 
 const chartColors = ['#0f766e', '#2563eb', '#f59e0b', '#dc2626', '#7c3aed', '#059669']
 
@@ -48,7 +54,13 @@ export function VendorPerformanceCharts({
                   <CartesianGrid strokeDasharray="3 3" stroke="#243041" vertical={false} />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} />
                   <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `R$${Math.round(value / 1000)}k`} />
-                  <Tooltip formatter={(value: number) => [formatCurrency(value), 'Receita']} />
+                  <Tooltip
+                    contentStyle={crmChartTooltipStyle}
+                    labelStyle={crmChartTooltipLabelStyle}
+                    itemStyle={crmChartTooltipItemStyle}
+                    cursor={crmChartTooltipCursorStyle}
+                    formatter={(value: number) => [formatCurrency(value), 'Receita']}
+                  />
                   <Bar dataKey="receita" radius={[8, 8, 0, 0]}>
                     {revenueChartData.map((entry, index) => (
                       <Cell key={entry.name} fill={chartColors[index % chartColors.length]} />
@@ -80,7 +92,12 @@ export function VendorPerformanceCharts({
                       <Cell key={entry.name} fill={chartColors[index % chartColors.length]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value: number) => [`${value} propostas`, 'Volume']} />
+                  <Tooltip
+                    contentStyle={crmChartTooltipStyle}
+                    labelStyle={crmChartTooltipLabelStyle}
+                    itemStyle={crmChartTooltipItemStyle}
+                    formatter={(value: number) => [`${value} propostas`, 'Volume']}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             </CardContent>
@@ -100,7 +117,12 @@ export function VendorPerformanceCharts({
                 <CartesianGrid strokeDasharray="3 3" stroke="#243041" vertical={false} />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} />
                 <YAxis axisLine={false} tickLine={false} allowDecimals={false} />
-                <Tooltip />
+                <Tooltip
+                  contentStyle={crmChartTooltipStyle}
+                  labelStyle={crmChartTooltipLabelStyle}
+                  itemStyle={crmChartTooltipItemStyle}
+                  cursor={crmChartTooltipCursorStyle}
+                />
                 <Bar dataKey="recebidas" fill="#2563eb" radius={[6, 6, 0, 0]} />
                 <Bar dataKey="aprovadas" fill="#10b981" radius={[6, 6, 0, 0]} />
                 <Bar dataKey="retificadas" fill="#f59e0b" radius={[6, 6, 0, 0]} />

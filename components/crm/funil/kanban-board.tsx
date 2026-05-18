@@ -557,6 +557,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
   const [detailsPropostaId, setDetailsPropostaId] = useState<string | null>(null)
   const [isTouchDevice, setIsTouchDevice] = useState(false)
   const [isSubmittingMove, setIsSubmittingMove] = useState(false)
+  const isSubmittingMoveRef = useRef(false)
   const [dragState, setDragState] = useState<DragState | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const columnScrollRefs = useRef<Partial<Record<StatusProposta, HTMLDivElement | null>>>({})
@@ -1312,7 +1313,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         dialogSnapshot?: PendingMoveDialogSnapshot
       }
     ) => {
-      if (isSubmittingMove) return
+      if (isSubmittingMoveRef.current) return
 
       const effectiveSellerWorkflowAction = options.sellerWorkflowAction || ''
       const baseTargetStatus = options.adminStatus || options.targetStatus
@@ -1354,6 +1355,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         kanbanOrder: options.kanbanPosition ?? proposta.kanbanOrder ?? null,
       }
 
+      isSubmittingMoveRef.current = true
       setIsSubmittingMove(true)
       setOptimisticPropostas((prev) => ({ ...prev, [proposta.id]: optimisticPatch }))
       setUpdatingProposalIds((prev) => ({ ...prev, [proposta.id]: true }))
@@ -1435,6 +1437,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         }
         toast.error(error?.message || 'Nao foi possivel atualizar a proposta.')
       } finally {
+        isSubmittingMoveRef.current = false
         setIsSubmittingMove(false)
         setUpdatingProposalIds((prev) => {
           const next = { ...prev }
@@ -1443,11 +1446,11 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         })
       }
     },
-    [isSubmittingMove, resetPendingMoveDialog, restorePendingMoveDialog, updateProposta, user?.id, user?.role]
+    [resetPendingMoveDialog, restorePendingMoveDialog, updateProposta, user?.id, user?.role]
   )
 
   const confirmMove = async () => {
-    if (!pendingMove || isSubmittingMove) return
+    if (!pendingMove || isSubmittingMoveRef.current) return
     const proposta = propostasById.get(pendingMove.propostaId)
     if (!proposta) return
 

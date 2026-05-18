@@ -321,6 +321,10 @@ function normalizeProposta(row: JsonRecord): Proposta {
     retificacoesCount: toNumber(row.retificacoesCount ?? row.retificacoes_count),
     anexosCount: toNumber(row.anexosCount ?? row.anexos_count),
     comentariosCount: toNumber(row.comentariosCount ?? row.comentarios_count),
+    posFechamentoAguardandoContratoAt:
+      row.posFechamentoAguardandoContratoAt ?? row.pos_fechamento_aguardando_contrato_at
+        ? toDate(row.posFechamentoAguardandoContratoAt ?? row.pos_fechamento_aguardando_contrato_at)
+        : null,
     posFechamentoContratoFeitoAt:
       row.posFechamentoContratoFeitoAt ?? row.pos_fechamento_contrato_feito_at
         ? toDate(row.posFechamentoContratoFeitoAt ?? row.pos_fechamento_contrato_feito_at)
@@ -328,6 +332,10 @@ function normalizeProposta(row: JsonRecord): Proposta {
     posFechamentoContratoEnviadoAt:
       row.posFechamentoContratoEnviadoAt ?? row.pos_fechamento_contrato_enviado_at
         ? toDate(row.posFechamentoContratoEnviadoAt ?? row.pos_fechamento_contrato_enviado_at)
+        : null,
+    posFechamentoContratoAssinadoAt:
+      row.posFechamentoContratoAssinadoAt ?? row.pos_fechamento_contrato_assinado_at
+        ? toDate(row.posFechamentoContratoAssinadoAt ?? row.pos_fechamento_contrato_assinado_at)
         : null,
     posFechamentoAguardandoPagamentoAt:
       row.posFechamentoAguardandoPagamentoAt ?? row.pos_fechamento_aguardando_pagamento_at
@@ -1678,11 +1686,17 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     clienteCep: hasOwnField('clienteCep') ? (data.clienteCep || null) : undefined,
     clienteValorFechado: hasOwnField('clienteValorFechado') ? (parsedClienteValorFechado ?? null) : undefined,
     kanbanPosition: hasOwnField('kanbanPosition') ? parsedKanbanPosition : undefined,
+    posFechamentoAguardandoContratoAt: hasOwnField('posFechamentoAguardandoContratoAt')
+      ? (data.posFechamentoAguardandoContratoAt || null)
+      : undefined,
     posFechamentoContratoFeitoAt: hasOwnField('posFechamentoContratoFeitoAt')
       ? (data.posFechamentoContratoFeitoAt || null)
       : undefined,
     posFechamentoContratoEnviadoAt: hasOwnField('posFechamentoContratoEnviadoAt')
       ? (data.posFechamentoContratoEnviadoAt || null)
+      : undefined,
+    posFechamentoContratoAssinadoAt: hasOwnField('posFechamentoContratoAssinadoAt')
+      ? (data.posFechamentoContratoAssinadoAt || null)
       : undefined,
     posFechamentoAguardandoPagamentoAt: hasOwnField('posFechamentoAguardandoPagamentoAt')
       ? (data.posFechamentoAguardandoPagamentoAt || null)
@@ -1736,10 +1750,14 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
     follow_up_time: payload.followUpTime,
     kanbanOrder: parsedKanbanPosition,
     kanban_order: parsedKanbanPosition,
+    posFechamentoAguardandoContratoAt: data.posFechamentoAguardandoContratoAt,
+    pos_fechamento_aguardando_contrato_at: data.posFechamentoAguardandoContratoAt,
     posFechamentoContratoFeitoAt: data.posFechamentoContratoFeitoAt,
     pos_fechamento_contrato_feito_at: data.posFechamentoContratoFeitoAt,
     posFechamentoContratoEnviadoAt: data.posFechamentoContratoEnviadoAt,
     pos_fechamento_contrato_enviado_at: data.posFechamentoContratoEnviadoAt,
+    posFechamentoContratoAssinadoAt: data.posFechamentoContratoAssinadoAt,
+    pos_fechamento_contrato_assinado_at: data.posFechamentoContratoAssinadoAt,
     posFechamentoAguardandoPagamentoAt: data.posFechamentoAguardandoPagamentoAt,
     pos_fechamento_aguardando_pagamento_at: data.posFechamentoAguardandoPagamentoAt,
     posFechamentoPagamentoConfirmadoAt: data.posFechamentoPagamentoConfirmadoAt,

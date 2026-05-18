@@ -23,6 +23,7 @@ import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useSession } from '@/lib/hooks/use-api'
 import { createDefaultDateFilter, isWithinDateFilter, type DateFilterValue } from '@/lib/utils/date-filter'
+import { hasConfirmedPayment, isPostClosingProposal } from '@/lib/utils/post-closing'
 import { Pencil } from 'lucide-react'
 
 const VendorPerformanceCharts = dynamic(
@@ -127,14 +128,18 @@ export default function RelatorioVendedoresPage() {
       .map((vendedor) => {
         const propostas = propostasPorResponsavel.get(vendedor.id) || []
         let fechadas = 0
+        let pagamentosConfirmados = 0
         let perdidas = 0
         let receita = 0
         const clientes = new Set<string>()
 
         for (const proposta of propostas) {
           clientes.add(proposta.clienteId)
-          if (proposta.status === 'fechado' || proposta.status === 'pos_fechamento') {
+          if (isPostClosingProposal(proposta)) {
             fechadas += 1
+          }
+          if (hasConfirmedPayment(proposta)) {
+            pagamentosConfirmados += 1
             receita += proposta.valor
           } else if (proposta.status === 'perdido') {
             perdidas += 1
@@ -142,7 +147,7 @@ export default function RelatorioVendedoresPage() {
         }
 
         const abertas = propostas.length - fechadas - perdidas
-        const ticketMedio = fechadas > 0 ? receita / fechadas : 0
+        const ticketMedio = pagamentosConfirmados > 0 ? receita / pagamentosConfirmados : 0
         const taxaConversao = propostas.length > 0 ? (fechadas / propostas.length) * 100 : 0
 
         return {
