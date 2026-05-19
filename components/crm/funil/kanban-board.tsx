@@ -35,7 +35,6 @@ import {
 } from '@/lib/utils/proposal-kanban'
 import { getCurrentPostClosingLabel } from '@/lib/utils/post-closing'
 import { ProposalDetailsSheet } from '@/components/crm/propostas/proposal-details-sheet'
-import { UserIdentity } from '@/components/crm/user-avatar'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -2082,57 +2081,13 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                           </div>
                         ) : null}
 
-                        <div className="mt-3 grid gap-1.5 text-xs text-muted-foreground">
-                          {(() => {
-                            const responsavelColor =
-                              lookups.usuariosById.get(proposta.responsavelId || '')?.avatarColor || '#0EA5E9'
-                            return (
-                          <span
-                            className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-border/60 bg-secondary/20 px-2 py-1.5"
-                            style={{
-                              borderLeftColor: responsavelColor,
-                              borderLeftWidth: 3,
-                            }}
-                            title={`Vendedor: ${proposta.responsavelNome || '-'}`}
-                            aria-label={`Vendedor: ${proposta.responsavelNome || '-'}`}
-                          >
-                            <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Vend.</span>
-                            <UserIdentity
-                              name={proposta.responsavelNome}
-                              initials={lookups.usuariosById.get(proposta.responsavelId || '')?.avatar}
-                              color={responsavelColor}
-                              className="h-5 w-5"
-                              fallbackClassName="text-[9px]"
-                              textClassName="max-w-[9.5rem] font-medium text-foreground/90"
-                            />
+                        <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                          <span className="min-w-0 truncate">
+                            Vend.: {proposta.responsavelNome || '-'}
                           </span>
-                            )
-                          })()}
-                          {(() => {
-                            const orcamentistaColor =
-                              lookups.usuariosById.get(proposta.orcamentistaId || '')?.avatarColor || '#F59E0B'
-                            return (
-                          <span
-                            className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-border/60 bg-secondary/20 px-2 py-1.5"
-                            style={{
-                              borderLeftColor: orcamentistaColor,
-                              borderLeftWidth: 3,
-                            }}
-                            title={`Orcamentista: ${proposta.orcamentistaNome || '-'}`}
-                            aria-label={`Orcamentista: ${proposta.orcamentistaNome || '-'}`}
-                          >
-                            <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Orc.</span>
-                            <UserIdentity
-                              name={proposta.orcamentistaNome}
-                              initials={lookups.usuariosById.get(proposta.orcamentistaId || '')?.avatar}
-                              color={orcamentistaColor}
-                              className="h-5 w-5"
-                              fallbackClassName="text-[9px]"
-                              textClassName="max-w-[9.5rem] font-medium text-foreground/90"
-                            />
+                          <span className="min-w-0 truncate">
+                            Orc.: {proposta.orcamentistaNome || '-'}
                           </span>
-                            )
-                          })()}
                         </div>
                         </div>
 
