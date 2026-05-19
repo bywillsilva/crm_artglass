@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { UserAvatar } from '@/components/crm/user-avatar'
 import { Skeleton } from '@/components/ui/skeleton'
 import { hasConfirmedPayment, isPostClosingProposal } from '@/lib/utils/post-closing'
 
@@ -75,11 +75,12 @@ export function RankingChart() {
             <span className="text-lg font-bold text-muted-foreground w-6">
               {index + 1}
             </span>
-            <Avatar className="w-9 h-9">
-              <AvatarFallback className="bg-primary/20 text-primary text-sm">
-                {vendedor.avatar}
-              </AvatarFallback>
-            </Avatar>
+            <UserAvatar
+              name={vendedor.nome}
+              initials={vendedor.avatar}
+              color={vendedor.avatarColor}
+              className="h-9 w-9"
+            />
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm font-medium text-foreground truncate">

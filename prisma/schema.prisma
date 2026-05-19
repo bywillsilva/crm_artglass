@@ -298,6 +298,7 @@ model usuarios {
   email                                         String                      @unique(map: "email") @db.VarChar(255)
   senha                                         String                      @db.VarChar(255)
   avatar                                        String?                     @db.VarChar(10)
+  avatar_color                                  String?                     @db.VarChar(20)
   role                                          usuarios_role               @default(vendedor)
   ativo                                         Boolean?                    @default(true)
   module_permissions                            String?                     @db.LongText

@@ -441,6 +441,11 @@ export function ProposalDetailsSheet({
     }
     return false
   }, [propostaSource, user])
+  const canManageProposalAttachments = useMemo(() => {
+    if (!user || !propostaSource) return false
+    if (user.role === 'vendedor') return false
+    return canManageProposalContent
+  }, [canManageProposalContent, propostaSource, user])
   const canManageProposalComments = useMemo(() => {
     if (!user || !propostaSource) return false
     if (user.role === 'admin' || user.role === 'gerente') return true
@@ -495,6 +500,13 @@ export function ProposalDetailsSheet({
   )
   const currentPostClosingLabel = useMemo(
     () => getCurrentPostClosingLabel(propostaSource),
+    [propostaSource]
+  )
+  const completedPostClosingCount = useMemo(
+    () =>
+      propostaSource
+        ? posFechamentoEtapas.filter((step) => isPostClosingStepCompleted(propostaSource, step)).length
+        : 0,
     [propostaSource]
   )
   const shouldShowPostClosing =
@@ -1428,27 +1440,43 @@ export function ProposalDetailsSheet({
                 </div>
 
                 {shouldShowPostClosing ? (
-                  <div className="min-w-0 space-y-4 rounded-xl border border-cyan-500/20 bg-cyan-500/[0.04] p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-3 rounded-xl border border-cyan-500/20 bg-cyan-500/[0.04] p-3 sm:space-y-4 sm:p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-2 sm:gap-3">
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-foreground">Pos-fechamento</p>
-                        <p className="text-sm text-muted-foreground">
+                        <p className="text-xs leading-5 text-muted-foreground sm:text-sm">
                           Acompanhe contrato, pagamento e liberacao da ordem de servico.
                         </p>
                       </div>
-                      <Badge variant="outline" className="border-cyan-500/30 bg-cyan-500/15 text-cyan-200">
+                      <Badge variant="outline" className="h-7 shrink-0 border-cyan-500/30 bg-cyan-500/15 px-2.5 text-[11px] text-cyan-200 sm:text-xs">
                         {currentPostClosingLabel}
                       </Badge>
                     </div>
 
-                    <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-3 py-2">
+                      <div className="flex min-w-0 items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[11px] uppercase tracking-[0.14em] text-cyan-200/80">
+                            Etapa atual
+                          </p>
+                          <p className="truncate text-sm font-semibold text-foreground">
+                            {currentPostClosingLabel}
+                          </p>
+                        </div>
+                        <span className="shrink-0 rounded-full border border-cyan-500/30 bg-background/40 px-2.5 py-1 text-xs font-semibold text-cyan-100">
+                          {completedPostClosingCount}/{posFechamentoEtapas.length}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-1.5 min-[360px]:grid-cols-2 sm:gap-2">
                       {posFechamentoEtapas.map((step) => {
                         const completed = isPostClosingStepCompleted(propostaSource, step)
                         const Icon = completed ? CheckCircle2 : Circle
                         const stepContent = (
                           <>
-                            <Icon className={`h-4 w-4 shrink-0 ${completed ? 'text-cyan-300' : 'text-muted-foreground'}`} />
-                            <span className="min-w-0 text-sm font-medium">
+                            <Icon className={`h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4 ${completed ? 'text-cyan-300' : 'text-muted-foreground'}`} />
+                            <span className="min-w-0 break-words text-xs font-medium leading-4 sm:text-sm sm:leading-5">
                               {posFechamentoEtapaLabels[step]}
                             </span>
                           </>
@@ -1458,7 +1486,7 @@ export function ProposalDetailsSheet({
                           return (
                             <div
                               key={step}
-                              className={`flex items-center gap-3 rounded-xl border px-3 py-3 text-left ${
+                              className={`flex min-h-9 items-center gap-2 rounded-lg border px-2.5 py-2 text-left sm:min-h-11 sm:gap-3 sm:rounded-xl sm:px-3 sm:py-3 ${
                                 completed
                                   ? 'border-cyan-500/35 bg-cyan-500/15 text-foreground'
                                   : 'border-border bg-secondary/10 text-muted-foreground'
@@ -1475,7 +1503,7 @@ export function ProposalDetailsSheet({
                             type="button"
                             disabled={isActionPending(`postClosing:${step}`)}
                             onClick={() => void handleSetPostClosingStep(step)}
-                            className={`flex items-center gap-3 rounded-xl border px-3 py-3 text-left transition ${
+                            className={`flex min-h-9 items-center gap-2 rounded-lg border px-2.5 py-2 text-left transition disabled:cursor-wait disabled:opacity-70 sm:min-h-11 sm:gap-3 sm:rounded-xl sm:px-3 sm:py-3 ${
                               completed
                                 ? 'border-cyan-500/35 bg-cyan-500/15 text-foreground'
                                 : 'border-border bg-secondary/10 text-muted-foreground'
@@ -1734,11 +1762,17 @@ export function ProposalDetailsSheet({
                       </div>
                     </div>
                   </div>
-                  <InfoCard
-                    title="Orcamentista"
-                    value={propostaSource.orcamentistaNome || '-'}
-                    subtitle="Responsavel pelo orcamento"
-                  />
+                  <div className="min-w-0 rounded-xl border border-border bg-card p-4">
+                    <div className="min-w-0">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Orcamentista</p>
+                      <p className="mt-2 break-words text-base font-semibold text-foreground">
+                        {propostaSource.orcamentistaNome || '-'}
+                      </p>
+                      <p className="mt-1 break-words text-sm text-muted-foreground">
+                        Responsavel pelo orcamento
+                      </p>
+                    </div>
+                  </div>
                   <InfoCard
                     title="Retificacoes"
                     value={String(propostaSource.retificacoesCount || 0)}
@@ -1776,7 +1810,7 @@ export function ProposalDetailsSheet({
                       <Paperclip className="h-4 w-4 text-muted-foreground" />
                       Anexos
                     </div>
-                    {canManageProposalContent ? (
+                    {canManageProposalAttachments ? (
                       <>
                         <input
                           ref={attachmentInputRef}
@@ -1813,7 +1847,7 @@ export function ProposalDetailsSheet({
                             <span className="text-xs text-muted-foreground">
                               {Math.max(1, Math.round(anexo.tamanho / 1024))} KB
                             </span>
-                            {canManageProposalContent &&
+                            {canManageProposalAttachments &&
                               (user?.role === 'admin' ||
                                 user?.role === 'gerente' ||
                                 anexo.usuarioId === user?.id) && (

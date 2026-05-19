@@ -28,6 +28,7 @@ type SessionUser = {
   nome: string
   email: string
   avatar: string
+  avatarColor?: string | null
   role: string
   ativo: boolean
   modulePermissions?: JsonRecord | null
@@ -264,6 +265,7 @@ function normalizeUsuario(row: JsonRecord): Usuario {
     nome: row.nome ?? '',
     email: row.email ?? '',
     avatar: row.avatar ?? '',
+    avatarColor: row.avatarColor ?? row.avatar_color ?? null,
     role,
     ativo: Boolean(row.ativo),
     metaVendas: toNumber(row.metaVendas ?? row.meta_vendas),

@@ -19,7 +19,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { hasRuleAccess } from '@/lib/auth/rule-access'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { UserAvatar } from '@/components/crm/user-avatar'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -489,21 +489,13 @@ export function CRMHeader({ title, subtitle, action }: CRMHeaderProps) {
 
   const mobileProfileButton = (
     <Button variant="ghost" className="h-9 gap-2 rounded-xl px-2" aria-label="Abrir menu da conta">
-      <Avatar className="h-8 w-8">
-        <AvatarFallback className="bg-primary text-sm text-primary-foreground">
-          {user?.avatar || '??'}
-        </AvatarFallback>
-      </Avatar>
+      <UserAvatar name={user?.nome} initials={user?.avatar} color={user?.avatarColor} className="h-8 w-8" />
     </Button>
   )
 
   const desktopProfileButton = (
     <Button variant="ghost" className="gap-2 rounded-full px-2" aria-label="Abrir menu da conta">
-      <Avatar className="h-8 w-8">
-        <AvatarFallback className="bg-primary text-sm text-primary-foreground">
-          {user?.avatar || '??'}
-        </AvatarFallback>
-      </Avatar>
+      <UserAvatar name={user?.nome} initials={user?.avatar} color={user?.avatarColor} className="h-8 w-8" />
       <span className="hidden max-w-28 truncate text-sm font-medium md:inline">{user?.nome}</span>
     </Button>
   )

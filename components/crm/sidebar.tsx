@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
@@ -12,13 +13,13 @@ import {
   FileText,
   Kanban,
   LayoutDashboard,
-  Sun,
   UserCog,
   Users,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { hasModuleAccess, type ModuleKey } from '@/lib/auth/module-access'
+import { APP_DISPLAY_NAME, APP_LOGO_PATH } from '@/lib/branding'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { useSession } from '@/lib/hooks/use-api'
 import { cn } from '@/lib/utils'
@@ -38,7 +39,7 @@ export function CRMSidebar() {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const { company, general } = useAppSettings()
+  const { general } = useAppSettings()
   const { user } = useSession()
 
   const visibleMenuItems = menuItems.filter((item) => hasModuleAccess(user, item.module))
@@ -78,13 +79,18 @@ export function CRMSidebar() {
       >
         <div className="flex h-16 items-center border-b border-sidebar-border px-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-              <Sun className="h-5 w-5 text-primary-foreground" />
-            </div>
+            <Image
+              src={APP_LOGO_PATH}
+              alt={APP_DISPLAY_NAME}
+              width={32}
+              height={32}
+              className="h-8 w-8 rounded-lg object-cover"
+              priority
+            />
             {!collapsed && (
-              <div className="flex flex-col">
-                <span className="text-lg font-semibold text-sidebar-foreground">
-                  {company.nome || 'CRM'}
+              <div className="min-w-0 flex flex-col">
+                <span className="truncate text-sm font-semibold leading-tight text-sidebar-foreground">
+                  {APP_DISPLAY_NAME}
                 </span>
                 {general.demoMode && (
                   <Badge variant="outline" className="mt-1 border-amber-500/40 bg-amber-500/10 text-amber-400">
@@ -151,12 +157,17 @@ export function CRMSidebar() {
           <aside className="absolute left-0 top-0 flex h-full w-[min(84vw,20rem)] flex-col border-r border-sidebar-border bg-sidebar shadow-2xl">
             <div className="flex h-16 items-center justify-between border-b border-sidebar-border px-4">
               <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-                  <Sun className="h-5 w-5 text-primary-foreground" />
-                </div>
+                <Image
+                  src={APP_LOGO_PATH}
+                  alt={APP_DISPLAY_NAME}
+                  width={32}
+                  height={32}
+                  className="h-8 w-8 rounded-lg object-cover"
+                  priority
+                />
                 <div className="min-w-0">
                   <p className="truncate text-base font-semibold text-sidebar-foreground">
-                    {company.nome || 'CRM'}
+                    {APP_DISPLAY_NAME}
                   </p>
                   {general.demoMode ? (
                     <Badge variant="outline" className="mt-1 border-amber-500/40 bg-amber-500/10 text-amber-400">

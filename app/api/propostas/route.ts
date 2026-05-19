@@ -416,36 +416,29 @@ async function persistProposalComment(propostaId: string, usuarioId: string, com
 }
 
 async function findReusableSeedProposal(clienteId: string) {
-  const [proposal] = await prisma.propostas.findMany({
-    where: {
-      cliente_id: clienteId,
-      status: 'novo_cliente',
-      valor: {
-        lte: 0,
-      },
-      OR: [
-        { descricao: null },
-        { descricao: '' },
-      ],
-      titulo: {
-        startsWith: 'Novo cliente',
-      },
-      proposta_anexos: {
-        none: {},
-      },
-      proposta_comentarios: {
-        none: {},
-      },
-    },
-    select: {
-      id: true,
-      numero: true,
-    },
-    orderBy: {
-      created_at: 'desc',
-    },
-    take: 1,
-  })
+  const [proposal] = await prisma.$queryRawUnsafe<Array<{ id: string; numero: string }>>(
+    `SELECT p.id, p.numero
+     FROM propostas p
+     WHERE p.cliente_id = ?
+       AND p.status = 'novo_cliente'
+       AND p.valor <= 0
+       AND (p.descricao IS NULL OR p.descricao = '')
+       AND p.titulo COLLATE utf8mb4_unicode_ci LIKE CONCAT(CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci, '%')
+       AND NOT EXISTS (
+         SELECT 1
+         FROM proposta_anexos pa
+         WHERE pa.proposta_id = p.id
+       )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM proposta_comentarios pc
+         WHERE pc.proposta_id = p.id
+       )
+     ORDER BY p.created_at DESC
+     LIMIT 1`,
+    clienteId,
+    'Novo cliente'
+  )
 
   return proposal || null
 }

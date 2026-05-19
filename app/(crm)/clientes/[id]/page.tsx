@@ -11,7 +11,7 @@ import { CRMHeader } from '@/components/crm/header'
 import { FeatureErrorBoundary } from '@/components/crm/feature-error-boundary'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ArrowLeft, Phone, Pencil } from 'lucide-react'
+import { ArrowLeft, IdCard, Phone, Pencil } from 'lucide-react'
 import { ModuleAccessState } from '@/components/crm/module-access-state'
 
 const InfoTab = dynamic(
@@ -90,6 +90,12 @@ export default function ClienteDetailPage({ params }: PageProps) {
                   <Phone className="h-4 w-4" />
                   {cliente.telefone}
                 </a>
+                {cliente.cpf ? (
+                  <span className="flex items-center gap-1">
+                    <IdCard className="h-4 w-4" />
+                    {cliente.cpf}
+                  </span>
+                ) : null}
               </div>
             </div>
           </div>

@@ -125,6 +125,7 @@ export async function POST(request: NextRequest) {
         nome: pendingRegistration.nome,
         email: normalizedEmail,
         avatar,
+        avatarColor: null,
         role,
       },
     })

@@ -9,6 +9,7 @@ import { migration202605180001 } from '@/lib/server/migrations/202605180001-post
 import { migration202605180002 } from '@/lib/server/migrations/202605180002-post-closing-new-steps'
 import { migration202605180003 } from '@/lib/server/migrations/202605180003-client-origin-enum'
 import { migration202605180004 } from '@/lib/server/migrations/202605180004-post-closing-contract-steps'
+import { migration202605190001 } from '@/lib/server/migrations/202605190001-user-avatar-color'
 
 const MIGRATION_TABLE_NAME = 'schema_migrations'
 
@@ -40,6 +41,7 @@ const SYSTEM_SCHEMA_MIGRATIONS: SchemaMigration[] = [
   migration202605180002,
   migration202605180003,
   migration202605180004,
+  migration202605190001,
 ]
 
 async function ensureSchemaMigrationsTable() {

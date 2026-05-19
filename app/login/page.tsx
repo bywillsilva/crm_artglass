@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
@@ -16,11 +17,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { getDefaultRouteForRole } from '@/lib/auth/default-route'
+import { APP_DISPLAY_NAME, APP_LOGO_PATH } from '@/lib/branding'
 
 export default function LoginPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
-  const [appName, setAppName] = useState('CRM')
+  const [appName, setAppName] = useState(APP_DISPLAY_NAME)
 
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
@@ -51,7 +53,7 @@ export default function LoginPage() {
       try {
         const response = await fetch('/api/configuracoes?chave=empresa')
         const data = await response.json()
-        const companyName = data?.valor?.nome || data?.nome || 'CRM'
+        const companyName = data?.valor?.appName || data?.appName || APP_DISPLAY_NAME
 
         if (isMounted) {
           setAppName(companyName)
@@ -59,7 +61,7 @@ export default function LoginPage() {
         }
       } catch {
         if (isMounted) {
-          document.title = 'CRM - Acesso'
+          document.title = `${APP_DISPLAY_NAME} - Acesso`
         }
       }
     }
@@ -280,8 +282,20 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-background p-6">
       <Card className="w-full max-w-md border-border bg-card">
         <CardHeader>
-          <CardTitle>Entrar no {appName}</CardTitle>
-          <CardDescription>Acesse, cadastre sua conta ou recupere seu acesso</CardDescription>
+          <div className="mb-2 flex items-center gap-3">
+            <Image
+              src={APP_LOGO_PATH}
+              alt={APP_DISPLAY_NAME}
+              width={44}
+              height={44}
+              className="h-11 w-11 rounded-xl object-cover"
+              priority
+            />
+            <div>
+              <CardTitle>Entrar no {appName}</CardTitle>
+              <CardDescription>Acesse, cadastre sua conta ou recupere seu acesso</CardDescription>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="login" className="space-y-4">

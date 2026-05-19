@@ -5,6 +5,7 @@ import { prisma } from '@/lib/db/prisma'
 import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
 import { normalizeRulePermissions } from '@/lib/auth/rule-access'
+import { getUserAvatarColor } from '@/lib/server/user-avatar-color'
 import type { RoleUsuario } from '@/lib/data/types'
 
 async function ensureLoginVerificationTable() {
@@ -136,12 +137,14 @@ export async function POST(request: NextRequest) {
 
     const sessionToken = createSessionToken(challenge.user_id, challenge.role)
     const role = challenge.role as RoleUsuario
+    const avatarColor = await getUserAvatarColor(challenge.user_id).catch(() => null)
     const response = NextResponse.json({
       user: {
         id: challenge.user_id,
         nome: challenge.nome,
         email: challenge.email,
         avatar: challenge.avatar,
+        avatarColor,
         role: challenge.role,
         modulePermissions: normalizeModulePermissions(challenge.module_permissions ?? null, role),
         rulePermissions: normalizeRulePermissions(challenge.rule_permissions ?? null, role),

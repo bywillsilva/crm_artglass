@@ -18,7 +18,7 @@ import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { CRMHeader } from '@/components/crm/header'
 import { DateRangeFilter } from '@/components/crm/date-range-filter'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { UserAvatar } from '@/components/crm/user-avatar'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -186,11 +186,12 @@ export function DashboardContent() {
               {!canViewAllDashboardData && vendedorAtual ? (
                 <div className="space-y-4">
                   <div className="flex items-center gap-4">
-                    <Avatar className="h-10 w-10">
-                      <AvatarFallback className="bg-primary/20 text-primary text-sm">
-                        {vendedorAtual.avatar || vendedorAtual.nome?.slice(0, 2).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
+                    <UserAvatar
+                      name={vendedorAtual.nome}
+                      initials={vendedorAtual.avatar}
+                      color={vendedorAtual.avatarColor}
+                      className="h-10 w-10"
+                    />
                     <div className="flex-1">
                       <p className="text-sm text-muted-foreground">Total pago no periodo</p>
                       <p className="text-2xl font-bold text-foreground">{formatCurrency(valorAtual)}</p>
@@ -224,11 +225,12 @@ export function DashboardContent() {
                     <span className={`w-6 text-lg font-bold ${index === 0 ? 'text-amber-400' : index === 1 ? 'text-slate-400' : index === 2 ? 'text-amber-600' : 'text-muted-foreground'}`}>
                       {index + 1}
                     </span>
-                    <Avatar className="h-9 w-9">
-                      <AvatarFallback className="bg-primary/20 text-primary text-sm">
-                        {vendedor.avatar || vendedor.nome?.slice(0, 2).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
+                    <UserAvatar
+                      name={vendedor.nome}
+                      initials={vendedor.avatar}
+                      color={vendedor.avatarColor ?? vendedor.avatar_color}
+                      className="h-9 w-9"
+                    />
                     <div className="flex-1">
                       <div className="mb-1 flex items-center justify-between">
                         <span className="text-sm font-medium text-foreground">{vendedor.nome}</span>

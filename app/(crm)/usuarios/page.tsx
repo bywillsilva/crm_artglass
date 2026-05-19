@@ -15,7 +15,7 @@ import type { RoleUsuario, Usuario } from "@/lib/data/types"
 import { CRMHeader } from "@/components/crm/header"
 import { FeatureErrorBoundary } from "@/components/crm/feature-error-boundary"
 import { ModuleAccessState } from "@/components/crm/module-access-state"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { UserAvatar } from "@/components/crm/user-avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -62,6 +62,7 @@ export default function UsuariosPage() {
     email: "",
     role: "vendedor" as RoleUsuario,
     avatar: "",
+    avatarColor: "#0EA5E9",
     ativo: true,
     senha: "",
     confirmarSenha: "",
@@ -101,6 +102,7 @@ export default function UsuariosPage() {
         email: user.email,
         role: user.role,
         avatar: user.avatar || "",
+        avatarColor: user.avatarColor || "#0EA5E9",
         ativo: user.ativo,
         senha: "",
         confirmarSenha: "",
@@ -112,6 +114,7 @@ export default function UsuariosPage() {
         email: "",
         role: "vendedor",
         avatar: "",
+        avatarColor: "#0EA5E9",
         ativo: true,
         senha: "",
         confirmarSenha: "",
@@ -156,6 +159,7 @@ export default function UsuariosPage() {
           email: formData.email,
           role: formData.role,
           avatar: formData.avatar,
+          avatarColor: formData.avatarColor,
           ativo: formData.ativo,
           modulePermissions: editingUser.modulePermissions,
           rulePermissions: editingUser.rulePermissions,
@@ -167,6 +171,7 @@ export default function UsuariosPage() {
           email: formData.email,
           role: formData.role,
           avatar: formData.avatar,
+          avatarColor: formData.avatarColor,
           ativo: formData.ativo,
           senha: formData.senha,
           modulePermissions: getDefaultModulePermissions(formData.role),
@@ -364,11 +369,12 @@ export default function UsuariosPage() {
                       <TableRow key={user.id}>
                         <TableCell>
                           <div className="flex items-center gap-3">
-                            <Avatar className="h-9 w-9">
-                              <AvatarFallback className="bg-primary/20 text-primary">
-                                {user.avatar || user.nome.split(" ").map((parte) => parte[0]).join("").toUpperCase().slice(0, 2)}
-                              </AvatarFallback>
-                            </Avatar>
+                            <UserAvatar
+                              name={user.nome}
+                              initials={user.avatar}
+                              color={user.avatarColor}
+                              className="h-9 w-9"
+                            />
                             <div className="flex items-center gap-2">
                               {getRoleIcon(user.role)}
                               <span className="font-medium text-foreground">{user.nome}</span>

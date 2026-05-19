@@ -253,6 +253,7 @@ export async function GET(request: NextRequest) {
            u.id,
            u.nome,
            u.avatar,
+           u.avatar_color,
            COALESCE(u.meta_vendas, 0) as meta_vendas,
            COUNT(p.id) as total_vendas,
            COALESCE(SUM(p.valor_final), 0) as valor_total
@@ -263,7 +264,7 @@ export async function GET(request: NextRequest) {
              ${dateRange ? 'AND p.pos_fechamento_pagamento_confirmado_at BETWEEN ? AND ?' : ''}
           WHERE u.role IN ('vendedor', 'gerente')
             ${canViewAllDashboardData ? '' : 'AND u.id = ?'}
-          GROUP BY u.id, u.nome, u.avatar, u.meta_vendas
+          GROUP BY u.id, u.nome, u.avatar, u.avatar_color, u.meta_vendas
           ORDER BY valor_total DESC
           ${rankingLimit}`,
           canViewAllDashboardData

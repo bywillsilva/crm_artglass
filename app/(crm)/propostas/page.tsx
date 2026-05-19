@@ -13,6 +13,7 @@ import { parseProposalMaterialTags } from '@/lib/utils/proposal-material-tags'
 import { CRMHeader } from '@/components/crm/header'
 import { FeatureErrorBoundary } from '@/components/crm/feature-error-boundary'
 import { ModuleAccessState } from '@/components/crm/module-access-state'
+import { UserIdentity } from '@/components/crm/user-avatar'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -119,6 +120,7 @@ export default function PropostasPage() {
   }
   const hasPropostasAccess = hasModuleAccess(user, 'propostas')
   const canCreateProposal = hasRuleAccess(user, 'canCreateProposals')
+  const usuariosById = useMemo(() => new Map(state.usuarios.map((usuario) => [usuario.id, usuario])), [state.usuarios])
 
   const propostasOrdenadas = useMemo(
     () =>
@@ -298,11 +300,25 @@ export default function PropostasPage() {
           <div className="space-y-1 text-sm">
             <div className="flex items-center justify-between gap-3">
               <span className="text-muted-foreground">Vend.</span>
-              <span className="truncate text-right text-foreground">{proposta.responsavelNome || '-'}</span>
+              <UserIdentity
+                name={proposta.responsavelNome}
+                initials={usuariosById.get(proposta.responsavelId || '')?.avatar}
+                color={usuariosById.get(proposta.responsavelId || '')?.avatarColor}
+                className="h-5 w-5"
+                fallbackClassName="text-[9px]"
+                textClassName="max-w-[8rem] text-right text-foreground"
+              />
             </div>
             <div className="flex items-center justify-between gap-3">
               <span className="text-muted-foreground">Orc.</span>
-              <span className="truncate text-right text-foreground">{proposta.orcamentistaNome || '-'}</span>
+              <UserIdentity
+                name={proposta.orcamentistaNome}
+                initials={usuariosById.get(proposta.orcamentistaId || '')?.avatar}
+                color={usuariosById.get(proposta.orcamentistaId || '')?.avatarColor}
+                className="h-5 w-5"
+                fallbackClassName="text-[9px]"
+                textClassName="max-w-[8rem] text-right text-foreground"
+              />
             </div>
           </div>
         </TableCell>
@@ -464,11 +480,25 @@ export default function PropostasPage() {
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="space-y-1">
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Vendedor</p>
-              <p className="truncate text-foreground">{proposta.responsavelNome || '-'}</p>
+              <UserIdentity
+                name={proposta.responsavelNome}
+                initials={usuariosById.get(proposta.responsavelId || '')?.avatar}
+                color={usuariosById.get(proposta.responsavelId || '')?.avatarColor}
+                className="h-5 w-5"
+                fallbackClassName="text-[9px]"
+                textClassName="text-foreground"
+              />
             </div>
             <div className="space-y-1">
               <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Orcamentista</p>
-              <p className="truncate text-foreground">{proposta.orcamentistaNome || '-'}</p>
+              <UserIdentity
+                name={proposta.orcamentistaNome}
+                initials={usuariosById.get(proposta.orcamentistaId || '')?.avatar}
+                color={usuariosById.get(proposta.orcamentistaId || '')?.avatarColor}
+                className="h-5 w-5"
+                fallbackClassName="text-[9px]"
+                textClassName="text-foreground"
+              />
             </div>
           </div>
         </CardContent>

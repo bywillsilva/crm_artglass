@@ -35,6 +35,7 @@ import {
 } from '@/lib/utils/proposal-kanban'
 import { getCurrentPostClosingLabel } from '@/lib/utils/post-closing'
 import { ProposalDetailsSheet } from '@/components/crm/propostas/proposal-details-sheet'
+import { UserIdentity } from '@/components/crm/user-avatar'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -1989,7 +1990,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                         onPointerUp={handleTouchPointerEnd}
                         onPointerCancel={handleTouchPointerCancel}
                         onContextMenu={(event) => event.preventDefault()}
-                        className={`rounded-xl border p-4 shadow-sm transition ${cardState.classes} ${
+                        className={`overflow-hidden rounded-xl border shadow-sm transition ${cardState.classes} ${
                           updatingProposalIds[proposta.id] ? 'opacity-70' : ''
                         } ${
                           dragState?.propostaId === proposta.id
@@ -1998,6 +1999,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                         } cursor-grab select-none [-webkit-touch-callout:none] active:cursor-grabbing`}
                         style={{ touchAction: isTouchDevice ? 'auto' : undefined }}
                       >
+                        <div className="p-3.5">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
                             <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
@@ -2067,7 +2069,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                           </div>
                         </div>
 
-                        <p className="mt-3 text-lg font-bold text-foreground">
+                        <p className="mt-2.5 text-lg font-bold text-foreground">
                           {formatCurrency(proposta.valor)}
                         </p>
 
@@ -2080,27 +2082,78 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                           </div>
                         ) : null}
 
-                        <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                          <span>Vend.: {proposta.responsavelNome || '-'}</span>
-                          <span>Orc.: {proposta.orcamentistaNome || '-'}</span>
+                        <div className="mt-3 grid gap-1.5 text-xs text-muted-foreground">
+                          {(() => {
+                            const responsavelColor =
+                              lookups.usuariosById.get(proposta.responsavelId || '')?.avatarColor || '#0EA5E9'
+                            return (
+                          <span
+                            className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-border/60 bg-secondary/20 px-2 py-1.5"
+                            style={{
+                              borderLeftColor: responsavelColor,
+                              borderLeftWidth: 3,
+                            }}
+                            title={`Vendedor: ${proposta.responsavelNome || '-'}`}
+                            aria-label={`Vendedor: ${proposta.responsavelNome || '-'}`}
+                          >
+                            <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Vend.</span>
+                            <UserIdentity
+                              name={proposta.responsavelNome}
+                              initials={lookups.usuariosById.get(proposta.responsavelId || '')?.avatar}
+                              color={responsavelColor}
+                              className="h-5 w-5"
+                              fallbackClassName="text-[9px]"
+                              textClassName="max-w-[9.5rem] font-medium text-foreground/90"
+                            />
+                          </span>
+                            )
+                          })()}
+                          {(() => {
+                            const orcamentistaColor =
+                              lookups.usuariosById.get(proposta.orcamentistaId || '')?.avatarColor || '#F59E0B'
+                            return (
+                          <span
+                            className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-lg border border-border/60 bg-secondary/20 px-2 py-1.5"
+                            style={{
+                              borderLeftColor: orcamentistaColor,
+                              borderLeftWidth: 3,
+                            }}
+                            title={`Orcamentista: ${proposta.orcamentistaNome || '-'}`}
+                            aria-label={`Orcamentista: ${proposta.orcamentistaNome || '-'}`}
+                          >
+                            <span className="w-8 shrink-0 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Orc.</span>
+                            <UserIdentity
+                              name={proposta.orcamentistaNome}
+                              initials={lookups.usuariosById.get(proposta.orcamentistaId || '')?.avatar}
+                              color={orcamentistaColor}
+                              className="h-5 w-5"
+                              fallbackClassName="text-[9px]"
+                              textClassName="max-w-[9.5rem] font-medium text-foreground/90"
+                            />
+                          </span>
+                            )
+                          })()}
+                        </div>
                         </div>
 
-                        <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <Paperclip className="h-3 w-3" />
-                            {proposta.anexos?.length ?? proposta.anexosCount ?? 0}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <MessageSquare className="h-3 w-3" />
-                            {proposta.comentarios?.length ?? proposta.comentariosCount ?? 0}
-                          </span>
+                        <div className="flex items-center justify-between gap-3 border-t border-border/70 bg-background/25 px-3.5 py-2 text-xs text-muted-foreground">
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span className="flex items-center gap-1">
+                              <Paperclip className="h-3 w-3" />
+                              {proposta.anexos?.length ?? proposta.anexosCount ?? 0}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <MessageSquare className="h-3 w-3" />
+                              {proposta.comentarios?.length ?? proposta.comentariosCount ?? 0}
+                            </span>
+                          </div>
                         </div>
 
                         {cardState.label ? (() => {
                           const bannerStyles = getDeadlineBannerStyles(cardState.classes)
                           return (
                             <div
-                              className={`mt-4 -mx-4 flex items-center gap-2 border-y px-4 py-2 text-xs font-medium ${bannerStyles.container}`}
+                              className={`flex items-center gap-2 border-t px-3.5 py-2 text-xs font-medium ${bannerStyles.container}`}
                             >
                               {cardState.classes.includes('emerald') ? (
                                 <CheckCircle2 className={`h-3.5 w-3.5 ${bannerStyles.icon}`} />
@@ -2117,7 +2170,7 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
                         })() : null}
 
                         {status === 'aguardando_aprovacao' && hasRuleAccess(user, 'canApproveReadyProposals') ? (
-                          <div className="mt-3 flex gap-2">
+                          <div className="flex gap-2 border-t border-border/70 bg-background/20 px-3.5 py-3">
                             <Button size="sm" onClick={() => requestMove(proposta.id, 'enviar_ao_cliente')}>
                               Aprovar
                             </Button>

@@ -11,6 +11,7 @@ import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
 import { syncNormalizedUserPermissionsWithPrisma } from '@/lib/server/user-permissions-store'
+import { attachAvatarColors, setUserAvatarColor } from '@/lib/server/user-avatar-color'
 
 const USUARIO_DETAIL_CACHE_TTL_MS = Math.max(
   Number(process.env.USUARIO_DETAIL_CACHE_TTL_MS || 30_000),
@@ -105,8 +106,9 @@ export async function GET(
       return jsonNoStore({ error: 'Usuario nao encontrado' }, { status: 404 })
     }
 
-    setRuntimeCache(cacheKey, usuario, USUARIO_DETAIL_CACHE_TTL_MS)
-    return jsonNoStore(usuario)
+    const usuarioWithColor = (await attachAvatarColors([usuario]))[0]
+    setRuntimeCache(cacheKey, usuarioWithColor, USUARIO_DETAIL_CACHE_TTL_MS)
+    return jsonNoStore(usuarioWithColor)
   } catch (error) {
     console.error('Erro ao buscar usuario:', error)
 
@@ -172,7 +174,8 @@ export async function PUT(
       )
     }
 
-    const iniciais = String(data.nome || '')
+    const iniciaisInformadas = String(data.avatar || '').trim().toUpperCase().slice(0, 2)
+    const iniciais = iniciaisInformadas || String(data.nome || '')
       .split(' ')
       .filter(Boolean)
       .map((parte: string) => parte[0])
@@ -213,6 +216,8 @@ export async function PUT(
         data: updateData as any,
       })
 
+      await setUserAvatarColor(id, data.avatarColor ?? data.avatar_color, tx)
+
       await syncNormalizedUserPermissionsWithPrisma(
         {
           userId: id,
@@ -223,10 +228,11 @@ export async function PUT(
         tx
       )
 
-      return tx.usuarios.findUnique({
+      const saved = await tx.usuarios.findUnique({
         where: { id },
         select: USER_SELECT,
       })
+      return saved ? (await attachAvatarColors([saved], tx))[0] : saved
     })
 
     await publishRealtimeEvent({

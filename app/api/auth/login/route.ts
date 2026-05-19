@@ -10,6 +10,8 @@ import { safeSendEmail, userHasTwoFactorEnabled } from '@/lib/server/user-settin
 import { checkRateLimit } from '@/lib/server/rate-limit'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
 import { normalizeRulePermissions } from '@/lib/auth/rule-access'
+import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
+import { getUserAvatarColor } from '@/lib/server/user-avatar-color'
 import type { RoleUsuario } from '@/lib/data/types'
 
 function generateToken() {
@@ -52,6 +54,7 @@ async function ensureLoginVerificationTable() {
 
 export async function POST(request: NextRequest) {
   try {
+    await ensureSystemDatabaseSchema()
     const clientIp =
       request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
       request.headers.get('x-real-ip') ||
@@ -172,12 +175,14 @@ export async function POST(request: NextRequest) {
 
     const token = createSessionToken(user.id, user.role)
     const role = user.role as RoleUsuario
+    const avatarColor = await getUserAvatarColor(user.id).catch(() => null)
     const response = NextResponse.json({
       user: {
         id: user.id,
         nome: user.nome,
         email: user.email,
         avatar: user.avatar,
+        avatarColor,
         role: user.role,
         modulePermissions: normalizeModulePermissions(user.module_permissions ?? null, role),
         rulePermissions: normalizeRulePermissions(user.rule_permissions ?? null, role),

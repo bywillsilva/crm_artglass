@@ -553,7 +553,7 @@ export async function getNextProposalNumber(
     const [maxRow] = await tx.$queryRawUnsafe<Array<{ maxNumero: unknown }>>(
       `SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(numero, '-', -1) AS UNSIGNED)), 0) as maxNumero
        FROM propostas
-       WHERE numero LIKE ?`,
+       WHERE numero COLLATE utf8mb4_unicode_ci LIKE CONVERT(? USING utf8mb4) COLLATE utf8mb4_unicode_ci`,
       `PROP-${year}-%`
     )
     const currentMax = Number(maxRow?.maxNumero || 0)

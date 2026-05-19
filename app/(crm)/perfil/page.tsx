@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { usePropostas, useSession, useTarefas, useUsuario, updateUsuario } from '@/lib/hooks/use-api'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { CRMHeader } from "@/components/crm/header"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { UserAvatar } from "@/components/crm/user-avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { roleLabels } from '@/lib/data/types'
+import { APP_DISPLAY_NAME } from '@/lib/branding'
 import type { Proposta, Tarefa } from '@/lib/data/types'
 import { hasConfirmedPayment, isPostClosingProposal } from '@/lib/utils/post-closing'
 import { AlertCircle, Calendar, Check, Mail, Shield, User } from "lucide-react"
@@ -22,7 +23,7 @@ export default function PerfilPage() {
   const { usuario: currentUser } = useUsuario(sessionUser?.id ?? null)
   const { tarefas } = useTarefas()
   const { propostas } = usePropostas()
-  const { company, formatCurrency } = useAppSettings()
+  const { formatCurrency } = useAppSettings()
 
   const [isEditing, setIsEditing] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -30,6 +31,7 @@ export default function PerfilPage() {
     nome: '',
     email: '',
     avatar: '',
+    avatarColor: '#0EA5E9',
     currentPassword: '',
     newPassword: '',
     confirmNewPassword: '',
@@ -43,12 +45,16 @@ export default function PerfilPage() {
         nome: currentUser.nome,
         email: currentUser.email,
         avatar: currentUser.avatar,
+        avatarColor: currentUser.avatarColor || '#0EA5E9',
         currentPassword: '',
         newPassword: '',
         confirmNewPassword: '',
       }
 
-      return prev.nome === next.nome && prev.email === next.email && prev.avatar === next.avatar
+      return prev.nome === next.nome &&
+        prev.email === next.email &&
+        prev.avatar === next.avatar &&
+        prev.avatarColor === next.avatarColor
         ? prev
         : next
     })
@@ -65,6 +71,7 @@ export default function PerfilPage() {
         nome: formData.nome,
         email: formData.email,
         avatar: formData.avatar,
+        avatarColor: formData.avatarColor,
       })
 
       if (formData.currentPassword || formData.newPassword || formData.confirmNewPassword) {
@@ -121,6 +128,7 @@ export default function PerfilPage() {
       nome: currentUser.nome,
       email: currentUser.email,
       avatar: currentUser.avatar,
+      avatarColor: currentUser.avatarColor || '#0EA5E9',
       currentPassword: '',
       newPassword: '',
       confirmNewPassword: '',
@@ -157,11 +165,13 @@ export default function PerfilPage() {
             <CardHeader>
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-4">
-                  <Avatar className="h-20 w-20">
-                    <AvatarFallback className="bg-primary text-2xl text-primary-foreground">
-                      {currentUser.avatar}
-                    </AvatarFallback>
-                  </Avatar>
+                  <UserAvatar
+                    name={currentUser.nome}
+                    initials={currentUser.avatar}
+                    color={currentUser.avatarColor}
+                    className="h-20 w-20"
+                    fallbackClassName="text-2xl"
+                  />
                   <div>
                     <CardTitle className="text-2xl text-foreground">{currentUser.nome}</CardTitle>
                     <CardDescription className="mt-1 flex items-center gap-2">
@@ -220,6 +230,24 @@ export default function PerfilPage() {
                   <Label htmlFor="avatar">Iniciais do Avatar</Label>
                   <Input id="avatar" value={formData.avatar} onChange={(event) => setFormData({ ...formData, avatar: event.target.value.toUpperCase() })} placeholder="Ex: CS" maxLength={2} className="w-32" />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="avatarColor">Cor do icone</Label>
+                  <div className="flex max-w-sm items-center gap-3">
+                    <Input
+                      id="avatarColor"
+                      type="color"
+                      value={formData.avatarColor || '#0EA5E9'}
+                      onChange={(event) => setFormData({ ...formData, avatarColor: event.target.value })}
+                      className="h-10 w-16 cursor-pointer p-1"
+                    />
+                    <Input
+                      value={formData.avatarColor || '#0EA5E9'}
+                      onChange={(event) => setFormData({ ...formData, avatarColor: event.target.value })}
+                      placeholder="#0EA5E9"
+                      maxLength={7}
+                    />
+                  </div>
+                </div>
 
                 <Separator />
 
@@ -257,7 +285,7 @@ export default function PerfilPage() {
               <Separator />
               <InfoRow icon={<Shield className="h-4 w-4" />} label="Nivel de Acesso" value={<span className="text-foreground">{roleLabels[currentUser.role]}</span>} />
               <Separator />
-              <InfoRow icon={<Calendar className="h-4 w-4" />} label="Sistema" value={<span className="text-foreground">{company.nome || 'CRM'}</span>} />
+              <InfoRow icon={<Calendar className="h-4 w-4" />} label="Sistema" value={<span className="text-foreground">{APP_DISPLAY_NAME}</span>} />
             </CardContent>
           </Card>
         </div>

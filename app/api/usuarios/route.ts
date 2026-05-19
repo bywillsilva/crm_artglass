@@ -12,6 +12,7 @@ import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/
 import { clearAuthenticatedUserCache, getAuthenticatedServerUser } from '@/lib/auth/session'
 import { jsonNoStore } from '@/lib/server/http-cache'
 import { syncNormalizedUserPermissionsWithPrisma } from '@/lib/server/user-permissions-store'
+import { attachAvatarColors, setUserAvatarColor } from '@/lib/server/user-avatar-color'
 
 const USUARIOS_CACHE_TTL_MS = Math.max(Number(process.env.USUARIOS_CACHE_TTL_MS || 30_000), 1000)
 
@@ -101,8 +102,9 @@ export async function GET(request: NextRequest) {
       select: USER_SELECT,
       orderBy: { nome: 'asc' },
     })
-    setRuntimeCache(cacheKey, usuarios, USUARIOS_CACHE_TTL_MS)
-    return jsonNoStore(usuarios)
+    const usuariosWithColors = await attachAvatarColors(usuarios)
+    setRuntimeCache(cacheKey, usuariosWithColors, USUARIOS_CACHE_TTL_MS)
+    return jsonNoStore(usuariosWithColors)
   } catch (error: any) {
     console.error('Erro ao buscar usuarios:', error)
 
@@ -152,7 +154,8 @@ export async function POST(request: NextRequest) {
     const modulePermissions = normalizeModulePermissions(data.modulePermissions, data.role || 'vendedor')
     const rulePermissions = normalizeRulePermissions(data.rulePermissions, data.role || 'vendedor')
 
-    const iniciais = data.nome
+    const iniciaisInformadas = String(data.avatar || '').trim().toUpperCase().slice(0, 2)
+    const iniciais = iniciaisInformadas || String(data.nome || '')
       .split(' ')
       .map((n: string) => n[0])
       .join('')
@@ -176,6 +179,8 @@ export async function POST(request: NextRequest) {
         } as any,
       })
 
+      await setUserAvatarColor(id, data.avatarColor ?? data.avatar_color, tx)
+
       await syncNormalizedUserPermissionsWithPrisma(
         {
           userId: id,
@@ -186,10 +191,11 @@ export async function POST(request: NextRequest) {
         tx
       )
 
-      return tx.usuarios.findUnique({
+      const saved = await tx.usuarios.findUnique({
         where: { id },
         select: USER_SELECT,
       })
+      return saved ? (await attachAvatarColors([saved], tx))[0] : saved
     })
 
     await publishRealtimeEvent({

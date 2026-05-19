@@ -26,6 +26,7 @@ type UserFormState = {
   email: string
   role: RoleUsuario
   avatar: string
+  avatarColor: string
   ativo: boolean
   senha: string
   confirmarSenha: string
@@ -144,6 +145,24 @@ export function UserFormDialog({
               placeholder="Ex: JC"
               maxLength={2}
             />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="avatarColor">Cor do icone</Label>
+            <div className="flex items-center gap-3">
+              <Input
+                id="avatarColor"
+                type="color"
+                value={formData.avatarColor || '#0EA5E9'}
+                onChange={(event) => onFormDataChange((prev) => ({ ...prev, avatarColor: event.target.value }))}
+                className="h-10 w-16 cursor-pointer p-1"
+              />
+              <Input
+                value={formData.avatarColor || '#0EA5E9'}
+                onChange={(event) => onFormDataChange((prev) => ({ ...prev, avatarColor: event.target.value }))}
+                placeholder="#0EA5E9"
+                maxLength={7}
+              />
+            </div>
           </div>
           <div className="flex items-center justify-between">
             <Label htmlFor="ativo">Usuario Ativo</Label>

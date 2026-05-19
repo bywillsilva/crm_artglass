@@ -4,6 +4,8 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db/prisma'
 import { normalizeModulePermissions } from '@/lib/auth/module-access'
 import { normalizeRulePermissions } from '@/lib/auth/rule-access'
+import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
+import { getUserAvatarColor } from '@/lib/server/user-avatar-color'
 import type { RoleUsuario } from '@/lib/data/types'
 
 export const SESSION_COOKIE = 'solarcrm_session'
@@ -19,6 +21,7 @@ export type AuthenticatedServerUser = {
   nome?: string
   email?: string
   avatar?: string
+  avatarColor?: string | null
   role: string
   ativo: boolean
   modulePermissions?: unknown
@@ -56,6 +59,7 @@ function sign(value: string) {
 }
 
 export async function queryAuthenticatedUserById(userId: string) {
+  await ensureSystemDatabaseSchema()
   const user = await prisma.usuarios.findUnique({
     where: {
       id: userId,
@@ -167,11 +171,13 @@ export async function getAuthenticatedServerUser() {
       return null
     }
 
+    const avatarColor = await getUserAvatarColor(user.id).catch(() => null)
     const authenticatedUser = {
       id: user.id,
       nome: user.nome ?? undefined,
       email: user.email ?? undefined,
       avatar: user.avatar ?? undefined,
+      avatarColor,
       role: user.role,
       ativo: Boolean(user.ativo),
       modulePermissions: normalizeModulePermissions(user.module_permissions ?? null, user.role as RoleUsuario),
@@ -195,6 +201,7 @@ export async function getAuthenticatedServerUser() {
         nome: undefined,
         email: undefined,
         avatar: undefined,
+        avatarColor: null,
         role: session.role,
         ativo: true,
         modulePermissions: null,

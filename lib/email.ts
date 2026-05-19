@@ -1,3 +1,5 @@
+import { APP_DISPLAY_NAME } from '@/lib/branding'
+
 type SendEmailParams = {
   to: string
   subject: string
@@ -28,7 +30,7 @@ function getResendConfig() {
 }
 
 function getAppName(appName?: string | null) {
-  return appName || process.env.APP_NAME || 'CRM'
+  return appName || process.env.APP_NAME || APP_DISPLAY_NAME
 }
 
 function escapeHtml(value: string) {

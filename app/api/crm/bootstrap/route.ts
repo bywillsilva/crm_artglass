@@ -5,6 +5,7 @@ import { hasRuleAccess } from '@/lib/auth/rule-access'
 import { getAuthenticatedServerUser } from '@/lib/auth/session'
 import { getRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 import { jsonNoStore } from '@/lib/server/http-cache'
+import { attachAvatarColors } from '@/lib/server/user-avatar-color'
 import { normalizeJsonPayload } from '@/lib/server/json-normalize'
 import { ensureSystemDatabaseSchema } from '@/lib/server/database-schema'
 import { ensureProposalReadSideReady, ensureSchemaReadyForReads } from '@/lib/server/read-side-maintenance'
@@ -205,7 +206,7 @@ async function bootstrapQuery<T>(sql: string, params: unknown[] = []) {
 
 async function queryBootstrapUsers() {
   try {
-    return await prisma.usuarios.findMany({
+    const users = await prisma.usuarios.findMany({
       select: {
         id: true,
         nome: true,
@@ -220,16 +221,18 @@ async function queryBootstrapUsers() {
       },
       orderBy: { nome: 'asc' },
     })
+    return attachAvatarColors(users)
   } catch (error) {
     if (!isUnknownColumnError(error)) {
       throw error
     }
 
-    return bootstrapQuery<any[]>(
-      `SELECT id, nome, email, avatar, role, ativo, meta_vendas, created_at
+    const users = await bootstrapQuery<any[]>(
+      `SELECT id, nome, email, avatar, NULL as avatar_color, role, ativo, meta_vendas, created_at
        FROM usuarios
        ORDER BY nome ASC`
     )
+    return attachAvatarColors(users)
   }
 }
 

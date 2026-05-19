@@ -255,6 +255,7 @@ export interface Usuario {
   nome: string
   email: string
   avatar: string
+  avatarColor?: string | null
   role: RoleUsuario
   ativo: boolean
   metaVendas?: number

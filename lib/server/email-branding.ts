@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db/prisma'
+import { APP_DISPLAY_NAME } from '@/lib/branding'
 
 let cachedBranding: { appName: string; cachedAt: number } | null = null
 const BRANDING_CACHE_MS = 60_000
@@ -24,11 +25,12 @@ function extractCompanyName(value: unknown) {
   }
 
   const candidates = [
+    (parsed as any).appName,
     (parsed as any).nome,
     (parsed as any).razaoSocial,
     (parsed as any).fantasia,
     (parsed as any).companyName,
-    (parsed as any).appName,
+    typeof (parsed as any).valor === 'object' ? (parsed as any).valor?.appName : null,
     typeof (parsed as any).valor === 'object' ? (parsed as any).valor?.nome : null,
   ]
 
@@ -47,7 +49,7 @@ export async function getEmailBranding() {
     return cachedBranding
   }
 
-  const fallbackName = process.env.APP_NAME || 'CRM'
+  const fallbackName = process.env.APP_NAME || APP_DISPLAY_NAME
 
   try {
     const config = await prisma.configuracoes.findFirst({
