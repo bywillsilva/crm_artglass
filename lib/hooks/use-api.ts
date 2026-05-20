@@ -1645,20 +1645,47 @@ export async function updateProposta(id: string, data: Partial<Proposta> & JsonR
   const hasExplicitValorPerfil = hasFilledValue(data.valorPerfil)
   const hasExplicitValorVidro = hasFilledValue(data.valorVidro)
   const hasExplicitValorAcessorios = hasFilledValue(data.valorAcessorios)
+  const hasPostClosingStepField =
+    hasOwnField('posFechamentoAguardandoContratoAt') ||
+    hasOwnField('posFechamentoContratoFeitoAt') ||
+    hasOwnField('posFechamentoContratoEnviadoAt') ||
+    hasOwnField('posFechamentoContratoAssinadoAt') ||
+    hasOwnField('posFechamentoAguardandoPagamentoAt') ||
+    hasOwnField('posFechamentoPagamentoConfirmadoAt') ||
+    hasOwnField('posFechamentoAguardandoOsAt') ||
+    hasOwnField('posFechamentoOrdemServicoLiberadaAt')
+  const isWorkflowScopedUpdate =
+    hasOwnField('workflowAction') ||
+    hasOwnField('status') ||
+    hasOwnField('kanbanPosition') ||
+    hasPostClosingStepField
+  const canSendTechnicalFields = !isWorkflowScopedUpdate
   const payload = compactObject({
     titulo: hasOwnField('titulo') ? (data.titulo || 'Proposta Comercial') : undefined,
     materialTag: hasOwnField('materialTag') ? (data.materialTag || null) : undefined,
-    areaM2: hasOwnField('areaM2') ? (hasExplicitAreaM2 ? parsedAreaM2 : null) : undefined,
-    perfisBruto: hasOwnField('perfisBruto') ? (hasExplicitPerfisBruto ? parsedPerfisBruto : null) : undefined,
-    perfisLiquidos: hasOwnField('perfisLiquidos')
+    areaM2:
+      canSendTechnicalFields && hasOwnField('areaM2')
+        ? (hasExplicitAreaM2 ? parsedAreaM2 : null)
+        : undefined,
+    perfisBruto:
+      canSendTechnicalFields && hasOwnField('perfisBruto')
+        ? (hasExplicitPerfisBruto ? parsedPerfisBruto : null)
+        : undefined,
+    perfisLiquidos: canSendTechnicalFields && hasOwnField('perfisLiquidos')
       ? (hasExplicitPerfisLiquidos ? parsedPerfisLiquidos : null)
       : undefined,
-    valorPerfil: hasOwnField('valorPerfil') ? (hasExplicitValorPerfil ? parsedValorPerfil : null) : undefined,
-    valorVidro: hasOwnField('valorVidro') ? (hasExplicitValorVidro ? parsedValorVidro : null) : undefined,
-    valorAcessorios: hasOwnField('valorAcessorios')
+    valorPerfil:
+      canSendTechnicalFields && hasOwnField('valorPerfil')
+        ? (hasExplicitValorPerfil ? parsedValorPerfil : null)
+        : undefined,
+    valorVidro:
+      canSendTechnicalFields && hasOwnField('valorVidro')
+        ? (hasExplicitValorVidro ? parsedValorVidro : null)
+        : undefined,
+    valorAcessorios: canSendTechnicalFields && hasOwnField('valorAcessorios')
       ? (hasExplicitValorAcessorios ? parsedValorAcessorios : null)
       : undefined,
-    observacoesTecnicas: hasOwnField('observacoesTecnicas')
+    observacoesTecnicas: canSendTechnicalFields && hasOwnField('observacoesTecnicas')
       ? (data.observacoesTecnicas || null)
       : undefined,
     descricao: hasOwnField('descricao') ? (data.descricao || '') : undefined,

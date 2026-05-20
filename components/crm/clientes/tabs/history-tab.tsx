@@ -63,8 +63,9 @@ const colorsByType: Record<TipoInteracao, string> = {
 const FALLBACK_ICON = MessageCircle
 const FALLBACK_COLOR = 'bg-slate-500/20 text-slate-300'
 const FALLBACK_LABEL = 'Interacao'
+const SYSTEM_INTERACTION_TYPES = new Set<TipoInteracao>(['tarefa', 'proposta', 'mudanca_status'])
 const manualInteractionOptions = Object.entries(tipoInteracaoLabels).filter(
-  ([value]) => value !== 'tarefa' && value !== 'proposta'
+  ([value]) => !SYSTEM_INTERACTION_TYPES.has(value as TipoInteracao)
 )
 
 export function HistoryTab({ clienteId }: HistoryTabProps) {
@@ -79,8 +80,13 @@ export function HistoryTab({ clienteId }: HistoryTabProps) {
   const [submitError, setSubmitError] = useState('')
 
   const handleAddInteracao = async () => {
-    if (!descricao.trim() || !user?.id) {
+    if (!user?.id) {
       setSubmitError('Nao foi possivel identificar o usuario logado.')
+      return
+    }
+
+    if (!descricao.trim()) {
+      setSubmitError('Descreva a interacao antes de registrar.')
       return
     }
 

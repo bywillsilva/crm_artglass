@@ -585,41 +585,6 @@ export function ProposalDetailsSheet({
   const hasTechnicalNotes = Boolean(propostaSource?.observacoesTecnicas?.trim())
   const hasAnyTechnicalData = hasTechnicalMetrics || hasTechnicalNotes
 
-  const buildInlineUpdatePayload = (overrides: InlineProposalUpdatePayload = {}) => {
-    if (!propostaSource) return null
-
-    const propostaSourceRecord = propostaSource as Proposta & {
-      desconto?: number
-      validade?: string | null
-      servicos?: unknown[]
-      condicoes?: string | null
-    }
-
-    return {
-      clienteId: propostaSource.clienteId,
-      titulo: propostaSource.titulo || 'Proposta Comercial',
-      materialTag: propostaSource.materialTag || null,
-      areaM2: propostaSource.areaM2 ?? null,
-      perfisBruto: propostaSource.perfisBruto ?? null,
-      perfisLiquidos: propostaSource.perfisLiquidos ?? null,
-      valorPerfil: propostaSource.valorPerfil ?? null,
-      valorVidro: propostaSource.valorVidro ?? null,
-      valorAcessorios: propostaSource.valorAcessorios ?? null,
-      observacoesTecnicas: propostaSource.observacoesTecnicas ?? null,
-      descricao: propostaSource.descricao || '',
-      valor: propostaSource.valor,
-      desconto: propostaSourceRecord.desconto ?? 0,
-      status: propostaSource.status,
-      validade: propostaSourceRecord.validade || null,
-      servicos: propostaSourceRecord.servicos || [],
-      condicoes: propostaSourceRecord.condicoes || null,
-      responsavelId: propostaSource.responsavelId || undefined,
-      orcamentistaId: propostaSource.orcamentistaId || undefined,
-      followUpTime: propostaSource.followUpTime || null,
-      ...overrides,
-    } satisfies InlineProposalUpdatePayload
-  }
-
   const beginAction = (key: ProposalDetailsActionKey) => {
     if (pendingActionsRef.current.has(key)) return false
     pendingActionsRef.current.add(key)

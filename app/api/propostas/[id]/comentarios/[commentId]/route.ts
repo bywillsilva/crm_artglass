@@ -165,6 +165,7 @@ export async function PUT(
     })
 
     invalidateRuntimeCache('proposta:detail:')
+    invalidateRuntimeCache('interacoes:')
     invalidateRuntimeCache('crm-bootstrap:')
     await publishRealtimeEvent({
       actorUserId: user.id,
@@ -220,7 +221,10 @@ export async function DELETE(
       })
     })
 
+    invalidateRuntimeCache('propostas:list:')
     invalidateRuntimeCache('proposta:detail:')
+    invalidateRuntimeCache('interacoes:')
+    invalidateRuntimeCache('dashboard:')
     invalidateRuntimeCache('crm-bootstrap:')
     await publishRealtimeEvent({
       actorUserId: user.id,

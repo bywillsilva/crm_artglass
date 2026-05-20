@@ -10,6 +10,7 @@ import { useCRM } from '@/lib/context/crm-context'
 import { useAppSettings } from '@/lib/context/app-settings-context'
 import { prefetchProposta, useSession } from '@/lib/hooks/use-api'
 import { parseProposalMaterialTags } from '@/lib/utils/proposal-material-tags'
+import { hasConfirmedPayment, isPostClosingProposal } from '@/lib/utils/post-closing'
 import { CRMHeader } from '@/components/crm/header'
 import { FeatureErrorBoundary } from '@/components/crm/feature-error-boundary'
 import { ModuleAccessState } from '@/components/crm/module-access-state'
@@ -42,7 +43,7 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from '@/components/ui/pagination'
-import { Eye, MoreHorizontal, Pencil, X, Clock, DollarSign, TrendingUp } from 'lucide-react'
+import { Eye, MoreHorizontal, Pencil, X, Clock, DollarSign } from 'lucide-react'
 import {
   sellerReleasedProposalStatuses,
   statusPropostaColors,
@@ -84,6 +85,7 @@ const tabs: { key: string; label: string; statuses?: StatusProposta[] }[] = [
   { key: 'abertas', label: 'Em andamento', statuses: openStatuses },
   { key: 'fechadas', label: 'Fechadas', statuses: ['fechado'] },
   { key: 'pos_fechamento', label: 'Pos-fechamento', statuses: ['pos_fechamento'] },
+  { key: 'pagas', label: 'Pagas' },
   { key: 'perdidas', label: 'Perdidas', statuses: ['perdido'] },
 ]
 
@@ -139,6 +141,7 @@ export default function PropostasPage() {
     const abertas = propostasOrdenadas.filter((proposta) => openStatuses.includes(proposta.status))
     const fechadas = propostasOrdenadas.filter((proposta) => proposta.status === 'fechado')
     const posFechamento = propostasOrdenadas.filter((proposta) => proposta.status === 'pos_fechamento')
+    const pagas = propostasOrdenadas.filter(hasConfirmedPayment)
     const perdidas = propostasOrdenadas.filter((proposta) => proposta.status === 'perdido')
 
     return {
@@ -146,12 +149,16 @@ export default function PropostasPage() {
       abertas,
       fechadas,
       pos_fechamento: posFechamento,
+      pagas,
       perdidas,
     }
   }, [propostasOrdenadas])
 
   const propostasEmAndamento = propostasPorTab.abertas
-  const propostasFechadas = propostasPorTab.fechadas
+  const propostasFechadasComercialmente = propostasOrdenadas.filter(
+    (proposta) => proposta.status === 'fechado' || isPostClosingProposal(proposta)
+  )
+  const propostasPagas = propostasPorTab.pagas
   const propostasPerdidas = propostasPorTab.perdidas
   const editingProposta = editingPropostaId
     ? propostasOrdenadas.find((proposta) => proposta.id === editingPropostaId) ?? editingPropostaSnapshot
@@ -161,13 +168,9 @@ export default function PropostasPage() {
     : null
 
   const totalEmAndamento = propostasEmAndamento.reduce((acc, proposta) => acc + proposta.valor, 0)
-  const totalFechado = propostasFechadas.reduce((acc, proposta) => acc + proposta.valor, 0)
+  const totalFechadoComercialmente = propostasFechadasComercialmente.reduce((acc, proposta) => acc + proposta.valor, 0)
+  const totalPago = propostasPagas.reduce((acc, proposta) => acc + proposta.valor, 0)
   const totalPerdido = propostasPerdidas.reduce((acc, proposta) => acc + proposta.valor, 0)
-
-  const taxaConversao = useMemo(() => {
-    if (!propostasOrdenadas.length) return '0'
-    return ((propostasFechadas.length / propostasOrdenadas.length) * 100).toFixed(1)
-  }, [propostasFechadas.length, propostasOrdenadas.length])
 
   const propostasAtivasNaTab = propostasPorTab[activeTab as keyof typeof propostasPorTab] ?? []
   const totalPages = Math.max(1, Math.ceil(propostasAtivasNaTab.length / pageSize))
@@ -516,12 +519,20 @@ export default function PropostasPage() {
       bgColor: 'bg-amber-500/10',
     },
     {
-      title: 'Fechadas',
-      value: formatCurrency(totalFechado),
-      count: propostasFechadas.length,
+      title: 'Fechadas comerciais',
+      value: formatCurrency(totalFechadoComercialmente),
+      count: propostasFechadasComercialmente.length,
       icon: DollarSign,
       color: 'text-emerald-400',
       bgColor: 'bg-emerald-500/10',
+    },
+    {
+      title: 'Pagas',
+      value: formatCurrency(totalPago),
+      count: propostasPagas.length,
+      icon: DollarSign,
+      color: 'text-cyan-300',
+      bgColor: 'bg-cyan-500/10',
     },
     {
       title: 'Perdidas',
@@ -530,14 +541,6 @@ export default function PropostasPage() {
       icon: X,
       color: 'text-red-400',
       bgColor: 'bg-red-500/10',
-    },
-    {
-      title: 'Taxa de conversao',
-      value: `${taxaConversao}%`,
-      count: propostasOrdenadas.length,
-      icon: TrendingUp,
-      color: 'text-blue-400',
-      bgColor: 'bg-blue-500/10',
     },
   ]
 
@@ -578,14 +581,7 @@ export default function PropostasPage() {
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as (typeof tabs)[number]['key'])}>
           <TabsList className="mb-4 flex h-auto w-full max-w-full flex-nowrap overflow-x-auto">
             {tabs.map((tab) => {
-              const count =
-                tab.key === 'todas'
-                  ? propostasPorTab.todas.length
-                  : tab.key === 'abertas'
-                    ? propostasPorTab.abertas.length
-                    : tab.key === 'fechadas'
-                      ? propostasPorTab.fechadas.length
-                      : propostasPorTab.perdidas.length
+              const count = (propostasPorTab[tab.key as keyof typeof propostasPorTab] || []).length
               return (
                 <TabsTrigger key={tab.key} value={tab.key}>
                   {tab.label} ({count})
@@ -595,14 +591,7 @@ export default function PropostasPage() {
           </TabsList>
 
           {tabs.map((tab) => {
-            const propostas =
-              tab.key === 'todas'
-                ? propostasPorTab.todas
-                : tab.key === 'abertas'
-                  ? propostasPorTab.abertas
-                  : tab.key === 'fechadas'
-                    ? propostasPorTab.fechadas
-                    : propostasPorTab.perdidas
+            const propostas = propostasPorTab[tab.key as keyof typeof propostasPorTab] || []
             const isActiveTab = tab.key === activeTab
             const visiblePropostas = isActiveTab ? paginatedPropostas : propostas
             const shouldShowPagination = isActiveTab && propostas.length > pageSize

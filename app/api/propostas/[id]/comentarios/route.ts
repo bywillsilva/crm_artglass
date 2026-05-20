@@ -146,6 +146,7 @@ export async function POST(
     })
 
     invalidateRuntimeCache('propostas:list:')
+    invalidateRuntimeCache('interacoes:')
     invalidateRuntimeCache('dashboard:')
     invalidateRuntimeCache('proposta:detail:')
     invalidateRuntimeCache('crm-bootstrap:')

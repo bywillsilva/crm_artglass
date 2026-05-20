@@ -9,6 +9,7 @@ import { publishRealtimeEvent } from '@/lib/server/realtime-events'
 import { getRuntimeCache, invalidateRuntimeCache, setRuntimeCache } from '@/lib/server/runtime-cache'
 
 const INTERACOES_CACHE_TTL_MS = Math.max(Number(process.env.INTERACOES_CACHE_TTL_MS || 10_000), 1000)
+const MANUAL_INTERACTION_TYPES = new Set(['ligacao', 'reuniao', 'visita', 'email', 'nota'])
 
 const INTERACTION_SELECT = {
   id: true,
@@ -127,14 +128,27 @@ export async function POST(request: NextRequest) {
 
     const data = await request.json()
     const id = uuidv4()
+    const clienteId = typeof data.clienteId === 'string' ? data.clienteId.trim() : ''
+    const descricao = typeof data.descricao === 'string' ? data.descricao.trim() : ''
+    const tipo = typeof data.tipo === 'string' && MANUAL_INTERACTION_TYPES.has(data.tipo)
+      ? data.tipo
+      : 'nota'
+
+    if (!clienteId) {
+      return NextResponse.json({ error: 'Cliente obrigatorio para registrar interacao.' }, { status: 400 })
+    }
+
+    if (!descricao) {
+      return NextResponse.json({ error: 'Descricao obrigatoria para registrar interacao.' }, { status: 400 })
+    }
 
     await prisma.interacoes.create({
       data: {
         id,
-        cliente_id: data.clienteId,
+        cliente_id: clienteId,
         usuario_id: user.id,
-        tipo: data.tipo,
-        descricao: data.descricao,
+        tipo,
+        descricao,
         dados: data.dados ? JSON.stringify(data.dados) : null,
         created_at: new Date(),
       } as any,
@@ -146,8 +160,7 @@ export async function POST(request: NextRequest) {
       resourceId: id,
     })
 
-    invalidateRuntimeCache(`interacoes:${data.clienteId || 'all'}:`)
-    invalidateRuntimeCache('interacoes:all:')
+    invalidateRuntimeCache('interacoes:')
 
     const interacao = await prisma.interacoes.findUnique({
       where: { id },

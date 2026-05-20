@@ -1353,6 +1353,15 @@ export function KanbanBoard({ propostas }: KanbanBoardProps) {
         valor: nextValue,
         followUpTime: followUpTimeForMove,
         kanbanOrder: options.kanbanPosition ?? proposta.kanbanOrder ?? null,
+        ...(proposta.areaM2 !== undefined ? { areaM2: proposta.areaM2 } : {}),
+        ...(proposta.perfisBruto !== undefined ? { perfisBruto: proposta.perfisBruto } : {}),
+        ...(proposta.perfisLiquidos !== undefined ? { perfisLiquidos: proposta.perfisLiquidos } : {}),
+        ...(proposta.valorPerfil !== undefined ? { valorPerfil: proposta.valorPerfil } : {}),
+        ...(proposta.valorVidro !== undefined ? { valorVidro: proposta.valorVidro } : {}),
+        ...(proposta.valorAcessorios !== undefined ? { valorAcessorios: proposta.valorAcessorios } : {}),
+        ...(proposta.observacoesTecnicas !== undefined
+          ? { observacoesTecnicas: proposta.observacoesTecnicas }
+          : {}),
       }
 
       submittingMoveIdsRef.current.add(proposta.id)

@@ -316,6 +316,7 @@ export async function PUT(
     })
     invalidateRuntimeCache('clientes:list:')
     invalidateRuntimeCache('cliente:detail:')
+    invalidateRuntimeCache('interacoes:')
     invalidateRuntimeCache('dashboard:')
     invalidateRuntimeCache('crm-bootstrap:')
     return NextResponse.json(cliente)

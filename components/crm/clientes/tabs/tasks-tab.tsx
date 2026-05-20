@@ -57,6 +57,7 @@ export function TasksTab({ clienteId }: TasksTabProps) {
   const [editResponsavelId, setEditResponsavelId] = useState('')
   const [isCreatingTask, setIsCreatingTask] = useState(false)
   const [isSavingTask, setIsSavingTask] = useState(false)
+  const [updatingStatusIds, setUpdatingStatusIds] = useState<Record<string, boolean>>({})
 
   const tarefas = getTarefasByCliente(clienteId)
   const canViewAllTasks = hasRuleAccess(user, 'canViewAllTasks')
@@ -133,6 +134,25 @@ export function TasksTab({ clienteId }: TasksTabProps) {
     }
   }
 
+  const handleToggleTaskStatus = async (tarefaId: string, status: 'pendente' | 'concluida') => {
+    if (updatingStatusIds[tarefaId]) return
+
+    setUpdatingStatusIds((current) => ({ ...current, [tarefaId]: true }))
+
+    try {
+      await updateTarefaStatus(tarefaId, status)
+      toast.success(status === 'concluida' ? 'Tarefa concluida.' : 'Tarefa reaberta.')
+    } catch (error: any) {
+      toast.error(error?.message || 'Nao foi possivel atualizar a tarefa.')
+    } finally {
+      setUpdatingStatusIds((current) => {
+        const next = { ...current }
+        delete next[tarefaId]
+        return next
+      })
+    }
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'pendente':
@@ -170,6 +190,7 @@ export function TasksTab({ clienteId }: TasksTabProps) {
                   new Date(tarefa.dataHora) < new Date()
                 const canEdit =
                   canManageAllTasks || tarefa.responsavelId === user?.id
+                const isUpdatingStatus = Boolean(updatingStatusIds[tarefa.id])
 
                 return (
                   <div
@@ -179,11 +200,12 @@ export function TasksTab({ clienteId }: TasksTabProps) {
                     <Checkbox
                       checked={tarefa.status === 'concluida'}
                       onCheckedChange={(checked) =>
-                        updateTarefaStatus(
+                        void handleToggleTaskStatus(
                           tarefa.id,
                           checked ? 'concluida' : 'pendente'
                         )
                       }
+                      disabled={!canEdit || isUpdatingStatus}
                       className="mt-0.5 border-slate-500 data-[state=checked]:border-slate-700 data-[state=checked]:bg-slate-700"
                     />
                     <div className="min-w-0 flex-1">
@@ -227,6 +249,7 @@ export function TasksTab({ clienteId }: TasksTabProps) {
                           size="icon"
                           className="h-8 w-8 text-muted-foreground hover:text-foreground"
                           onClick={() => openEditDialog(tarefa)}
+                          disabled={isUpdatingStatus}
                         >
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -236,6 +259,7 @@ export function TasksTab({ clienteId }: TasksTabProps) {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          disabled={isUpdatingStatus}
                           onClick={() => {
                             if (
                               !general.confirmDeletes ||

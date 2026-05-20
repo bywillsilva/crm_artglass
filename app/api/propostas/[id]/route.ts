@@ -1221,33 +1221,34 @@ export async function PUT(
     const hasExistingProposalPdf = anexosAtuais.some(isPdfAttachmentRecord)
     const hasNewProposalPdf = data.anexos.some(isPdfFile)
 
-    const shouldPreserveTechnicalField = (value: unknown) => isWorkflowDrivenUpdate && value == null
+    const shouldPreserveTechnicalField = (value: unknown) =>
+      isWorkflowDrivenUpdate || value === undefined
     const areaM2 =
-      data.areaM2 === undefined || shouldPreserveTechnicalField(data.areaM2)
+      shouldPreserveTechnicalField(data.areaM2)
         ? parseNullableNumber(propostaAtual.area_m2)
         : parseNullableNumber(data.areaM2)
     const perfisBruto =
-      data.perfisBruto === undefined || shouldPreserveTechnicalField(data.perfisBruto)
+      shouldPreserveTechnicalField(data.perfisBruto)
         ? parseNullableNumber(propostaAtual.perfis_bruto)
         : parseNullableNumber(data.perfisBruto)
     const perfisLiquidos =
-      data.perfisLiquidos === undefined || shouldPreserveTechnicalField(data.perfisLiquidos)
+      shouldPreserveTechnicalField(data.perfisLiquidos)
         ? parseNullableNumber(propostaAtual.perfis_liquidos)
         : parseNullableNumber(data.perfisLiquidos)
     const valorPerfil =
-      data.valorPerfil === undefined || shouldPreserveTechnicalField(data.valorPerfil)
+      shouldPreserveTechnicalField(data.valorPerfil)
         ? parseNullableNumber(propostaAtual.valor_perfil)
         : parseNullableNumber(data.valorPerfil)
     const valorVidro =
-      data.valorVidro === undefined || shouldPreserveTechnicalField(data.valorVidro)
+      shouldPreserveTechnicalField(data.valorVidro)
         ? parseNullableNumber(propostaAtual.valor_vidro)
         : parseNullableNumber(data.valorVidro)
     const valorAcessorios =
-      data.valorAcessorios === undefined || shouldPreserveTechnicalField(data.valorAcessorios)
+      shouldPreserveTechnicalField(data.valorAcessorios)
         ? parseNullableNumber(propostaAtual.valor_acessorios)
         : parseNullableNumber(data.valorAcessorios)
     const observacoesTecnicas =
-      data.observacoesTecnicas === undefined || shouldPreserveTechnicalField(data.observacoesTecnicas)
+      shouldPreserveTechnicalField(data.observacoesTecnicas)
         ? normalizeNullableText(propostaAtual.observacoes_tecnicas)
         : normalizeNullableText(data.observacoesTecnicas)
 
@@ -1353,8 +1354,10 @@ export async function PUT(
     const requestedDiscount = parseNullableNumber(data.desconto)
     const existingProposalValue = parseNullableNumber(propostaAtual.valor)
     const existingFinalValue = parseNullableNumber(propostaAtual.valor_final)
+    const shouldPreserveWorkflowTextField = (value: unknown) =>
+      isWorkflowDrivenUpdate && normalizeNullableText(value) === null
     const materialTag =
-      data.materialTag === undefined
+      data.materialTag === undefined || shouldPreserveWorkflowTextField(data.materialTag)
         ? normalizeMaterialTag(propostaAtual.material_tag)
         : normalizeMaterialTag(data.materialTag)
     const valor = resolveSafeProposalValue({
@@ -1504,11 +1507,27 @@ export async function PUT(
     }
 
     const servicos =
-      Array.isArray(data.servicos)
+      Array.isArray(data.servicos) && !isWorkflowDrivenUpdate
         ? data.servicos
         : typeof propostaAtual.servicos === 'string'
           ? JSON.parse(propostaAtual.servicos || '[]')
           : propostaAtual.servicos || []
+    const titulo =
+      data.titulo === undefined || shouldPreserveWorkflowTextField(data.titulo)
+        ? propostaAtual.titulo || 'Proposta Comercial'
+        : data.titulo || 'Proposta Comercial'
+    const descricao =
+      data.descricao === undefined || shouldPreserveWorkflowTextField(data.descricao)
+        ? propostaAtual.descricao ?? null
+        : data.descricao
+    const validade =
+      data.validade === undefined || shouldPreserveWorkflowTextField(data.validade)
+        ? propostaAtual.validade || null
+        : data.validade || null
+    const condicoes =
+      data.condicoes === undefined || shouldPreserveWorkflowTextField(data.condicoes)
+        ? propostaAtual.condicoes ?? null
+        : data.condicoes ?? null
 
     const changedAt = new Date()
     const currentFollowUpBaseAt = parseDatabaseDateTime(propostaAtual.follow_up_base_at)
@@ -1572,9 +1591,9 @@ export async function PUT(
         pos_fechamento_contrato_assinado_at = ?, pos_fechamento_aguardando_pagamento_at = ?,
         pos_fechamento_pagamento_confirmado_at = ?, pos_fechamento_aguardando_os_at = ?,
         pos_fechamento_ordem_servico_liberada_at = ?, updated_at = NOW()
-       WHERE id = ?`,
+      WHERE id = ?`,
       resolvedClienteId,
-      data.titulo || propostaAtual.titulo || 'Proposta Comercial',
+      titulo,
       materialTag,
       areaM2,
       perfisBruto,
@@ -1583,14 +1602,14 @@ export async function PUT(
       valorVidro,
       valorAcessorios,
       observacoesTecnicas,
-      data.descricao ?? propostaAtual.descricao ?? null,
+      descricao,
       valor,
       desconto,
       valorFinal,
       storedStatus,
-      data.validade || propostaAtual.validade || null,
+      validade,
       JSON.stringify(servicos),
-      data.condicoes ?? propostaAtual.condicoes ?? null,
+      condicoes,
       responsavelId,
       orcamentistaId,
       followUpBaseAt ? formatDateTime(followUpBaseAt) : null,
@@ -1689,6 +1708,7 @@ export async function PUT(
 
     invalidateRuntimeCache('propostas:list:')
     invalidateRuntimeCache('tarefas:list:')
+    invalidateRuntimeCache('interacoes:')
     invalidateRuntimeCache('dashboard:')
     invalidateRuntimeCache('crm-bootstrap:')
     invalidateRuntimeCache('proposta:detail:')
@@ -1787,6 +1807,7 @@ export async function DELETE(
 
     invalidateRuntimeCache('propostas:list:')
     invalidateRuntimeCache('tarefas:list:')
+    invalidateRuntimeCache('interacoes:')
     invalidateRuntimeCache('dashboard:')
     invalidateRuntimeCache('crm-bootstrap:')
     invalidateRuntimeCache('proposta:detail:')

@@ -734,6 +734,7 @@ export async function POST(request: NextRequest) {
     invalidateRuntimeCache('propostas:list:')
     invalidateRuntimeCache('proposta:detail:')
     invalidateRuntimeCache('tarefas:list:')
+    invalidateRuntimeCache('interacoes:')
     invalidateRuntimeCache('dashboard:')
     invalidateRuntimeCache('crm-bootstrap:')
     await publishRealtimeEvent({
